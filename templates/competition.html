@@ -1,1 +1,81 @@
-<!doctype html><title>{{ brand.name }}</title>
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{{ brand.name }} · Competição{% endblock %}
+{% block head %}
+  <link rel="modulepreload" href="{% static 'js/render.js' %}">
+  <link rel="modulepreload" href="{% static 'js/format.js' %}">
+  <link rel="modulepreload" href="{% static 'js/match-card.js' %}">
+  <link rel="modulepreload" href="{% static 'js/icons.js' %}">
+  <link rel="modulepreload" href="{% static 'js/crest.js' %}">
+  <link rel="modulepreload" href="{% static 'js/clock.js' %}">
+  <link rel="modulepreload" href="{% static 'js/standings.js' %}">
+{% endblock %}
+{% block main %}
+<div class="container">
+  <section class="comp-hero" aria-labelledby="competition-title">
+    <div class="section-head__titles">
+      <p class="eyebrow" data-hook="competition-eyebrow">Competição</p>
+      <h1 id="competition-title" class="comp-hero__title">
+        <span data-hook="competition-name"><span class="skeleton skeleton--title" style="width:min(320px,70vw);height:36px"></span></span>
+        <span class="comp-hero__season" data-hook="season"></span>
+      </h1>
+      <span class="frevo frevo--short" aria-hidden="true"></span>
+    </div>
+    <div class="controls">
+      <div class="field controls__stage">
+        <label class="field__label" for="stage-select">Fase</label>
+        <span class="select">
+          <select id="stage-select" data-hook="stage-select" disabled></select>
+          <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+        </span>
+      </div>
+      <nav class="round-nav" aria-label="Rodadas" data-hook="round-nav">
+        <button id="round-prev" type="button" class="btn btn--secondary btn--icon" data-hook="round-prev" aria-label="Rodada anterior" disabled>
+          <svg class="icon" aria-hidden="true"><use href="#i-chevron-left"/></svg>
+        </button>
+        <h2 id="round-label" class="round-nav__label" data-hook="round-label" aria-live="polite">Rodada</h2>
+        <button id="round-next" type="button" class="btn btn--secondary btn--icon" data-hook="round-next" aria-label="Próxima rodada" disabled>
+          <svg class="icon" aria-hidden="true"><use href="#i-chevron-right"/></svg>
+        </button>
+      </nav>
+    </div>
+  </section>
+
+  <div id="competition-grid" class="split" data-hook="competition-grid">
+    <section aria-labelledby="round-label">
+      <div id="round-matches" class="matches" data-hook="matches" aria-busy="true">
+        <div class="card skeleton-card" aria-hidden="true"><span class="skeleton skeleton--line" style="width:45%"></span><div class="skeleton-card__board"><span class="skeleton skeleton--line"></span><span class="skeleton" style="width:84px;height:40px"></span><span class="skeleton skeleton--line"></span></div></div>
+        <div class="card skeleton-card" aria-hidden="true"><span class="skeleton skeleton--line" style="width:35%"></span><div class="skeleton-card__board"><span class="skeleton skeleton--line"></span><span class="skeleton" style="width:84px;height:40px"></span><span class="skeleton skeleton--line"></span></div></div>
+      </div>
+      <div id="round-empty" class="empty empty--compact" data-hook="round-empty" hidden>
+        <svg class="empty__art" viewBox="0 0 240 150" aria-hidden="true"><use href="#ill-sertao"/></svg>
+        <p class="empty__title">Nenhum jogo nesta rodada.</p>
+        <p class="empty__text">Escolha outra rodada ou fase.</p>
+      </div>
+    </section>
+    <aside class="split__aside stack" aria-label="Classificação e confrontos" data-hook="aside">
+      <div id="stage-standings" data-hook="standings"></div>
+      <section id="stage-ties" class="ties" data-hook="ties" aria-labelledby="ties-title" hidden>
+        <h2 id="ties-title" class="stage-block__title">Confrontos</h2>
+        <div class="ties" data-hook="ties-list"></div>
+      </section>
+    </aside>
+  </div>
+
+  <div id="competition-missing" class="empty azulejo" data-hook="competition-missing" hidden>
+    <svg class="empty__art" viewBox="0 0 240 150" aria-hidden="true"><use href="#ill-sertao"/></svg>
+    <h2 class="empty__title">Competição não encontrada.</h2>
+    <p class="empty__text"><a href="/">Voltar para os jogos de hoje</a></p>
+  </div>
+
+  <div id="competition-error" class="notice notice--error" role="alert" data-hook="competition-error" hidden>
+    <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+    <div class="notice__body">
+      <p>Não deu certo agora. Tente de novo em instantes.</p>
+      <p><button type="button" class="btn btn--secondary btn--sm" data-hook="competition-retry"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Tentar de novo</button></p>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}<script type="module" src="{% static 'js/competition.js' %}"></script>{% endblock %}

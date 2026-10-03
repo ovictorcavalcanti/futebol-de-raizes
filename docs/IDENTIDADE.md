@@ -18,12 +18,14 @@ no CSS fora dos tokens.
 | `--surface-2` | `#F3EBDB` | `#1B263E` | áreas rebaixadas, cabeçalho do card |
 | `--ink` | `#1B1712` tinta de xilo | `#F2EDE2` | texto principal |
 | `--ink-2` | `#4B443A` | `#C7C0B2` | texto secundário |
-| `--ink-3` | `#7B7365` | `#8E8778` | texto terciário, rótulos |
+| `--ink-3` | `#6F675A` | `#A8A193` | texto terciário, rótulos (ajustado para contraste AA) |
 | `--line` | `#E5DAC5` | `#28344F` | bordas e divisórias |
 | `--azul` | `#12306B` azul da bandeira | `#8FB0FF` | marca, links, foco |
 | `--vermelho` | `#C8102E` frevo | `#FF5C6C` | ao vivo, gol, alertas |
 | `--amarelo` | `#F2B705` sol | `#FFCB3D` | destaque, intervalo, foco secundário |
 | `--verde` | `#0E8A4A` | `#3DD68C` | sucesso, classificado |
+| `--verde-ink` | `#0A733C` | `#3DD68C` | texto verde sobre fundo claro |
+| `--field` | `#8F826C` | `#6A7AA0` | borda de campos de formulário (3:1) |
 
 **Faixa do frevo** (assinatura da marca): quatro segmentos iguais
 vermelho · amarelo · verde · azul. Aparece fina (3–4 px) no topo do cabeçalho,

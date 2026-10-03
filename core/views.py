@@ -1,5 +1,6 @@
+from django.conf import settings
 from django.db import connection
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_GET
 
@@ -25,6 +26,16 @@ def competition_page(request):
 @require_GET
 def operator_page(request):
     response = _page(request, "operator.html", page="operator")
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+@require_GET
+def styleguide_page(request):
+    """Guia de estilo para QA visual: só existe com DEBUG ligado."""
+    if not settings.DEBUG:
+        raise Http404
+    response = render(request, "styleguide.html", {"page": "styleguide"})
     response["Cache-Control"] = "no-store"
     return response
 

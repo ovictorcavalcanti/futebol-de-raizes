@@ -1,0 +1,86 @@
+# Ambiente de teste com HTTPS: PostgreSQL 16, UM processo ASGI e o Caddy como
+# proxy sem buffer na frente (docs/PLANO.md, fase 6).
+#
+#   cp .env.example .env        # ajuste a chave secreta e o que mais quiser
+#   docker compose up --build
+#   abra https://localhost      # certificado da CA interna do Caddy
+#
+# Criar o primeiro administrador:
+#   docker compose exec app python manage.py createsuperuser
+
+name: futebol-de-raizes
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${DB_NAME:-fdr}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  app:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Valores do ambiente de teste; o resto vem do .env.
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-fdr}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DJANGO_DEBUG: "0"
+      SECURE_COOKIES: "1"
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-https://localhost}
+    # Migra e sobe UM processo ASGI: o hub do stream SSE vive nele.
+    command:
+      - sh
+      - -c
+      - >-
+        python manage.py migrate --noinput &&
+        exec uvicorn config.asgi:application
+        --host 0.0.0.0 --port 8000 --workers 1
+        --proxy-headers --forwarded-allow-ips='*'
+        --timeout-graceful-shutdown 5
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "8000"
+    # O healthcheck (GET /health) vem do Dockerfile.
+    stop_grace_period: 10s
+    restart: unless-stopped
+
+  proxy:
+    image: caddy:2
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
+      APP_UPSTREAM: app:8000
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp" # HTTP/3
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

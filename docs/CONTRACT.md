@@ -49,8 +49,9 @@ Cada função, numa única transação com `core.locks.locked_atomic()`:
 3. Monta `MatchContext` (times, confronto com outros jogos, escalações) e chama o domínio.
 4. Grava evento(s) com `sequence` = max + 1, `created_by`, `source`, `created_at = core.timeutils.now()`.
 5. Atualiza o cache da partida: status, period, period_started_at (created_at do evento
-   que abriu o período), placar, pênaltis, finished_at (no fim de jogo; limpa se o fim
-   for cancelado), kickoff_at (reagendamento), `version += 1`.
+   que abriu o período, `state.period_started_seq`, **somado ao tempo parado** nas
+   suspensões fechadas de `state.period_pauses`), placar, pênaltis, finished_at (no fim
+   de jogo; limpa se o fim for cancelado), kickoff_at (reagendamento), `version += 1`.
 6. Partida de confronto: `compute_tie_result` e grava `winner_team`/`decided_by` no `Tie`.
 7. Partida de grupo: `standings.services.recompute_group(group)` (oficial e ao vivo).
 8. Outbox: sempre `match`; `standings` quando a partida é de grupo; `goals` quando o
@@ -59,6 +60,34 @@ Cada função, numa única transação com `core.locks.locked_atomic()`:
 10. Métricas: `fdr_events_posted_total`, `fdr_events_voided_total`, `fdr_status_changes_total`, `fdr_domain_rejections_total`.
 
 `DomainError` sobe para a API, que responde 422. Nada é gravado quando há erro.
+
+### Domínio da partida (matches/domain.py)
+
+* Fluxo do serviço: `state = derive_state(events, ctx)` → `apply_event(state, events, new, ctx, confirm=...)`
+  (ou `status_action_event(action, kickoff_at=, reason=)` → `apply_event`). Grave `result.event` e
+  `result.derived` como vierem: período, minuto padrão dos eventos estruturais (início 0, intervalo 45,
+  2T 45, prorrogação 90, pênaltis 90/120, fim 90/120), time herdado no gol anulado e payload já
+  normalizado (só as chaves do tipo; com escalação, nome canônico e `player_id` completados).
+* Cancelamento: `check_void(events, event_id, ctx)` → `VoidResult(state, voided_ids)`; marque como
+  cancelados **todos** os `voided_ids` (o pedido vem primeiro). Caem junto: derivados
+  (`payload["derived_from_sequence"] == sequence` da origem), anulações que apontam para o gol e o
+  vermelho automático cujo amarelo deixou de ser o 2º.
+* Vermelho automático (2º amarelo): payload `{"player", "reason": "second_yellow", "derived_from_sequence": <sequence do amarelo>}`.
+  `EventOut.derived` = `domain.derived_from(event) is not None`. Ícone com variações: `domain.event_icon(type, payload)`.
+* Códigos 422 além dos listados em `apply_event`: `confirmation_required` (com `warnings`),
+  `unknown_event_type`, `period_mismatch` (replay), `event_not_found`, `already_voided`,
+  `void_derived_event` (vermelho automático só cai com o amarelo), `void_breaks_sequence` (`details.cause` = regra violada no replay,
+  ou `second_yellow_without_red` quando um amarelo passaria a ser o 2º do jogador sem o vermelho automático).
+* Relógio com suspensão: `state.period_pauses` = `((seq do suspended, seq do resumed | None), ...)` do período
+  corrente (zera a cada período). Ao vivo: `period_started_at` = abertura + soma de `created_at(resumed) -
+  created_at(suspended)`. Suspenso (`running=false`): o minuto fica parado no `created_at` da suspensão aberta.
+* Minuto no formulário do operador: `EventSpec.minute == "required"` vale com o relógio correndo (1T, 2T,
+  prorrogação); no intervalo e nos pênaltis é opcional. `domain.minute_mode(type, period)` devolve o que vale
+  agora. Nos pênaltis, o minuto (se vier) é o do início da disputa: 120 com prorrogação, 90 sem.
+* Reagendamento: `kickoff_at` em ISO 8601 com data **e** hora (só a data é recusada: `invalid_payload`).
+  Sem fuso = horário de Brasília: o serviço aplica `settings.TIME_ZONE` antes de gravar `Match.kickoff_at`.
+* Rótulos prontos para a API/catálogo: `STATUS_ACTION_LABELS`, `GOAL_ORIGIN_LABELS`, `PENALTY_MISS_LABELS`
+  (`payload.outcome` opcional do pênalti perdido). Gols anulados: `domain.annulled_goal_ids(events)`.
 
 Outros pontos de escrita que passam pelo mesmo núcleo:
 * Django Admin: salvar fase (pontuação/critérios) → `standings.services.on_stage_rules_changed(stage)`
@@ -199,7 +228,17 @@ Erros: `{"code": "...", "message": "...", "details": {...}}` (+ `"warnings": [{"
 * Hub (`realtime/hub.py`): um por processo. Busca o outbox uma vez por lote e
   distribui o mesmo quadro (já serializado) para todas as filas. Acorda no
   `on_commit` de `enqueue`, com polling de segurança. Marca `published_at`.
-  Apaga mensagens com mais de 24 h.
+  Apaga mensagens com mais de 24 h (ao iniciar e a cada hora); o buffer de
+  reenvio em memória segue a mesma retenção. Ao iniciar, as linhas ainda sem
+  `published_at` passam a publicadas (ficam disponíveis para reenvio).
+* Detalhes para o front (`stream.js`):
+  * sem `after` e sem `Last-Event-ID`: só o que vier depois da conexão (sem reenvio);
+  * `after` ou `Last-Event-ID` que não seja inteiro ≥ 0 → `400 {"code": "invalid_input", "details": {"field": ...}}`
+    (o `EventSource` falha de vez; a página recria com `after` = último id recebido);
+  * posição maior que o maior id do outbox (id de um banco recriado) vale como o maior id:
+    o stream segue a partir dali em vez de ficar mudo;
+  * o servidor pode encerrar o stream (conexão lenta que acumulou mensagens, falha no
+    reenvio, reinício do processo): é só reconexão normal, o navegador volta com `Last-Event-ID`.
 
 ## 6. Front-end
 

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <circle cx="32" cy="36" r="24" fill="#FFFFFF"/>
+  <clipPath id="ball"><circle cx="32" cy="36" r="24"/></clipPath>
+  <g clip-path="url(#ball)"><path d="M13.78 41.46 L11.38 48.84 L3.62 48.84 L1.22 41.46 L7.50 36.90Z M50.22 41.46 L56.50 36.90 L62.78 41.46 L60.38 48.84 L52.62 48.84Z M32.00 56.60 L38.28 61.16 L35.88 68.54 L28.12 68.54 L25.72 61.16Z" fill="#1B1712"/><path d="M32.00 41.80 L32 36 M26.10 46.08 L13.20 41.80 M37.90 46.08 L50.80 41.80 M28.36 53.02 L24.50 57.80 M35.64 53.02 L39.50 57.80" fill="none" stroke="#1B1712" stroke-width="1.6" stroke-linecap="round"/></g>
+  <path d="M32.00 41.80 L37.90 46.08 L35.64 53.02 L28.36 53.02 L26.10 46.08Z" fill="#1B1712" stroke="#1B1712" stroke-width="1" stroke-linejoin="round"/>
+  <path d="M32 12 A24 24 0 0 0 8 36 Q14.00 32.80 20.00 36 A12.0 24 0 0 1 32 12Z" fill="#C8102E"/>
+  <path d="M32 12 A12.0 24 0 0 0 20.0 36 Q26.00 32.80 32.00 36 Z" fill="#F2B705"/>
+  <path d="M32 12 L32 36 Q38.00 32.80 44.00 36 A12.0 24 0 0 0 32 12Z" fill="#0E8A4A"/>
+  <path d="M32 12 A12.0 24 0 0 1 44.0 36 Q50.00 32.80 56.00 36 A24 24 0 0 0 32 12Z" fill="#12306B"/>
+  <path d="M32 12 A12.0 24 0 0 0 20.0 36 M32 12 L32 36 M32 12 A12.0 24 0 0 1 44.0 36" fill="none" stroke="#1B1712" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M8 36 Q14.00 32.80 20.00 36 Q26.00 32.80 32.00 36 Q38.00 32.80 44.00 36 Q50.00 32.80 56.00 36" fill="none" stroke="#1B1712" stroke-width="1.8" stroke-linejoin="round"/>
+  <circle cx="32" cy="36" r="24" fill="none" stroke="#1B1712" stroke-width="2.6"/>
+  <path d="M32.00 1.60 L34.06 6.97 L39.80 7.27 L35.33 10.88 L36.82 16.43 L32.00 13.30 L27.18 16.43 L28.67 10.88 L24.20 7.27 L29.94 6.97Z" fill="#F2B705" stroke="#1B1712" stroke-width="1.8" stroke-linejoin="round"/>
+</svg>

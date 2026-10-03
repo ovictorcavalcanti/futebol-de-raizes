@@ -1,8 +1,13 @@
-from django.apps import AppConfig
+from django.apps import AppConfig, apps
 from django.db.models.signals import post_migrate
 
 
 def _sync_roles(sender, using="default", verbosity=0, **kwargs):
+    # post_migrate é enviado uma vez por app; os perfis só são sincronizados no
+    # último app com modelos, quando todas as permissões já foram criadas.
+    with_models = [config for config in apps.get_app_configs() if config.models_module is not None]
+    if not with_models or sender.label != with_models[-1].label:
+        return
     from .roles import sync_roles
 
     sync_roles(using=using, verbosity=verbosity)
@@ -13,5 +18,4 @@ class AccountsConfig(AppConfig):
     verbose_name = "Usuários e permissões"
 
     def ready(self):
-        # Roda depois de cada migrate, quando todas as permissões já existem.
         post_migrate.connect(_sync_roles, dispatch_uid="accounts.sync_roles")

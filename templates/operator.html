@@ -1,1 +1,197 @@
-<!doctype html><title>{{ brand.name }}</title>
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{{ brand.name }} · Área do operador{% endblock %}
+{% block description %}Lançamento de lances e mudança de status das partidas.{% endblock %}
+{% block head %}
+  <meta name="robots" content="noindex">
+  <link rel="modulepreload" href="{% static 'js/render.js' %}">
+  <link rel="modulepreload" href="{% static 'js/match-card.js' %}">
+  <link rel="modulepreload" href="{% static 'js/icons.js' %}">
+  <link rel="modulepreload" href="{% static 'js/crest.js' %}">
+  <link rel="modulepreload" href="{% static 'js/format.js' %}">
+  <link rel="modulepreload" href="{% static 'js/clock.js' %}">
+{% endblock %}
+{% block main %}
+<div class="container">
+  {# Carregando: enquanto GET /api/auth/me não responde. #}
+  <div id="op-boot" class="login" data-hook="boot" aria-busy="true">
+    <div class="card login__card" aria-hidden="true">
+      <span class="skeleton skeleton--circle" style="width:64px;height:64px;justify-self:center"></span>
+      <span class="skeleton skeleton--title" style="justify-self:center"></span>
+      <span class="skeleton" style="height:44px"></span>
+      <span class="skeleton" style="height:44px"></span>
+    </div>
+  </div>
+
+  {# Login #}
+  <section id="op-login" class="login" data-hook="login" aria-labelledby="login-title" hidden>
+    <div class="card login__card azulejo">
+      <div class="login__head">
+        <img class="login__mark" src="{{ brand.favicon_src }}" alt="" width="64" height="64">
+        <p class="eyebrow">{{ brand.name }}</p>
+        <h1 id="login-title" class="login__title">Área do operador</h1>
+        <span class="frevo frevo--short" aria-hidden="true"></span>
+      </div>
+      <form id="login-form" class="login__form" data-hook="login-form">
+        <div class="field">
+          <label class="field__label" for="login-username">Usuário</label>
+          <input id="login-username" class="input" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+        </div>
+        <div class="field">
+          <label class="field__label" for="login-password">Senha</label>
+          <input id="login-password" class="input" name="password" type="password" autocomplete="current-password" required>
+        </div>
+        <p id="login-error" class="field__error" role="alert" data-hook="login-error" hidden>
+          <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span data-hook="login-error-text">Usuário ou senha incorretos.</span>
+        </p>
+        <button id="login-submit" type="submit" class="btn btn--primary btn--lg btn--block" data-hook="login-submit">
+          <svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg>Entrar
+        </button>
+      </form>
+      <p class="login__foot">Acesso restrito a operadores e administradores.</p>
+    </div>
+  </section>
+
+  {# Painel do operador #}
+  <section id="op-app" class="stack" style="--stack-gap:16px" data-hook="app" aria-labelledby="op-title" hidden>
+    <div class="card op-bar">
+      <div class="op-bar__user">
+        <svg class="icon" aria-hidden="true"><use href="#i-user"/></svg>
+        <h1 id="op-title" class="visually-hidden">Área do operador</h1>
+        <span class="op-bar__name" data-hook="user-name"></span>
+        <span class="badge" data-hook="user-roles"></span>
+      </div>
+      <div class="cluster">
+        <a class="btn btn--ghost btn--sm" href="/admin/" data-hook="admin-link" hidden>Administração</a>
+        <button id="logout-button" type="button" class="btn btn--secondary btn--sm" data-hook="logout">
+          <svg class="icon" aria-hidden="true"><use href="#i-logout"/></svg>Sair
+        </button>
+      </div>
+    </div>
+
+    <div class="op-layout">
+      <aside class="card match-picker" aria-labelledby="picker-title" data-hook="picker">
+        <div class="card__head">
+          <h2 id="picker-title" class="card__title"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>Partidas</h2>
+          <button id="picker-refresh" type="button" class="btn btn--ghost btn--icon btn--sm" data-hook="picker-refresh" aria-label="Atualizar lista">
+            <svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>
+          </button>
+        </div>
+        <div class="match-picker__filters">
+          <label class="visually-hidden" for="picker-date">Data das partidas</label>
+          <input id="picker-date" class="input" type="date" data-hook="picker-date">
+        </div>
+        <ul id="picker-list" class="match-picker__list" data-hook="picker-list" aria-label="Partidas da data" aria-busy="true"></ul>
+        <p id="picker-empty" class="match__empty" data-hook="picker-empty" hidden>Nenhuma partida nesta data.</p>
+      </aside>
+
+      <div id="op-panel" class="op-panel" data-hook="panel">
+        <div id="op-placeholder" class="empty empty--compact" data-hook="placeholder">
+          <svg class="empty__art" viewBox="0 0 240 150" aria-hidden="true"><use href="#ill-sertao"/></svg>
+          <p class="empty__title">Escolha uma partida para começar.</p>
+          <p class="empty__text">Os lances que você lançar aparecem na hora na home e na página da competição.</p>
+        </div>
+
+        <div id="op-scoreboard" data-hook="scoreboard" hidden></div>
+
+        <div id="op-work" class="op-work" data-hook="work" hidden>
+          <div class="stack" style="--stack-gap:16px">
+            <section class="card card__body" aria-labelledby="actions-title">
+              <h2 id="actions-title" class="op-section-title"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Lançar lance</h2>
+              <div id="action-grid" class="action-grid" data-hook="action-grid"></div>
+              <h3 class="op-section-title" style="margin-top:20px"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>Status da partida</h3>
+              <div id="status-actions" class="status-actions" data-hook="status-actions"></div>
+            </section>
+
+            <section id="event-form-card" class="card card__body" data-hook="event-form-card" aria-labelledby="event-form-title" hidden>
+              <form id="event-form" class="event-form" data-hook="event-form" novalidate>
+                <h2 id="event-form-title" class="op-section-title">
+                  <svg class="icon" aria-hidden="true"><use data-hook="event-form-icon" href="#i-ball"/></svg><span data-hook="event-form-title">Lance</span>
+                </h2>
+                <div id="event-warnings" class="notice notice--warn" data-hook="event-warnings" role="alert" hidden>
+                  <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+                  <div class="notice__body">
+                    <p><strong>Confira antes de lançar:</strong></p>
+                    <ul class="notice__list" data-hook="event-warnings-list"></ul>
+                  </div>
+                </div>
+                <p id="event-error" class="field__error" role="alert" data-hook="event-error" hidden></p>
+                <div class="event-form__fields" data-hook="event-fields"></div>
+                <div class="event-form__actions">
+                  <button type="button" class="btn btn--ghost" data-hook="event-cancel">Cancelar</button>
+                  <button type="submit" class="btn btn--primary" data-hook="event-submit"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span data-hook="event-submit-label">Lançar</span></button>
+                </div>
+              </form>
+            </section>
+          </div>
+
+          <section class="card" aria-labelledby="timeline-title">
+            <div class="card__head">
+              <h2 id="timeline-title" class="card__title"><svg class="icon" aria-hidden="true"><use href="#i-list"/></svg>Lançamentos</h2>
+              <span class="badge num" data-hook="timeline-count"></span>
+            </div>
+            <ol id="op-timeline" class="op-timeline" data-hook="op-timeline" aria-label="Lançamentos da partida, do mais recente ao mais antigo"></ol>
+            <p id="op-timeline-empty" class="match__empty" data-hook="op-timeline-empty" hidden>Nenhum lançamento ainda.</p>
+          </section>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+{# Confirmação genérica (fim de jogo, lance com aviso). returnValue: "confirm" | "cancel". #}
+<dialog id="confirm-dialog" class="dialog" aria-labelledby="confirm-title">
+  <form method="dialog" class="dialog__form">
+    <div class="dialog__head"><h2 id="confirm-title" class="dialog__title" data-hook="confirm-title">Confirmar</h2></div>
+    <div class="dialog__body"><p data-hook="confirm-text"></p></div>
+    <div class="dialog__foot">
+      <button type="submit" value="cancel" class="btn btn--ghost" formnovalidate>Voltar</button>
+      <button type="submit" value="confirm" class="btn btn--primary" data-hook="confirm-ok">Confirmar</button>
+    </div>
+  </form>
+</dialog>
+
+{# Mudança de status: motivo e, no reagendamento, nova data. #}
+<dialog id="status-dialog" class="dialog" aria-labelledby="status-title">
+  <form method="dialog" class="dialog__form">
+    <div class="dialog__head"><h2 id="status-title" class="dialog__title" data-hook="status-title">Mudar status</h2></div>
+    <div class="dialog__body">
+      <p data-hook="status-text"></p>
+      <div class="field" data-hook="status-kickoff-field" hidden>
+        <label class="field__label" for="status-kickoff">Nova data e hora (Brasília)</label>
+        <input id="status-kickoff" class="input" type="datetime-local" name="kickoff_at" data-hook="status-kickoff">
+      </div>
+      <div class="field">
+        <label class="field__label" for="status-reason">Motivo (opcional)</label>
+        <textarea id="status-reason" class="textarea" name="reason" maxlength="280" rows="2" data-hook="status-reason"></textarea>
+      </div>
+    </div>
+    <div class="dialog__foot">
+      <button type="submit" value="cancel" class="btn btn--ghost" formnovalidate>Voltar</button>
+      <button type="submit" value="confirm" class="btn btn--primary" data-hook="status-ok">Confirmar</button>
+    </div>
+  </form>
+</dialog>
+
+{# Cancelar lançamento (void): motivo opcional. #}
+<dialog id="void-dialog" class="dialog" aria-labelledby="void-title">
+  <form method="dialog" class="dialog__form">
+    <div class="dialog__head"><h2 id="void-title" class="dialog__title">Cancelar lançamento?</h2></div>
+    <div class="dialog__body">
+      <p data-hook="void-text">O lance sai do placar, da tabela e dos últimos gols.</p>
+      <div class="field">
+        <label class="field__label" for="void-reason">Motivo (opcional)</label>
+        <textarea id="void-reason" class="textarea" name="reason" maxlength="280" rows="2" data-hook="void-reason"></textarea>
+      </div>
+    </div>
+    <div class="dialog__foot">
+      <button type="submit" value="cancel" class="btn btn--ghost" formnovalidate>Manter</button>
+      <button type="submit" value="confirm" class="btn btn--danger" data-hook="void-ok"><svg class="icon" aria-hidden="true"><use href="#i-undo"/></svg>Cancelar lançamento</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}
+
+{% block templates %}{% include "partials/operator-templates.html" %}{% endblock %}
+
+{% block scripts %}<script type="module" src="{% static 'js/operator.js' %}"></script>{% endblock %}

@@ -7,10 +7,11 @@ commit, acorda o hub do processo para publicar sem esperar o polling.
 from datetime import timedelta
 
 from django.conf import settings
-from django.db import connection, transaction
+from django.db import transaction
 from django.db.models import Max
 from django.utils import timezone
 
+from core.locks import holds_write_lock
 from observability.metrics import metrics
 
 from .models import Outbox
@@ -25,8 +26,8 @@ def _wake_hub():
 
 
 def enqueue(topic: str, payload: dict) -> Outbox:
-    if not connection.in_atomic_block:
-        raise RuntimeError("enqueue() exige transação aberta (com a trava de escrita)")
+    if not holds_write_lock():
+        raise RuntimeError("enqueue() exige transação aberta com a trava de escrita (core.locks.locked_atomic)")
     row = Outbox.objects.create(topic=topic, payload=payload)
     metrics.inc("fdr_outbox_messages_total", topic=topic)
     transaction.on_commit(_wake_hub)

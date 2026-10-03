@@ -16,6 +16,7 @@ urlpatterns = [
     path("index.html", core_views.home_page),
     path("competition.html", core_views.competition_page, name="competition"),
     path("operator.html", core_views.operator_page, name="operator"),
+    path("styleguide.html", core_views.styleguide_page, name="styleguide"),
     path("health", core_views.health, name="health"),
     path("metrics", observability_views.metrics, name="metrics"),
     path("api/stream", stream, name="stream"),

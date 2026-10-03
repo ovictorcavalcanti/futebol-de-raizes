@@ -18,6 +18,15 @@ def acquire_write_lock():
         raise RuntimeError("acquire_write_lock() exige uma transação aberta")
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(%s)", [WRITE_LOCK_KEY])
+    # Marca a transação mais externa como dona da trava (vale até o commit).
+    connection._fdr_write_lock_block = connection.atomic_blocks[0]
+
+
+def holds_write_lock() -> bool:
+    """True quando a transação corrente já pegou a trava de escrita."""
+    if not connection.in_atomic_block or not connection.atomic_blocks:
+        return False
+    return getattr(connection, "_fdr_write_lock_block", None) is connection.atomic_blocks[0]
 
 
 def locked_atomic():

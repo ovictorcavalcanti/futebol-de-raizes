@@ -35,29 +35,86 @@ class PostResult:
     warnings: list[DomainWarning]
 
 def post_event(match_id: int, user, new: NewEvent, *, idempotency_key: str,
-               source: str = "operator", confirm: bool = False, request=None) -> PostResult
-def void_event(match_id: int, event_id: int, user, *, reason: str = "", request=None) -> VoidOutcome
+               source: str = "operator", confirm: bool = False, request=None, at=None) -> PostResult
+def void_event(match_id: int, event_id: int, user, *, reason: str = "", request=None, at=None) -> VoidOutcome
      # VoidOutcome(match: Match, voided_ids: list[int], already: bool)
 def change_status(match_id: int, user, action: str, *, idempotency_key: str,
-                  kickoff_at: datetime | None = None, reason: str = "", source="operator", request=None) -> PostResult
+                  kickoff_at: datetime | str | None = None, reason: str = "", source="operator",
+                  request=None, at=None) -> PostResult
+def on_match_edited(match, changed_fields, user=None, request=None) -> None   # Django Admin
+def publish_match(match) -> Outbox                                          # só publica `match`
 ```
+
+`at` (datetime, padrão `core.timeutils.now()`) é o `created_at`/`voided_at` gravado: só
+seed, scripts e testes o passam (para datar um jogo ao vivo); a API nunca. O padrão é lido
+**já com a trava** (quem esperou a trava não grava horário anterior ao do lançamento que passou antes).
 
 Cada função, numa única transação com `core.locks.locked_atomic()`:
 
-1. Replay: `(match_id, idempotency_key)` já existe → devolve o evento original (`created=False`), sem gravar nada.
+1. Replay: `(match_id, idempotency_key)` já existe → devolve o evento original e os derivados
+   dele (`created=False`, `warnings=[]`), sem gravar nada. **A mesma chave com outro corpo
+   continua sendo replay do original** (a chave identifica o pedido, não o conteúdo; vale
+   também entre `/events` e `/status`).
 2. Carrega partida (`select_for_update` não é necessário: a trava global serializa) e eventos.
 3. Monta `MatchContext` (times, confronto com outros jogos, escalações) e chama o domínio.
-4. Grava evento(s) com `sequence` = max + 1, `created_by`, `source`, `created_at = core.timeutils.now()`.
+4. Grava evento(s) com `sequence` = max + 1, `created_by`, `source`, `created_at = at`.
+   Derivados (vermelho automático): `idempotency_key = f"{key}:auto:{n}"`, `source="system"`.
+   Jogador informado por id (`player_id`, `payload.player_out_id/player_in_id`) precisa
+   existir → senão `invalid_payload` (`details.field`).
 5. Atualiza o cache da partida: status, period, period_started_at (created_at do evento
    que abriu o período, `state.period_started_seq`, **somado ao tempo parado** nas
-   suspensões fechadas de `state.period_pauses`), placar, pênaltis, finished_at (no fim
-   de jogo; limpa se o fim for cancelado), kickoff_at (reagendamento), `version += 1`.
-6. Partida de confronto: `compute_tie_result` e grava `winner_team`/`decided_by` no `Tie`.
-7. Partida de grupo: `standings.services.recompute_group(group)` (oficial e ao vivo).
-8. Outbox: sempre `match`; `standings` quando a partida é de grupo; `goals` quando o
-   conjunto de gols válidos mudou (entrada, saída ou volta).
-9. Auditoria: `observability.audit.record("event.create" | "event.void" | "match.status", ...)`.
-10. Métricas: `fdr_events_posted_total`, `fdr_events_voided_total`, `fdr_status_changes_total`, `fdr_domain_rejections_total`.
+   suspensões fechadas de `state.period_pauses`), placar, pênaltis (null sem disputa),
+   finished_at (`created_at` do `match_end` visível; limpa se o fim for cancelado),
+   kickoff_at (reagendamento), `version += 1` (uma vez por escrita).
+6. Partida de confronto: `compute_tie_result` e grava `winner_team`/`decided_by` no `Tie`
+   (limpa — `None`/`""` — quando deixa de estar completo). Se o resultado do confronto
+   mudou, os outros jogos dele ganham `version += 1` e uma mensagem `match` cada.
+7. Partida de grupo: `standings.services.recompute_group(group)` (oficial e ao vivo) quando
+   mudou status, placar ou cartão.
+8. Outbox (nesta ordem): sempre `match`; `standings` sempre que a partida é de grupo; `goals`
+   quando o conjunto de gols válidos da partida mudou (entrada, saída ou volta).
+9. Auditoria: `observability.audit.record("event.create" | "event.void" | "match.status", ...)`
+   com `match_id` e `data` (`type`, `period`, `minute`, `stoppage`, `team_id`, `key`, `source`,
+   `derived`, `warnings`; status: `action`, `kickoff_at`, `reason`; void: `voided_ids`, `reason`).
+   `on_match_edited` grava `"match.edit"` quando recebe `user`.
+10. Métricas (depois do commit): `fdr_events_posted_total{type,source}` (um por linha gravada,
+    derivados inclusive), `fdr_events_voided_total` (+ número de ids), `fdr_status_changes_total{action}`,
+    `fdr_domain_rejections_total{code}` (quando o `DomainError` sobe).
+
+Erros fora do domínio: partida inexistente → `Match.DoesNotExist` (404); chave de
+idempotência vazia, com mais de `services.IDEMPOTENCY_KEY_MAX_LENGTH` (64) caracteres ou com o
+trecho reservado `services.DERIVED_KEY_MARK` (`":auto:"`, dos derivados) ou
+`source` fora de `MatchEvent.Source` → `services.InvalidInput(field, message)` (400
+`invalid_input`); `user` ausente → `ValueError` (erro de programação).
+
+Decisões do serviço:
+* **Cancelar o que já está cancelado** não é erro: `VoidOutcome(already=True)` com os ids daquele
+  cancelamento (mesmo `voided_at`/autor), sem gravar nem publicar nada (clique duplo inofensivo).
+  O motivo (`reason`) vai só para a auditoria.
+* **Confronto de ida e volta travado** (`tie_leg_locked`): com o jogo decisivo já começado
+  (status fora de agendado/adiado/cancelado), o outro jogo não aceita cancelamento nem
+  lançamento que mude o placar dele (o domínio refaz a volta com o placar atual da ida).
+* **Reagendamento**: o payload gravado fica `{"kickoff_at": "<UTC Z>", "previous_kickoff_at":
+  "<UTC Z>", "reason"?}` (sem fuso = Brasília). Cancelar reagendamento volta ao último
+  reagendamento que sobrou ou, sem nenhum, ao `previous_kickoff_at` do mais antigo cancelado.
+  O serviço só grava `kickoff_at` quando ele muda (não sobrescreve edição do admin).
+  Data que não cabe em UTC (ex.: `9999-12-31T23:59-03:00`) → `422 invalid_payload` (`details.field` =
+  `kickoff_at` no `/status`, `payload.kickoff_at` no `/events`).
+* **Mensagem `goals`** — `changes[]`: gol criado nesta escrita → `added`/`null`; gol que saiu por
+  anulação → `removed`/`annulled`; gol cancelado → `removed`/`voided`; gol que volta (anulação
+  cancelada) → `restored`/`unvoided`. Em `removed`, `goal` é o gol como era (com o `score_after`
+  daquele momento). `date`/`latest_goals` = hoje em Brasília (a lista de `GET /api/home` sem
+  `date`); a mudança pode ser de jogo fora do dia (correção antiga): o front só alerta para
+  gols de jogos que estão na home.
+* **Admin** (`on_match_edited`): `changed_fields` = nomes (`form.changed_data`) ou `{campo: valor
+  antigo}`. Refaz o cache pelos eventos (o formulário grava os campos de cache com o valor de
+  quando a página abriu), `version += 1`, recalcula grupo(s) se mudou `stage/group/home_team/
+  away_team` (com o valor antigo de `group`, também o grupo antigo; só com nomes, todos os grupos
+  da fase atual), recalcula confronto(s) se mudou `stage/tie/leg/times`, publica `match` (+
+  `standings` das fases recalculadas). Prefira salvar a partida com `update_fields` só dos campos
+  editáveis. Se o confronto recalculado mudou de resultado, os
+  outros jogos dele (e os do confronto antigo) ganham `version += 1` e uma mensagem `match` cada,
+  como no item 6; a mensagem `match` da própria partida já sai com o confronto novo.
 
 `DomainError` sobe para a API, que responde 422. Nada é gravado quando há erro.
 
@@ -91,9 +148,18 @@ Cada função, numa única transação com `core.locks.locked_atomic()`:
 
 Outros pontos de escrita que passam pelo mesmo núcleo:
 * Django Admin: salvar fase (pontuação/critérios) → `standings.services.on_stage_rules_changed(stage)`
-  (recalcula e publica); salvar zona → só publica `standings`; salvar partida → recalcula o grupo
-  se mudou algo que afeta a tabela. Eventos não são editáveis no admin (somente leitura + ação "cancelar lançamento" que chama `void_event`).
-* `seed`: usa `post_event`/`change_status` (source="script").
+  (valida — `ConfigError` —, recalcula e publica); salvar zona → `on_stage_rules_changed(stage, recalc=False)`
+  (só publica `standings`); mata-mata: nada a fazer. Salvar partida → `matches.services.on_match_edited`;
+  escalação/arbitragem/estatística → `matches.services.publish_match(match)`. Times de grupo
+  (`GroupTeam`) → `standings.services.recompute_group(group)` (a leitura também calcula na hora
+  quando o cache não tem os times do grupo). Eventos não são editáveis no admin (somente leitura +
+  ação "cancelar lançamento" que chama `void_event`).
+* `seed`: usa `post_event`/`change_status` (source="script", `at=` para datar os lances).
+* `already_voided` não sai de `void_event` (o serviço devolve `VoidOutcome(already=True)`); só de
+  `domain.check_void` chamado direto.
+* Fase com critérios gravados inválidos (vazios, repetidos ou fora do catálogo) não derruba o
+  lançamento: `standings.services.stage_rules` usa os critérios padrão (`Rules().criteria`) e loga
+  um aviso; a leitura mostra os critérios efetivos.
 
 ## 3. Leitura e serialização (matches/selectors.py, standings/services.py)
 
@@ -108,7 +174,7 @@ Respostas da home e da competição trazem `cursor` (maior id do outbox), **lido
 
 ### EventOut
 ```json
-{"id": 91, "sequence": 7, "type": "goal", "type_label": "Gol", "kind": "game",
+{"id": 91, "sequence": 7, "type": "goal", "type_label": "Gol", "kind": "game", "icon": "ball-penalty",
  "period": "second_half", "period_label": "2º tempo", "period_short": "2T",
  "minute": 72, "stoppage": null, "minute_label": "72'",
  "team_id": 1, "team_side": "home", "player": {"id": null, "name": "Zé Roberto"},
@@ -118,6 +184,8 @@ Respostas da home e da competição trazem `cursor` (maior id do outbox), **lido
  "created_at": "2026-10-03T21:12:09Z"}
 ```
 `annulled` = gol anulado por anulação válida. `score_after` só em gols válidos (null nos outros).
+`icon` = `domain.event_icon(type, payload)`. `player.name` = `payload.player` (null na substituição:
+use `payload.player_out`/`player_in`). Eventos de status também entram na linha do tempo (`kind: "status"`).
 Lançamentos cancelados **nunca** aparecem nas leituras (`visible_events`).
 
 ### GoalOut (resumo no card) / LatestGoalOut (home)
@@ -138,6 +206,8 @@ LatestGoalOut acrescenta `"match": {"id", "competition": {"name","slug"}, "home"
  "decided_by": "penalties", "decided_by_label": "nos pênaltis", "complete": true}
 ```
 `leg` é o jogo desta partida (só quando embutido em MatchOut). TieDetailOut (página da competição) = TieOut sem `leg` + `"matches": [MatchOut resumido]`.
+Sem vencedor: `winner_team_id`, `decided_by` e `decided_by_label` são `null` e `complete` é `false`.
+`aggregate` soma o placar atual de todos os jogos (em andamento inclusive; cancelado não conta).
 
 ### MatchOut
 ```json
@@ -150,7 +220,7 @@ LatestGoalOut acrescenta `"match": {"id", "competition": {"name","slug"}, "home"
  "status": "live", "status_label": "Ao vivo",
  "period": "second_half", "period_label": "2º tempo", "period_short": "2T",
  "period_started_at": "2026-10-03T20:35:12Z",
- "clock": {"running": true, "offset": 45, "regular_end": 90, "stoppage_announced": 4},
+ "clock": {"running": true, "offset": 45, "regular_end": 90, "stoppage_announced": 4, "paused_at": null},
  "home": TeamOut, "away": TeamOut,
  "home_score": 2, "away_score": 1, "home_penalties": null, "away_penalties": null,
  "winner": null,
@@ -160,14 +230,28 @@ LatestGoalOut acrescenta `"match": {"id", "competition": {"name","slug"}, "home"
  "cards": {"home": {"yellow": 1, "red": 0}, "away": {"yellow": 2, "red": 1}},
  "red_cards": [{"team_side": "away", "player": "Fulano", "minute_label": "63'"}]}
 ```
-* `clock` é null fora de 1T/2T/prorrogação em andamento. `running=false` em suspenso.
+* `clock` é null fora de 1T/2T/prorrogação em andamento. `running=false` em suspenso, com
+  `paused_at` = `created_at` da suspensão aberta (o minuto fica parado ali: `offset` + minutos
+  inteiros entre `period_started_at` e `paused_at` + 1); ao vivo, `paused_at` é null.
+  `stoppage_announced` = minutos do último `stoppage_time` visível do período corrente (ou null).
 * `winner`: "home" | "away" | "draw" | null (só com status finished; considera pênaltis).
 * Detalhe (`GET /api/matches/:id`) e mensagem `match` do stream acrescentam:
   `"events": [EventOut]`, `"lineups": {"home": LineupOut|null, "away": LineupOut|null}`,
   `"officials": [{"role","role_label","name","state"}]`,
   `"broadcasts": [{"name","url","kind","kind_label"}]`,
   `"stats": [{"key","label","home","away"}]`, `"attendance": 42318 | null`, `"revenue_cents": 234155000 | null`.
-* LineupOut: `{"formation": "4-3-3", "coach": "Fulano", "starters": [{"name","number","position"}], "substitutes": [...]}`.
+* LineupOut: `{"formation": "4-3-3", "coach": "Fulano", "starters": [{"name","number","position"}], "substitutes": [...]}`
+  (`formation`, `coach`, `number`, `position` podem ser null). `stats`: uma linha por chave, na ordem
+  de `MatchStat.Key`; lado sem valor = null.
+* Funções de leitura (`matches/selectors.py`, todas devolvem dict pronto): `serialize_team`,
+  `serialize_event(event, match, timeline=)`, `serialize_match(match, detail=False, events=None, tie_legs=None)`,
+  `serialize_matches(qs_ou_lista, detail=False)` (uma consulta de eventos para todas),
+  `home_payload(day=None, now=None)`, `latest_goals(day, now, limit=10)`, `competitions_menu()`,
+  `competition_payload(slug, stage_id=None, round_id=None)`, `matches_list(round_id, date, status, stage_id)`,
+  `match_detail(match_id)`, `match_state(match)` → `{"match", "available"}`, `catalog_payload()` e os
+  corpos das respostas do operador: `post_payload(PostResult)`, `status_payload(PostResult)`,
+  `void_payload(VoidOutcome)`. Inexistente → `Model.DoesNotExist` (404); filtro inválido → `ValueError` (400).
+  Classificação: `standings.services.stage_standings(stage, live=True)` / `stages_standings(stages, live=True)`.
 
 ### StageStandingsOut
 ```json
@@ -187,22 +271,22 @@ LatestGoalOut acrescenta `"match": {"id", "competition": {"name","slug"}, "home"
 ## 4. Rotas
 
 Erros: `{"code": "...", "message": "...", "details": {...}}` (+ `"warnings": [{"code","message"}]` em `confirmation_required`).
-`400 invalid_input` (formato), `401 not_authenticated`, `403 permission_denied`, `404 not_found`, `422 <regra>`.
+`400 invalid_input` (formato), `401 not_authenticated`, `403 permission_denied`, `403 csrf_failed`, `404 not_found`, `422 <regra>`.
 
 | Rota | Resposta |
 | --- | --- |
-| `POST /api/auth/login` `{"username","password"}` | `200 {"user": MeUser}` · `401 invalid_credentials` · protegido por CSRF |
+| `POST /api/auth/login` `{"username","password"}` | `200 {"user": MeUser, "csrf_token": "..."}` · `401 invalid_credentials` · protegido por CSRF |
 | `POST /api/auth/logout` | `200 {"ok": true}` |
-| `GET /api/auth/me` | `200 {"authenticated": bool, "user": MeUser|null, "csrf_token": "..."}` (sempre seta o cookie CSRF) |
+| `GET /api/auth/me` | `200 {"authenticated": bool, "user": MeUser|null, "csrf_token": "...", "server_time": "...Z"}` (sempre seta o cookie CSRF; `server_time` acerta o relógio do operador já no login) |
 | `POST /api/ops/matches/{id}/events` + `Idempotency-Key` | `201 {"event": EventOut, "derived": [EventOut], "match": MatchOut(detalhe), "available": Available, "warnings": [...], "replayed": false}` · replay → `200` com `"replayed": true` |
-| `POST /api/ops/matches/{id}/events/{eventId}/void` `{"reason"}` | `200 {"voided": [ids], "match": MatchOut(detalhe), "available": Available}` |
-| `POST /api/ops/matches/{id}/status` + `Idempotency-Key` `{"action","kickoff_at"?,"reason"?}` | `201 {"event": EventOut, "match": ..., "available": ...}` |
-| `GET /api/ops/catalog` | `{"events": [EventSpecOut], "status_actions": [{"action","label"}], "periods": [...], "statuses": [...]}` |
+| `POST /api/ops/matches/{id}/events/{eventId}/void` `{"reason"}` | `200 {"voided": [ids], "match": MatchOut(detalhe), "available": Available, "already": bool}` (`already`: já estava cancelado, nada mudou) |
+| `POST /api/ops/matches/{id}/status` + `Idempotency-Key` `{"action","kickoff_at"?,"reason"?}` | `201 {"event": EventOut, "match": ..., "available": ..., "replayed": false}` · replay → `200` com `"replayed": true` |
+| `GET /api/ops/catalog` | `{"events": [EventSpecOut], "status_actions": [{"action","label"}], "periods": [{"key","label","short"}], "statuses": [{"key","label"}]}` (todos os tipos do catálogo, status inclusive) |
 | `GET /api/home?date=YYYY-MM-DD` | HomeOut, `Cache-Control: no-store` |
 | `GET /api/competitions` | `{"competitions": [{"id","name","slug","short_name","position"}]}` |
 | `GET /api/competitions/{slug}?stage=&round=` | CompetitionOut |
 | `GET /api/stages/{id}/standings?live=1` | StageStandingsOut + `server_time`, `timezone` |
-| `GET /api/matches?roundId=&date=&status=&stageId=` | `{"server_time","timezone","matches": [MatchOut]}` |
+| `GET /api/matches?roundId=&date=&status=&stageId=` | `{"server_time","timezone","matches": [MatchOut]}` (`date` = dia de Brasília pelo `kickoff_at`; `status` aceita vários separados por vírgula; sem filtro, no máximo 500) |
 | `GET /api/matches/{id}` | `{"server_time","timezone","cursor","match": MatchOut(detalhe), "available": Available}` |
 | `GET /api/stream?after=N` | SSE (seção 5) |
 
@@ -212,8 +296,55 @@ Erros: `{"code": "...", "message": "...", "details": {...}}` (+ `"warnings": [{"
 * Corpo do lançamento: `{"type","minute"?,"stoppage"?,"team_id"?,"player_id"?,"payload"?: {},"annuls_event_id"?,"confirm"?: false,"source"?: "operator"}`.
 * HomeOut: `{"date","server_time","timezone","cursor","competitions": [{"id","name","slug","short_name","position","stages": [{"id","name","format","matches": [MatchOut],"standings": StageStandingsOut|null}]}],"latest_goals": [LatestGoalOut]}`.
   Só competições com jogo no dia, em `position`. Jogo da véspera que passa da meia-noite fica até 2h depois de `finished_at`.
-* CompetitionOut: `{"server_time","timezone","cursor","competition": {...},"season": {"id","year"},"stages": [{"id","name","format","position","rounds": [{"id","number","name"}]}],"current_stage_id","current_round_id","stage": {"id","name","format","standings": StageStandingsOut|null,"matches": [MatchOut da rodada],"ties": [TieDetailOut da rodada] (mata-mata)}}`.
+  Regra exata (`selectors.day_matches_query`): começa no dia (Brasília), ou começou na véspera e
+  (está ao vivo/suspenso e o dia pedido é hoje) ou (`finished_at` ≥ meia-noite do dia e `now` < `finished_at` + 2 h).
+  Fases de cada competição em `position`; jogos por `kickoff_at`. `latest_goals`: os 10 gols válidos mais
+  recentes (`created_at` desc) desses jogos — sem anulados, cancelados nem cobranças da disputa.
+* CompetitionOut: `{"server_time","timezone","cursor","competition": {...},"season": {"id","year"},"stages": [{"id","name","format","position","rounds": [{"id","number","name"}]}],"current_stage_id","current_round_id","stage": {"id","name","format","standings": StageStandingsOut|null,"matches": [MatchOut da rodada],"ties": [TieDetailOut da rodada] (mata-mata; `[]` nas outras)}}`.
+  `current_stage_id`/`current_round_id` = fase/rodada exibidas (as pedidas ou as atuais); `season`/`stage` null sem temporada.
+  Rodada de uma partida = a dela ou, no mata-mata sem rodada própria, a do confronto (`selectors.match_round`):
+  vale para `MatchOut.round`, a rodada atual, `stage.matches` e o filtro `roundId` (também na API pública).
   Fase/rodada atuais = primeiras com jogo ainda não encerrado (senão a última).
+
+### Decisões da API (`api/`)
+
+* Montagem: `api/main.py` (NinjaAPI, `/api/docs` com o token CSRF no "Try it out" — recarregue a
+  página depois do login), routers `api/auth.py`, `api/ops.py`, `api/read.py`; erros em
+  `api/errors.py`; sessão/CSRF/permissão em `api/security.py`. As rotas devolvem os dicionários
+  dos selectors como estão (os schemas de saída só documentam o 1º nível no OpenAPI).
+* Mapa de erros: validação do Ninja, corpo ilegível, header ou filtro inválido e
+  `services.InvalidInput` → `400 invalid_input` com `details.field` (validação do Ninja: também
+  `details.errors = [{"field","message","type"}]`; `field` sem o prefixo de origem, ex.:
+  `"minute"`, `"payload.player"`, `"roundId"`, `"Idempotency-Key"`); `DomainError` → `422` com
+  `code`/`details`/`warnings` do domínio; `standings.domain.ConfigError` → `422` com o `code` dele;
+  `Model.DoesNotExist` → `404 not_found`; rota inexistente sob `/api/` → `404 not_found` em JSON;
+  método que a rota não aceita → `405 method_not_allowed` em JSON (`details.allowed`, header `Allow`).
+  Corpo ilegível (JSON inválido) → `400 invalid_input` com `details.field = "body"`.
+* Ordem das checagens em `/api/ops` (antes de validar o corpo): sem sessão → `401
+  not_authenticated` (mesmo sem token CSRF); token CSRF ausente/vencido → `403 csrf_failed`
+  (o front renova em `GET /api/auth/me`); sem a permissão da rota → `403 permission_denied`
+  (`details.required_any`). Permissões: lançar `matches.post_event`, cancelar
+  `matches.void_event`, status `matches.change_status`, catálogo qualquer uma das três. Tipo de
+  status (`postponed`, `suspended`, `resumed`, `rescheduled`, `cancelled`) mandado por `/events`
+  exige também `matches.change_status` → senão `403 permission_denied` (`required_any =
+  ["matches.change_status"]`): `/events` não é atalho para quem só lança lances.
+* Login: CSRF conferido explicitamente (rota anônima); `django.contrib.auth.login` troca a chave
+  da sessão e o token CSRF — por isso a resposta traz o `csrf_token` novo (o cookie também muda).
+  Senha errada, usuário inexistente e usuário inativo → o mesmo `401 invalid_credentials`.
+  Logout sem sessão responde `{"ok": true}`. Auditoria: `auth.login`, `auth.logout`,
+  `auth.login_failed` (`data.username`).
+* `Idempotency-Key`: obrigatório em `/events` e `/status`, 1 a 64 caracteres
+  (`services.IDEMPOTENCY_KEY_MAX_LENGTH`; o campo tem 80 para o sufixo `:auto:N`), sem o trecho
+  reservado `:auto:` → senão `400 invalid_input` (`details.field = "Idempotency-Key"`). `source` aceita `operator`, `feed` e
+  `script` (`system` é só dos derivados) → senão 400. Corpo do `/void` é opcional (`reason` até 280).
+* `/void` de lançamento inexistente ou de outra partida → `404 not_found` (`details.event_id`,
+  `details.match_id`), não `422 event_not_found`.
+* `/api/stages/{id}/standings`: `live=1` (ou `true`/`yes`/`on`) → tabela ao vivo; sem `live`,
+  vazio ou `0`/`false` → oficial; outro valor → 400. Fase de mata-mata → `404 not_found`.
+* Datas (`date` da home e de `/api/matches`) só no formato `AAAA-MM-DD` → senão `400` (`details.field = "date"`).
+* `Cache-Control`: `no-store` em toda resposta de dado ao vivo, de sessão e de operação (home,
+  competição, classificação, partidas, `/api/auth/*`, `/api/ops/*`); `public, max-age=60` no menu
+  (`GET /api/competitions`); `private, max-age=300` no catálogo (`GET /api/ops/catalog`).
 
 ## 5. Stream SSE
 
@@ -225,6 +356,9 @@ Erros: `{"code": "...", "message": "...", "details": {...}}` (+ `"warnings": [{"
   * `match`: `{"stage_id", "competition_id", "match": MatchOut(detalhe)}`
   * `standings`: `{"stage_id", "standings": StageStandingsOut(live)}`
   * `goals`: `{"date": "YYYY-MM-DD", "changes": [{"kind": "added"|"removed"|"restored", "reason": "annulled"|"voided"|"unvoided"|null, "goal": LatestGoalOut}], "latest_goals": [LatestGoalOut]}`
+    (pares: `added`/null, `removed`/`annulled`, `removed`/`voided`, `restored`/`unvoided` — ver §2).
+  * Uma escrita gera, nesta ordem: `match` (+ `match` dos outros jogos do confronto quando o
+    resultado dele muda), `standings` (partida de grupo), `goals` (gols válidos mudaram).
 * Hub (`realtime/hub.py`): um por processo. Busca o outbox uma vez por lote e
   distribui o mesmo quadro (já serializado) para todas as filas. Acorda no
   `on_commit` de `enqueue`, com polling de segurança. Marca `published_at`.

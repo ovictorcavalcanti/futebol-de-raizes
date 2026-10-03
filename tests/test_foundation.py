@@ -10,6 +10,14 @@ def test_health_ok(client):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("path", ["/health", "/", "/competition.html", "/operator.html"])
+def test_pages_answer_head_and_refuse_post(client, path):
+    # HEAD (healthcheck de proxy/monitor) responde como o GET, sem corpo; POST não existe
+    assert client.head(path).status_code == 200
+    assert client.post(path).status_code == 405
+
+
+@pytest.mark.django_db
 def test_migrations_are_complete():
     # Nenhuma mudança de modelo sem migração.
     call_command("makemigrations", "--check", "--dry-run", verbosity=0)

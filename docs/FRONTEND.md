@@ -27,8 +27,7 @@ de exemplo: `DJANGO_DEBUG=1 python manage.py runserver` → **`/styleguide.html`
 `base.html` expõe `title`, `description`, `head` (ex.: `modulepreload`), `main`,
 `templates` (os `<template>` da página) e `scripts`. Cada página já inclui o seu
 script: `index.html` → `js/home.js`, `competition.html` → `js/competition.js`,
-`operator.html` → `js/operator.js` (enquanto esses arquivos não existem, o
-navegador registra um 404 — esperado).
+`operator.html` → `js/operator.js` (comportamento na seção 6).
 
 ## 2. Marca configurável
 
@@ -91,6 +90,7 @@ escondidas; quem liga os dados tira o `hidden`.
 | `#latest-goals` (`hidden`) | Bloco "Últimos gols". Some quando não há jogo no dia. |
 | `#goal-alert` (`aria-live="polite"`) | Avisos: `createGoalAlert(goal)` / `createGoalAlert(goal, {kind: 'correction', reason})`. Use `prepend`. |
 | `#toggle-sound`, `#toggle-notifications` (`hidden`) | Botões liga/desliga (`aria-pressed`). Os rótulos trocam sozinhos via `.when-on`/`.when-off`. Mostre o de notificações só onde `new Notification()` funciona. |
+| `#notifications-hint` (`hidden`) | "As notificações do sistema só funcionam com HTTPS." — aparece quando a página não está em contexto seguro. |
 | `#latest-goals-list` (`<ol>`) | `createLatestGoal(goal, {isNew})` por item, do mais novo ao mais antigo. |
 | `#latest-goals-empty` (`hidden`) | "Nenhum gol hoje ainda. Paciência, que ele vem." |
 | `#competitions` (`aria-busy="true"`) | Contém esqueletos; substitua por uma seção por competição e tire o `aria-busy`. |
@@ -145,9 +145,10 @@ for (const stage of comp.stages) {
 | `#op-work` (`hidden`) | Área de trabalho. |
 | `#action-grid` | Botões `tpl-action-button` dos tipos em `available.events` (classe `action-btn--goal` no gol, `action-btn--structural` nos estruturais; `aria-pressed="true"` no que está com formulário aberto). |
 | `#status-actions` | Botões `tpl-status-button` de `catalog.status_actions` (cancelar com `btn--danger`; `disabled` fora de `available.status`). |
-| `#event-form-card` (`hidden`), `#event-form` | Formulário. `[data-hook]`: `event-form-icon` (`<use>`), `event-form-title`, `event-warnings` (+ `event-warnings-list`, para `confirmation_required`), `event-error`, `event-fields`, `event-cancel`, `event-submit`, `event-submit-label`. |
+| `[data-hook="actions-card"]` › `actions-block` / `status-block` | Cartão das ações; cada bloco some sem a permissão (`post_event` / `change_status`), o cartão some sem as duas. |
+| `#event-form-card` (`hidden`), `#event-form` | Formulário. `[data-hook]`: `event-form-icon` (`<use>`), `event-form-title`, `event-warnings` (+ `event-warnings-list`, para `confirmation_required`), `event-error`, `event-type` (`#event-type`: `<select>` dos tipos em `available.events`), `event-fields`, `event-cancel`, `event-submit`, `event-submit-label`. |
 | `#op-timeline`, `#op-timeline-empty`, `[data-hook="timeline-count"]` | Lançamentos (mais recente primeiro) com `tpl-op-event`. |
-| `#confirm-dialog` | Confirmação genérica: `confirm-title`, `confirm-text`, `confirm-ok`; `returnValue` = `"confirm"` ou `"cancel"`. |
+| `#confirm-dialog` | Confirmação genérica: `confirm-title`, `confirm-text`, `confirm-list` (`<ul>` dos avisos, `hidden` sem itens), `confirm-ok`; `returnValue` = `"confirm"` ou `"cancel"`. |
 | `#status-dialog` | `status-title`, `status-text`, `status-kickoff-field` (`hidden`; mostre no reagendar) › `#status-kickoff`, `#status-reason`, `status-ok`. |
 | `#void-dialog` | `void-text`, `#void-reason`, `void-ok` (botão de perigo). |
 
@@ -242,25 +243,104 @@ riscado (`<s>`), nunca como placar atual.
 * `updateStandings(el, stageStandings, opts?)` — redesenha no lugar; sem `opts`, valem as da criação (a mensagem `standings` do stream não precisa repassá-las).
 * Uma `<table>` por grupo com `<caption>`; faixa de zona (cor da API em `--zone`) + nome da zona em texto (visível no início de cada zona, e no texto acessível de toda linha); ponto pulsante em quem está `playing`; `=` em `tied`; legenda com `<svg><rect fill="cor da API">`; critérios em `<ol>` na ordem configurada. Colunas somem por container query (GP/GC abaixo de 440 px; V/E/D abaixo de 330 px; sigla abaixo de 280 px); `compact` força a versão sem GP/GC.
 
+### `api.js`
+* `apiFetch(path, {method, body, query, headers, idempotencyKey, timeout = 15000, signal}) → Promise<json>` — `credentials: 'same-origin'`, `X-CSRFToken` (cookie `csrftoken`; reserva: `csrf_token` de `/api/auth/me`) só nos métodos que mudam estado, `Idempotency-Key` quando pedido, tempo limite com `AbortController`.
+* `ApiError {status, code, message, details, warnings, isNetwork}` — formato de erro do contrato; o padrão do ninja (`{detail}`) vira `csrf_failed`/`invalid_input`/… ; falha de rede = `network_error`, tempo esgotado = `timeout` (status 0).
+* Rotas: `getMe`, `login`, `logout`, `getHome(date?)`, `getCompetitions`, `getCompetition(slug, {stage, round})`, `getStageStandings`, `listMatches({roundId, date, status, stageId})`, `getMatch`, `getCatalog`, `postEvent(id, body, key)`, `voidEvent(id, eventId, reason)`, `changeStatus(id, body, key)`.
+* `newIdempotencyKey()` (`crypto.randomUUID`, com reserva fora de contexto seguro), `getCookie`, `queryString`, `toApiError`.
+
+### `stream.js`
+* `createStream({handlers: {match, standings, goals, ping}, onStatus, onStale, clock}) → {start(cursor), restart(cursor), reconnect(), stop(), lastId, status}` — um `EventSource` em `/api/stream?after=`; guarda o id da última mensagem; cada `ping` faz `clock.sync(server_time)`.
+* Recria (com `after` = último id) ao voltar ao primeiro plano (`visibilitychange`, `pageshow` do bfcache, `online`), depois de 45 s sem ping e quando o navegador desiste (`CLOSED`, espera de 1 s a 30 s). Ao voltar ao primeiro plano com a conexão aberta e contato há menos de 25 s, mantém (refinamento: não derruba uma conexão comprovadamente viva).
+* Mais de 5 min sem stream: não pede reenvio — chama `onStale()` (a página busca o estado inteiro e devolve o cursor novo) e reabre dali.
+* Decisões puras exportadas: `decideReconnect({trigger, readyState, lastContactAt, openedAt, nowMs}) → 'none'|'replay'|'refetch'`, `backoffDelay`, `streamUrl`, `parseEventId`; `liveStatusIndicator(#live-status)` mostra "Reconectando ao vivo…" depois de 4 s sem conexão — mais que o `retry: 3000`, para não piscar numa reconexão normal (no celular, só o ícone).
+
+### `alerts.js` (só a home)
+* `GoalAlertTracker` (puro): `decide(changes, serverNowMs, {isRelevant}) → [{action: 'alert'|'silent'|'correction'|'restore'|'skip', goal, reason}]` — um alerta por id de evento; lista inicial = já alertada; gol com `created_at` mais de 2 min atrás (relógio do servidor) entra sem alerta; `removed` → correção (uma vez); `restored` → volta sem alerta; gol de jogo fora da home não alerta.
+* `createGoalAlerts({region, soundButton, notifyButton, audio, hint, serverNow, initialGoals, isRelevant}) → {handle(goalsMessage), reset(goals)}` — aviso na página (`createGoalAlert`, máx. 3, somem em 2 min; a correção toma o lugar do "É gol!" do mesmo gol), som (`#goal-sound`; o clique em "Ativar som" toca a amostra e libera o áudio; recusa do navegador volta o botão a "Ativar som"), `Notification` (fecha a do gol e abre a de correção). Preferências em `localStorage` (`fdr-sound`, `fdr-notifications`, com `try/catch`).
+* `notificationSupport(window)` — API presente, contexto seguro e computador (`userAgentData.mobile`, user agent, iPadOS com toque); sem permissão, testa `new Notification()` em `try/catch`.
+
+### `operator.js` (partes puras exportadas)
+`effectiveMinuteMode(spec, period)` (espelha `domain.minute_mode`), `suggestMinute(match, spec, nowMs)`, `buildEventBody(type, entries, {minute, stoppage})`, `toBrasiliaInput(iso)`, `groupByCompetition`, `lineupPlayers(match, teamId, {opponent})`. A tela só liga quando a página tem `#op-app`.
+
 ### `fixtures.js` (só para o guia de estilo)
 `SERVER_TIME`, `TIMEZONE`, `TEAMS`, `COMPETITIONS`, `MATCHES` (`live`, `halfTime`, `scheduledToday`, `scheduledTomorrow`, `finished`, `postponed`, `suspended`, `cancelled`, `knockoutLeg1`, `knockoutPenalties`, `knockoutSingle`), `TIES`, `STANDINGS`, `STANDINGS_GROUPS`, `LATEST_GOALS`, `HOME`, `COMPETITION`, `ME`, `CATALOG`, `AVAILABLE`, `summaryOf(match)`. Os horários são relativos ao carregamento do módulo.
 
-## 6. Ciclo sugerido de uma página pública
+## 6. Comportamento das páginas
+
+Ciclo das páginas públicas: busca o estado, desenha, assina o stream a partir do
+`cursor` e substitui o trecho afetado a cada mensagem (sem merge).
 
 ```js
-import { ServerClock, mountClock } from './clock.js';
 const clock = new ServerClock();
-const data = await getHome();              // api.js
-clock.sync(data.server_time);
+const data = await getHome();                       // api.js
+clock.sync(data.server_time);                       // e a cada resposta/ping
 mountClock(document.getElementById('brasilia-clock'), clock);
 // desenhar com createMatchCard/createStandings…
-clock.onTick((ms) => tickMatchCards(document, ms));
-clock.onDayChange(() => reload());
+const stream = createStream({ clock, handlers: { match, standings, goals }, onStale: reload,
+  onStatus: liveStatusIndicator(document.getElementById('live-status')) });
+stream.start(data.cursor);
+clock.onTick((ms) => tickMatchCards(root, ms));
+clock.onDayChange(() => reload().then((cursor) => stream.restart(cursor)));
 document.addEventListener('visibilitychange', () => document.hidden || clock.checkDay());
-// stream.js: a cada ping → clock.sync(ping.server_time);
-// mensagem match → updateMatchCard(card, msg.match, { flash: true });
-// mensagem standings → updateStandings(el, msg.standings);
 ```
+
+### Home (`home.js`)
+* `GET /api/competitions` (menu, com o ponto de "ao vivo" recalculado a cada `match`) + `GET /api/home`.
+* Uma seção por competição (`tpl-competition-section`, ordem de `position`), cards à
+  esquerda e classificação ao vivo à direita; sem jogo no dia: menu, relógio e
+  `#home-empty` (sem o bloco de últimos gols).
+* `match` → `updateMatchCard(card, match, {flash: true})` (acordeão e aba continuam);
+  jogo desconhecido com início no dia → busca a home de novo. `standings` →
+  `updateStandings` da fase. `goals` → `alerts.handle` + lista da mensagem
+  (gols alertados com `isNew`). Acordeão sem lances → `GET /api/matches/:id`.
+* Recarga (virada do dia, 5 min sem stream, "Tentar de novo") reaproveita os cards
+  (acordeões abertos continuam), marca a lista como já alertada e reabre o stream no
+  cursor novo.
+
+### Competição (`competition.js`)
+* `competition.html?slug=&stage=&round=` → `GET /api/competitions/:slug?stage=&round=`
+  (sem os dois, fase e rodada atuais; `current_round_id` = rodada exibida). Fase/rodada
+  da URL que não existe mais (404) → tenta sem elas; slug inexistente → `#competition-missing`.
+* ‹ › trocam a rodada sem recarregar (`history.replaceState`): liga/grupos com
+  `GET /api/matches?roundId=`; **mata-mata com `GET /api/competitions/:slug?stage=&round=`**,
+  que traz os confrontos com todos os jogos (a ida pode estar em outra rodada).
+  Botões desabilitados nas pontas. O `<select>` troca a fase.
+* Liga/grupos: cards + classificação (legenda e critérios). Mata-mata: cards (com "Semifinal · Ida"
+  na faixa de meta, também na home) + confrontos — empilhado (< 960 px), os confrontos vêm antes
+  dos cards (`split--aside-first`): quem avança é o resumo da rodada
+  (`createTieCard`); a mensagem `match` redesenha o confronto do jogo (agregado e
+  vencedor vêm no `TieOut`). Sem alertas nesta página.
+
+### Operador (`operator.js`)
+* `GET /api/auth/me` primeiro (seta o cookie CSRF e acerta o relógio com `server_time`) → login (`POST /api/auth/login`;
+  falha de CSRF renova o cookie e tenta uma vez) ou painel; 401 em qualquer chamada
+  volta ao login ("Sua sessão expirou").
+* Só aparece o que `me.permissions` permite: botões de lance (`post_event`), de status
+  (`change_status`), "Cancelar" na linha do tempo (`void_event`), link do admin (`admin_site`).
+* Partidas da data (`GET /api/matches?date=`, padrão hoje em Brasília), agrupadas por
+  competição; ↑/↓ andam pela lista; `?date=&match=` na URL.
+* Botões só de `available` (nada de regra de jogo no front). Formulário pelo catálogo:
+  `<select>` de tipo limitado a `available.events`; campos por `EventSpec.fields`
+  (reaproveitados entre tipos — trocar o tipo mantém o que já foi digitado; "Cancelar", Esc
+  ou outro clique no mesmo botão desistem do lance e limpam tudo —, os que não valem ficam
+  `hidden` + `disabled`); time em
+  rádios com os dois times (opcional ganha "Nenhum"); jogador com `<datalist>` da
+  escalação (gol contra → elenco adversário); gol anulado lista os gols válidos e, com o
+  gol escolhido, esconde o time (herdado); minuto conforme `minute_mode`, pré-preenchido
+  com a sugestão do relógio (atualiza a cada segundo até o operador mexer). Fim de jogo
+  pede confirmação.
+* Envio: validação nativa (`reportValidity`), botão desabilitado até a resposta,
+  `X-CSRFToken`, `Idempotency-Key` nova por lançamento (`crypto.randomUUID()`).
+  `422 confirmation_required` → `#confirm-dialog` com os avisos; "Confirmar" reenvia com
+  `confirm: true` e a MESMA chave. Outro 422/400 → mensagem da regra no formulário (foco no
+  campo). Falha de rede → mantém a chave para o reenvio do mesmo conteúdo (o servidor
+  devolve o original se o primeiro tinha chegado); mudar qualquer campo gera chave nova.
+* Depois de cada envio: desenha a resposta e busca `GET /api/matches/:id` de novo (a
+  tela não assina o stream; respostas com `version` menor são ignoradas).
+* Linha do tempo (mais recente primeiro) com "Cancelar lançamento" → `#void-dialog`
+  (motivo opcional) → `POST …/void`. Status → `#status-dialog` (reagendar com
+  `datetime-local` em Brasília, enviado sem fuso) → `POST …/status`. Avisos por toast.
 
 ## 7. Desempenho e acessibilidade
 
@@ -276,5 +356,19 @@ document.addEventListener('visibilitychange', () => document.hidden || clock.che
   recalculado dos tokens, `modulepreload` sem cascata e, se houver Chromium do
   Playwright, os componentes no navegador — versão atrasada ignorada, detalhe pedido
   de novo, agregado na ordem do placar, link `javascript:` barrado, aviso de correção,
-  botão de tema) e `tests/js/*.test.mjs` (`node --test tests/js/format_clock.test.mjs
-  tests/js/match_card.test.mjs`; o pytest roda também em outro fuso).
+  botão de tema) e `tests/js/*.test.mjs` (`node --test tests/js/*.test.mjs`; o pytest
+  roda também em outro fuso).
+* `tests/e2e/test_e2e_browser.py` (só com `E2E=1`: `E2E=1 python -m pytest tests/e2e -o addopts=""`):
+  ponta a ponta de verdade — banco próprio com o `seed`, uvicorn (um processo) e Chromium. O
+  operador lança um jogo inteiro pela tela (reagendar, início, gols, cartão, aviso com
+  confirmação, gol anulado, "Cancelar lançamento", suspender/retomar, intervalo, 2º tempo,
+  fim); home e competição abertas antes acompanham gol e anulação sem recarregar (aviso, som,
+  `Notification`, últimos gols, classificação); a final vai aos pênaltis com a página aberta;
+  rodadas, fases, tema, logo da configuração, console limpo, 390 px sem rolagem lateral e o
+  stream voltando sozinho depois de reiniciar o servidor. `E2E_BASE_URL` reaproveita um
+  servidor já de pé. Capturas das páginas reais em `docs/screenshots/`.
+* `tests/test_front_pages.py`: os testes puros das páginas em node (alertas, reconexão,
+  minuto sugerido, `api.js`), os ganchos dos templates e as três páginas no Chromium com
+  a API simulada por `page.route()` (gol pelo stream com alerta único, correção e
+  reconexão com `Last-Event-ID`; rodadas e fases da competição; login, formulário e
+  confirmação com a mesma chave no operador).

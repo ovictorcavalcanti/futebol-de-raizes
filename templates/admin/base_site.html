@@ -1,0 +1,131 @@
+{% extends "admin/base.html" %}{% load i18n static %}
+{# Django Admin com a identidade do Futebol de Raízes (docs/IDENTIDADE.md): logo da marca, #}
+{# faixa do frevo e as cores da bandeira. Só troca as variáveis de cor do admin, nos dois    #}
+{# temas dele (claro e escuro, automático ou escolhido no botão), sem mexer no layout.       #}
+
+{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ brand.name }} · Administração{% endblock %}
+
+{% block extrastyle %}{{ block.super }}
+<style>
+  @font-face {
+    font-family: "Alfa Slab One";
+    src: url("{% static 'fonts/alfa-slab-one-latin-400-normal.woff2' %}") format("woff2");
+    font-display: swap;
+  }
+  html[data-theme="light"], :root {
+    --fdr-frevo: linear-gradient(90deg, #C8102E 0 25%, #F2B705 25% 50%, #0E8A4A 50% 75%, #12306B 75% 100%);
+    --fdr-badge-bg: #FBF6EC;
+    --primary: #12306B;
+    --secondary: #12306B;
+    --accent: #F2B705;
+    --primary-fg: #FFFFFF;
+    --header-bg: #12306B;
+    --header-color: #FBF6EC;
+    --header-branding-color: #F2B705;
+    --header-link-color: #FFFFFF;
+    --breadcrumbs-bg: #0C2452;
+    --breadcrumbs-fg: #E5DAC5;
+    --breadcrumbs-link-fg: #FFFFFF;
+    --link-fg: #12306B;
+    --link-hover-color: #C8102E;
+    --link-selected-fg: #12306B;
+    --button-bg: #12306B;
+    --button-hover-bg: #0C2452;
+    --default-button-bg: #C8102E;
+    --default-button-hover-bg: #A30D25;
+    --selected-row: #FFF3C4;
+    --object-tools-bg: #4B443A;
+    --object-tools-hover-bg: #1B1712;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fdr-frevo: linear-gradient(90deg, #FF5C6C 0 25%, #FFCB3D 25% 50%, #3DD68C 50% 75%, #8FB0FF 75% 100%);
+      --fdr-badge-bg: #F2EDE2;
+      --primary: #1E3A78;
+      --secondary: #12306B;
+      --accent: #FFCB3D;
+      --primary-fg: #F2EDE2;
+      --header-bg: #1B263E;
+      --header-color: #F2EDE2;
+      --header-branding-color: #FFCB3D;
+      --header-link-color: #F2EDE2;
+      --breadcrumbs-bg: #141D31;
+      --breadcrumbs-fg: #C7C0B2;
+      --breadcrumbs-link-fg: #F2EDE2;
+      --link-fg: #8FB0FF;
+      --link-hover-color: #FFCB3D;
+      --link-selected-fg: #8FB0FF;
+      --button-bg: #1E3A78;
+      --button-hover-bg: #2A4C94;
+      --default-button-bg: #C8102E;
+      --default-button-hover-bg: #E0213F;
+      --selected-row: #1B263E;
+      --object-tools-bg: #333333;
+      --object-tools-hover-bg: #666666;
+    }
+  }
+  html[data-theme="dark"] {
+    --fdr-frevo: linear-gradient(90deg, #FF5C6C 0 25%, #FFCB3D 25% 50%, #3DD68C 50% 75%, #8FB0FF 75% 100%);
+    --fdr-badge-bg: #F2EDE2;
+    --primary: #1E3A78;
+    --secondary: #12306B;
+    --accent: #FFCB3D;
+    --primary-fg: #F2EDE2;
+    --header-bg: #1B263E;
+    --header-color: #F2EDE2;
+    --header-branding-color: #FFCB3D;
+    --header-link-color: #F2EDE2;
+    --breadcrumbs-bg: #141D31;
+    --breadcrumbs-fg: #C7C0B2;
+    --breadcrumbs-link-fg: #F2EDE2;
+    --link-fg: #8FB0FF;
+    --link-hover-color: #FFCB3D;
+    --link-selected-fg: #8FB0FF;
+    --button-bg: #1E3A78;
+    --button-hover-bg: #2A4C94;
+    --default-button-bg: #C8102E;
+    --default-button-hover-bg: #E0213F;
+    --selected-row: #1B263E;
+    --object-tools-bg: #333333;
+    --object-tools-hover-bg: #666666;
+  }
+  /* Faixa do frevo: assinatura da marca, no topo do cabeçalho. */
+  #header { position: relative; padding-top: 14px; }
+  #header::before {
+    content: ""; position: absolute; inset: 0 0 auto 0; height: 4px; background: var(--fdr-frevo);
+  }
+  .fdr-brand { display: inline-flex; align-items: center; gap: 12px; text-decoration: none; }
+  .fdr-brand:hover, .fdr-brand:focus { text-decoration: none; }
+  .fdr-brand__badge {
+    display: inline-flex; align-items: center; padding: 3px 10px 3px 6px; border-radius: 10px;
+    background: var(--fdr-badge-bg);
+  }
+  .fdr-brand__badge img { display: block; height: 36px; width: auto; }
+  .fdr-brand__title {
+    font-family: "Alfa Slab One", Georgia, serif; font-weight: 400; font-size: 1.15rem; letter-spacing: .01em;
+    color: var(--header-branding-color);
+  }
+  @media (max-width: 767px) {
+    .fdr-brand__title { display: none; }
+  }
+</style>
+{% endblock %}
+
+{% block extrahead %}{{ block.super }}
+<link rel="icon" href="{{ brand.favicon_src }}">
+<meta name="theme-color" content="{{ brand.theme_color }}">
+{% endblock %}
+
+{% block branding %}
+<div id="site-name">
+  <a class="fdr-brand" href="{% url 'admin:index' %}">
+    <span class="fdr-brand__badge"><img src="{{ brand.logo_src }}" alt="{{ brand.logo_alt }}" width="122" height="36"></span>
+    <span class="fdr-brand__title">{{ site_header|default:"Administração" }}</span>
+  </a>
+</div>
+{% if user.is_anonymous %}
+  {% include "admin/color_theme_toggle.html" %}
+{% endif %}
+{% endblock %}
+
+{% block nav-global %}{% endblock %}

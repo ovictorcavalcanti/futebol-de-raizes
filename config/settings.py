@@ -162,13 +162,16 @@ CACHES = {
 # --- Marca ------------------------------------------------------------------
 # Configuração do logo: troque por variáveis de ambiente, sem mexer no código.
 # BRAND_LOGO_URL e BRAND_LOGO_DARK_URL aceitam caminho estático ("img/logo.svg")
-# ou URL absoluta. Com BRAND_LOGO_DARK_URL vazio, o tema escuro usa o mesmo logo.
+# ou URL absoluta. Com BRAND_LOGO_DARK_URL vazio: o logo padrão usa a versão para
+# fundo escuro (img/logo-dark.svg); um logo próprio se repete no tema escuro.
+DEFAULT_BRAND_LOGO = "img/logo.svg"
+BRAND_LOGO = env("BRAND_LOGO_URL") or DEFAULT_BRAND_LOGO
 BRAND = {
     "name": env("BRAND_NAME", "Futebol de Raízes"),
     "short_name": env("BRAND_SHORT_NAME", "Raízes"),
     "tagline": env("BRAND_TAGLINE", "O futebol pernambucano, lance a lance"),
-    "logo_url": env("BRAND_LOGO_URL", "img/logo.svg"),
-    "logo_dark_url": env("BRAND_LOGO_DARK_URL", "img/logo-dark.svg"),
+    "logo_url": BRAND_LOGO,
+    "logo_dark_url": env("BRAND_LOGO_DARK_URL") or ("img/logo-dark.svg" if BRAND_LOGO == DEFAULT_BRAND_LOGO else ""),
     "logo_alt": env("BRAND_LOGO_ALT", "Futebol de Raízes"),
     "favicon_url": env("BRAND_FAVICON_URL", "img/favicon.svg"),
     "theme_color": env("BRAND_THEME_COLOR", "#12306B"),

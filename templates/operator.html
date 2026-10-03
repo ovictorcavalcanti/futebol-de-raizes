@@ -10,6 +10,7 @@
   <link rel="modulepreload" href="{% static 'js/crest.js' %}">
   <link rel="modulepreload" href="{% static 'js/format.js' %}">
   <link rel="modulepreload" href="{% static 'js/clock.js' %}">
+  <link rel="modulepreload" href="{% static 'js/api.js' %}">
 {% endblock %}
 {% block main %}
 <div class="container">
@@ -96,11 +97,15 @@
 
         <div id="op-work" class="op-work" data-hook="work" hidden>
           <div class="stack" style="--stack-gap:16px">
-            <section class="card card__body" aria-labelledby="actions-title">
-              <h2 id="actions-title" class="op-section-title"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Lançar lance</h2>
-              <div id="action-grid" class="action-grid" data-hook="action-grid"></div>
-              <h3 class="op-section-title" style="margin-top:20px"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>Status da partida</h3>
-              <div id="status-actions" class="status-actions" data-hook="status-actions"></div>
+            <section class="card card__body op-actions" aria-label="Ações da partida" data-hook="actions-card">
+              <div data-hook="actions-block">
+                <h2 id="actions-title" class="op-section-title"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Lançar lance</h2>
+                <div id="action-grid" class="action-grid" data-hook="action-grid" role="group" aria-labelledby="actions-title"></div>
+              </div>
+              <div class="op-actions__status" data-hook="status-block">
+                <h3 id="status-actions-title" class="op-section-title"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>Status da partida</h3>
+                <div id="status-actions" class="status-actions" data-hook="status-actions" role="group" aria-labelledby="status-actions-title"></div>
+              </div>
             </section>
 
             <section id="event-form-card" class="card card__body" data-hook="event-form-card" aria-labelledby="event-form-title" hidden>
@@ -115,7 +120,14 @@
                     <ul class="notice__list" data-hook="event-warnings-list"></ul>
                   </div>
                 </div>
-                <p id="event-error" class="field__error" role="alert" data-hook="event-error" hidden></p>
+                <p id="event-error" class="field__error" role="alert" data-hook="event-error" tabindex="-1" hidden></p>
+                <div class="field">
+                  <label class="field__label" for="event-type">Tipo de lance</label>
+                  <span class="select">
+                    <select id="event-type" data-hook="event-type"></select>
+                    <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+                  </span>
+                </div>
                 <div class="event-form__fields" data-hook="event-fields"></div>
                 <div class="event-form__actions">
                   <button type="button" class="btn btn--ghost" data-hook="event-cancel">Cancelar</button>
@@ -143,7 +155,10 @@
 <dialog id="confirm-dialog" class="dialog" aria-labelledby="confirm-title">
   <form method="dialog" class="dialog__form">
     <div class="dialog__head"><h2 id="confirm-title" class="dialog__title" data-hook="confirm-title">Confirmar</h2></div>
-    <div class="dialog__body"><p data-hook="confirm-text"></p></div>
+    <div class="dialog__body">
+      <p data-hook="confirm-text"></p>
+      <ul class="notice__list" data-hook="confirm-list" hidden></ul>
+    </div>
     <div class="dialog__foot">
       <button type="submit" value="cancel" class="btn btn--ghost" formnovalidate>Voltar</button>
       <button type="submit" value="confirm" class="btn btn--primary" data-hook="confirm-ok">Confirmar</button>

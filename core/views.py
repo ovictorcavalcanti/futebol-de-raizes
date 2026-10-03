@@ -2,7 +2,7 @@ from django.conf import settings
 from django.db import connection
 from django.http import Http404, JsonResponse
 from django.shortcuts import render
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_safe
 
 PAGE_CACHE = "public, max-age=300"
 
@@ -13,24 +13,24 @@ def _page(request, template, **context):
     return response
 
 
-@require_GET
+@require_safe
 def home_page(request):
     return _page(request, "index.html", page="home")
 
 
-@require_GET
+@require_safe
 def competition_page(request):
     return _page(request, "competition.html", page="competition")
 
 
-@require_GET
+@require_safe
 def operator_page(request):
     response = _page(request, "operator.html", page="operator")
     response["Cache-Control"] = "no-store"
     return response
 
 
-@require_GET
+@require_safe
 def styleguide_page(request):
     """Guia de estilo para QA visual: só existe com DEBUG ligado."""
     if not settings.DEBUG:
@@ -40,9 +40,9 @@ def styleguide_page(request):
     return response
 
 
-@require_GET
+@require_safe
 def health(request):
-    """Healthcheck: responde 200 quando o processo e o banco estão de pé."""
+    """Healthcheck: responde 200 quando o processo e o banco estão de pé (GET ou HEAD)."""
     try:
         with connection.cursor() as cursor:
             cursor.execute("SELECT 1")

@@ -9,6 +9,9 @@
   <link rel="modulepreload" href="{% static 'js/crest.js' %}">
   <link rel="modulepreload" href="{% static 'js/clock.js' %}">
   <link rel="modulepreload" href="{% static 'js/standings.js' %}">
+  <link rel="modulepreload" href="{% static 'js/api.js' %}">
+  <link rel="modulepreload" href="{% static 'js/stream.js' %}">
+  <link rel="modulepreload" href="{% static 'js/alerts.js' %}">
 {% endblock %}
 {% block main %}
 <div class="container">
@@ -37,6 +40,7 @@
         </button>
       </div>
     </div>
+    <p id="notifications-hint" class="goals__hint" data-hook="notifications-hint" hidden>As notificações do sistema só funcionam com HTTPS.</p>
     <div id="goal-alert" class="goal-alert-region" aria-live="polite" data-hook="goal-alert"></div>
     <ol id="latest-goals-list" class="goals__list" data-hook="latest-goals-list" aria-label="Gols mais recentes, do mais novo ao mais antigo"></ol>
     <p id="latest-goals-empty" class="goals__empty" data-hook="latest-goals-empty" hidden>Nenhum gol hoje ainda. Paciência, que ele vem.</p>

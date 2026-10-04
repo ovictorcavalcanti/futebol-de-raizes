@@ -942,12 +942,13 @@ function matchScoreLine(goal) {
   const m = goal.match || {};
   const s = goal.score_after || { home: 0, away: 0 };
   const isHome = goal.team_side === 'home';
+  // time do gol em destaque: escudo maior com anel e nome forte; o adversário fica discreto
+  const crest = (team, scorer) => createCrest(team, { size: scorer ? 24 : 14, className: scorer ? 'is-scorer' : 'is-other' });
+  const name = (team, scorer) => h('span', { class: scorer ? 'is-scorer' : 'is-other', text: team?.short_name || '' });
   return h('span', { class: 'goal-chip__match' },
-    createCrest(m.home, { size: 16 }),
-    h('span', { class: isHome ? 'is-scorer' : null, text: m.home?.short_name || '' }),
-    h('span', { text: formatScore(s.home, s.away) }),
-    h('span', { class: !isHome ? 'is-scorer' : null, text: m.away?.short_name || '' }),
-    createCrest(m.away, { size: 16 }),
+    crest(m.home, isHome), name(m.home, isHome),
+    h('span', { class: 'goal-chip__score', text: formatScore(s.home, s.away) }),
+    name(m.away, !isHome), crest(m.away, !isHome),
   );
 }
 

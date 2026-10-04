@@ -11,7 +11,8 @@ decide sozinho entre fim de jogo, prorrogação e pênaltis (`domain.available_a
 
 Este módulo também guarda as peças que o seed usa para lançar jogos inteiros com
 horários do passado (`at=`): `Squad` (quem está em campo), `Poster` (lança e
-imprime), `Play`/`MatchClock` (roteiro e relógio de um jogo) e `PlayRunner` (lança o roteiro).
+imprime), `Play`/`MatchClock` (roteiro e relógio de um jogo), `PlayRunner` (lança o roteiro)
+e `roster` (elenco de nomes plausíveis, em memória: jogadores não têm cadastro).
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ from datetime import datetime, timedelta
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 
-from competitions.models import Player, Team
+from competitions.models import Team
 from core import timeutils
 from matches import context, domain, services
 from matches.domain import EventType, NewEvent, Period, Status
@@ -41,10 +42,26 @@ SHOOTOUT_ORDER = {"FW": 0, "MF": 1, "DF": 2, "GK": 3}
 MAX_SUBSTITUTIONS = 5
 PERIOD_INDEX = domain.PERIOD_ORDER
 
-FALLBACK_NAMES = (
-    "Matheus Lima", "Caio Ferreira", "Igor Santos", "Diego Araújo", "Rafael Melo", "Bruno Costa",
-    "Thiago Souza", "Felipe Rocha", "Lucas Barbosa", "Renan Alves", "Vinícius Gomes", "Danilo Pires",
-    "Hugo Tavares", "Samuel Leite", "Iago Moura", "Ramon Lins",
+FIRST_NAMES = (
+    "Matheus", "Gabriel", "Lucas", "Rafael", "Thiago", "Felipe", "Bruno", "Diego", "Igor", "Caio", "Vinícius",
+    "Rodrigo", "André", "Leandro", "Wellington", "Jefferson", "Anderson", "Everton", "Renan", "Marcos", "Paulo",
+    "Danilo", "Hugo", "Samuel", "Ramon", "Gustavo", "Luan", "Kauã", "Arthur", "Davi", "Pedro", "João", "Cícero",
+    "Josué", "Edson", "Fábio", "Márcio", "Wagner", "Erick", "Iago", "Wesley", "Alisson", "Robson", "Elias",
+    "Jonas", "Ítalo", "Jadson", "Wanderson", "Elton", "Patrick", "Rômulo", "Talles", "Yuri", "Douglas", "Emerson",
+)
+SURNAMES = (
+    "Silva", "Santos", "Oliveira", "Souza", "Lima", "Pereira", "Ferreira", "Costa", "Rodrigues", "Almeida",
+    "Nascimento", "Araújo", "Barbosa", "Cavalcanti", "Albuquerque", "Melo", "Ribeiro", "Carvalho", "Gomes",
+    "Freitas", "Monteiro", "Bezerra", "Tavares", "Lins", "Moura", "Pessoa", "Cordeiro", "Batista", "Brandão",
+    "Siqueira", "Veloso", "Queiroz", "Rocha", "Farias", "Leite", "Macedo", "Galvão", "Pontes", "Marinho", "Aragão",
+)
+NICKNAMES = (
+    "Dudu", "Biel", "Netinho", "Thiaguinho", "Pedrinho", "Juninho", "Zé Roberto", "Toinho", "Ciço", "Galego",
+    "Nino", "Didi", "Tonhão", "Caíque", "Juca", "Tita", "Bilu", "Nem", "Léo Paraíba", "Jajá",
+)
+ROSTER = (  # posição e número de cada um dos 18 jogadores do elenco
+    ("GK", 1), ("DF", 2), ("DF", 3), ("DF", 4), ("MF", 5), ("DF", 6), ("FW", 7), ("MF", 8), ("FW", 9),
+    ("MF", 10), ("FW", 11), ("GK", 12), ("DF", 13), ("DF", 14), ("MF", 15), ("MF", 16), ("FW", 17), ("FW", 18),
 )
 
 VAR_INCIDENTS = (
@@ -77,10 +94,27 @@ def sleep(seconds: float) -> None:
 
 @dataclass(frozen=True)
 class SquadPlayer:
+    """Jogador do elenco (em memória): jogadores não têm cadastro, só nome."""
+
     name: str
-    player_id: int | None = None
     position: str = ""
     number: int | None = None
+
+
+def roster(team: Team) -> list[SquadPlayer]:
+    """Elenco de 18 nomes plausíveis do time, sempre o mesmo para o mesmo nome de time
+    (sorteio com semente fixa), com posição e número. Nada é gravado no banco."""
+    rng = random.Random(f"elenco:{team.name}")
+    used: set[str] = set()
+    players = []
+    for position, number in ROSTER:
+        for _ in range(50):
+            name = rng.choice(NICKNAMES) if rng.random() < 0.22 else f"{rng.choice(FIRST_NAMES)} {rng.choice(SURNAMES)}"
+            if name not in used:
+                break
+        used.add(name)
+        players.append(SquadPlayer(name, position, number))
+    return players
 
 
 class Squad:
@@ -105,39 +139,22 @@ class Squad:
         return self.team.pk
 
     def key(self, player: SquadPlayer) -> str:
-        return domain.player_key(self.team_id, player.player_id, player.name)
+        return domain.player_key(self.team_id, None, player.name)
 
     @classmethod
     def for_match(cls, match: Match, team: Team, rng: random.Random | None = None) -> Squad:
-        """Escalação da partida; sem ela, os jogadores ativos do time (4-4-2); sem
-        jogadores cadastrados, nomes fictícios (sem id)."""
-        entries = list(
-            MatchLineupPlayer.objects.filter(lineup__match=match, lineup__team=team)
-            .select_related("player")
-            .order_by("-starter", "order", "id")
-        )
+        """Escalação da partida; sem ela, um elenco de nomes gerados (`roster`, 4-4-2)."""
+        entries = list(MatchLineupPlayer.objects.filter(lineup__match=match, lineup__team=team).order_by("-starter", "order", "id"))
         if entries:
             starters = [cls._from_entry(entry) for entry in entries if entry.starter]
             bench = [cls._from_entry(entry) for entry in entries if not entry.starter]
             return cls(team, starters, bench)
-        players = list(Player.objects.filter(team=team, active=True).order_by("number", "name"))
-        if players:
-            starters, bench = pick_eleven(players, (4, 4, 2))
-            return cls(team, [cls._from_player(p) for p in starters], [cls._from_player(p) for p in bench])
-        names = list(FALLBACK_NAMES)
-        (rng or random.Random(team.pk)).shuffle(names)
-        positions = ["GK", "DF", "DF", "DF", "DF", "MF", "MF", "MF", "MF", "FW", "FW", "GK", "DF", "MF", "FW", "FW"]
-        squad = [SquadPlayer(f"{name} ({team.short_name})", None, pos, n) for n, (name, pos) in enumerate(zip(names, positions, strict=True), 1)]
-        return cls(team, squad[:11], squad[11:])
+        starters, bench = pick_eleven(roster(team), (4, 4, 2))
+        return cls(team, starters, bench)
 
     @staticmethod
     def _from_entry(entry: MatchLineupPlayer) -> SquadPlayer:
-        position = entry.position or (entry.player.position if entry.player_id else "")
-        return SquadPlayer(entry.display_name, entry.player_id, position, entry.number)
-
-    @staticmethod
-    def _from_player(player: Player) -> SquadPlayer:
-        return SquadPlayer(player.name, player.pk, player.position, player.number)
+        return SquadPlayer(entry.name, entry.position, entry.number)
 
     def sync(self, state: domain.MatchState) -> None:
         """Ajusta quem está em campo pelo estado derivado dos eventos já lançados."""
@@ -289,7 +306,6 @@ class Poster:
             minute=minute,
             stoppage=stoppage or None,
             team_id=self.squads[side].team_id if side else None,
-            player_id=player.player_id if player is not None and type_ != EventType.SUBSTITUTION else None,
             payload=payload,
             annuls_event_id=annuls_event_id,
         )
@@ -557,10 +573,6 @@ class PlayRunner:
                 return None
             leaving, entering = change
             payload = {"player_out": leaving.name, "player_in": entering.name}
-            if leaving.player_id:
-                payload["player_out_id"] = leaving.player_id
-            if entering.player_id:
-                payload["player_in_id"] = entering.player_id
             result = post(EventType.SUBSTITUTION, at=at, minute=minute, stoppage=stoppage, side=side, payload=payload)
             squad.substituted(leaving, entering)
             return result

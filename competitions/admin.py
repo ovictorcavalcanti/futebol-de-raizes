@@ -1,5 +1,13 @@
-"""Django Admin dos cadastros: competições, temporadas, fases, grupos, rodadas,
-times e jogadores — e as regras da classificação de cada fase.
+"""Django Admin dos cadastros: competições, temporadas, fases, grupos e times — e
+as regras da classificação de cada fase (critérios, zonas e punições em pontos).
+
+Navegação por competição: o índice do admin mostra só Competições e Times (e, para o
+Administrador, usuários, perfis, chaves e auditoria). Temporada, fase, grupo, rodada,
+partida, confronto e escalação somem do índice (`HiddenFromIndexMixin`; os endereços e
+as permissões continuam valendo) e são abertos descendo a hierarquia:
+Competição › Temporada › Fase › Rodada › Jogo, com essa trilha no topo de cada página
+(`HierarchyAdminMixin`, template `admin/fdr/change_form.html`). A rodada e a partida
+ficam em matches/admin.py (as listas delas são de partidas e confrontos).
 
 Toda escrita que muda o que as páginas mostram passa pelo mesmo núcleo:
 
@@ -12,8 +20,12 @@ Toda escrita que muda o que as páginas mostram passa pelo mesmo núcleo:
 * Formato da fase só muda enquanto ela não tem partidas (nem confrontos); mata-mata
   fica sem grupos e fase com tabela ganha os critérios padrão quando não tem nenhum.
   Grupo e rodada com partidas não mudam de fase.
+* Punições/bonificações (`standings.PointAdjustment`, inline da fase): o time precisa
+  estar num grupo da fase; gravar ou apagar recalcula a fase e publica a classificação
+  (`on_stage_rules_changed`).
 * Toda gravação e exclusão pega antes a trava de escrita (`BaseAdmin`), como um
-  lançamento. A classificação gravada é cache: vai junto quando se apaga fase ou grupo.
+  lançamento. A classificação gravada é cache: vai junto quando se apaga fase ou grupo
+  (e não tem página no admin: o sistema a recalcula sozinho).
 
 O que cada usuário vê e pode fazer sai das permissões do perfil (accounts/roles.py).
 """
@@ -26,8 +38,9 @@ from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin.widgets import AutocompleteSelect
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.forms.models import BaseInlineFormSet
+from django.http import HttpResponseRedirect
 from django.urls import reverse
 from django.utils.html import format_html, format_html_join
 
@@ -36,13 +49,12 @@ from observability.admin import AuditedModelAdmin
 from realtime.outbox import enqueue
 from standings import services as standings_services
 from standings.domain import CRITERIA, ConfigError, Rules, Zone, validate_rules
-from standings.models import Standing
+from standings.models import PointAdjustment, Standing
 
 from .models import (
     Competition,
     Group,
     GroupTeam,
-    Player,
     Round,
     Season,
     Stage,
@@ -66,7 +78,6 @@ FK_SELECT_RELATED = {
     Season: ("competition",),
     Stage: ("season__competition",),
     Group: ("stage__season__competition",),
-    Player: ("team",),
 }
 
 
@@ -160,6 +171,116 @@ class StandingCacheDeletionMixin:
         to_delete, model_count, perms_needed, protected = super().get_deleted_objects(objs, request)
         perms_needed.discard(Standing._meta.verbose_name)
         return to_delete, model_count, perms_needed, protected
+
+
+# --- Navegação por competição ----------------------------------------------------------------
+
+STANDINGS_HELP = (
+    "A classificação não tem página própria e ninguém a edita: o sistema a recalcula sozinho "
+    "a cada lance, a partir dos jogos desta fase, da pontuação, dos critérios de desempate e das "
+    "punições abaixo. Há duas versões: a oficial conta só os jogos encerrados; a ao vivo inclui "
+    "também os jogos em andamento — é a que as páginas públicas mostram."
+)
+
+
+class HiddenFromIndexMixin:
+    """Fora do índice e da barra lateral do admin: a página é aberta descendo a
+    hierarquia (competição › temporada › fase › rodada › jogo). Os endereços, a lista
+    do app (/admin/<app>/) e as permissões continuam iguais; só o atalho global some."""
+
+    def get_model_perms(self, request):
+        match = getattr(request, "resolver_match", None)
+        if match is not None and match.url_name == "app_list":
+            return super().get_model_perms(request)
+        return {}
+
+
+def change_url_of(obj) -> str:
+    return reverse(f"admin:{obj._meta.app_label}_{obj._meta.model_name}_change", args=[obj.pk])
+
+
+def hierarchy(obj) -> list[dict]:
+    """Trilha Competição › Temporada › Fase › (Grupo | Rodada › (Confronto | Jogo › Escalação))
+    até `obj` (inclusive): [{"label", "url"}]."""
+    if obj is None:
+        return []
+    name = obj._meta.model_name
+    if name == "competition":
+        return [{"label": obj.name, "url": change_url_of(obj)}]
+    if name == "season":
+        return [*hierarchy(obj.competition), {"label": f"Temporada {obj.year}", "url": change_url_of(obj)}]
+    if name == "stage":
+        return [*hierarchy(obj.season), {"label": obj.name, "url": change_url_of(obj)}]
+    if name in ("group", "round"):
+        label = obj.name if name == "group" else obj.label
+        return [*hierarchy(obj.stage), {"label": label, "url": change_url_of(obj)}]
+    if name == "tie":
+        parent = obj.round if obj.round_id else obj.stage
+        return [*hierarchy(parent), {"label": f"Confronto: {obj}", "url": change_url_of(obj)}]
+    if name == "match":
+        parent = obj.round if obj.round_id else (obj.tie.round if obj.tie_id else obj.stage)
+        label = f"{obj.home_team.short_name or obj.home_team} × {obj.away_team.short_name or obj.away_team}"
+        return [*hierarchy(parent), {"label": f"Jogo {label}", "url": change_url_of(obj)}]
+    if name == "matchlineup":
+        return [*hierarchy(obj.match), {"label": f"Escalação: {obj.team}", "url": change_url_of(obj)}]
+    return [{"label": str(obj), "url": change_url_of(obj)}]
+
+
+class HierarchyAdminMixin:
+    """Página de alteração com a trilha da hierarquia (Início › Competição › … › objeto)
+    e "Salvar" voltando para o nível de cima (não para a lista global, que saiu do índice).
+
+    `parent_field` = campo do pai; `parent_model_attr` = (nome do parâmetro GET da página de
+    inclusão, modelo do pai) para a trilha da inclusão (ex.: ?season=3 na inclusão da fase)."""
+
+    change_form_template = "admin/fdr/change_form.html"
+    parent_params: tuple[tuple[str, type], ...] = ()
+
+    def parent_of(self, obj):
+        crumbs = hierarchy(obj)
+        return crumbs[-2]["url"] if len(crumbs) > 1 else None
+
+    def add_parent(self, request):
+        for param, model in self.parent_params:
+            value = request.GET.get(param)
+            if value and str(value).isdigit():
+                parent = model._default_manager.filter(pk=value).first()
+                if parent is not None:
+                    return parent
+        return None
+
+    def breadcrumbs(self, request, obj) -> list[dict]:
+        if obj is not None and obj.pk is not None:
+            return hierarchy(obj)
+        crumbs = hierarchy(self.add_parent(request))
+        return [*crumbs, {"label": f"Adicionar {self.model._meta.verbose_name}", "url": None}]
+
+    def object_tools(self, request, obj) -> list[dict]:
+        return []
+
+    def render_change_form(self, request, context, add=False, change=False, form_url="", obj=None):
+        context["fdr_breadcrumbs"] = self.breadcrumbs(request, obj)
+        context["fdr_object_tools"] = self.object_tools(request, obj) if obj is not None else []
+        return super().render_change_form(request, context, add=add, change=change, form_url=form_url, obj=obj)
+
+    def _redirect_up(self, request, obj, default):
+        if "_continue" in request.POST or "_addanother" in request.POST or "_saveasnew" in request.POST:
+            return default
+        parent = self.parent_of(obj)
+        return HttpResponseRedirect(parent) if parent else default
+
+    def response_post_save_change(self, request, obj):
+        return self._redirect_up(request, obj, super().response_post_save_change(request, obj))
+
+    def response_post_save_add(self, request, obj):
+        return self._redirect_up(request, obj, super().response_post_save_add(request, obj))
+
+
+def open_link(obj, label: str = "abrir"):
+    """Link "abrir" de uma linha de inline (vazio enquanto a linha não foi salva)."""
+    if obj is None or obj.pk is None:
+        return "—"
+    return format_html('<a href="{}">{}</a>', change_url_of(obj), label)
 
 
 class BaseAdmin(AdminFormMixin, AuditedModelAdmin):
@@ -397,18 +518,98 @@ class GroupFormSet(BaseInlineFormSet):
 
 
 class GroupInline(Inline):
+    """Grupos da fase, cada um com o link para os times dele. Pontos corridos tem o
+    grupo único automático (“Tabela”): sem incluir nem apagar."""
+
     model = Group
     formset = GroupFormSet
-    fields = ("name",)
-    show_change_link = True
+    fields = ("name", "teams_link")
+    readonly_fields = ("teams_link",)
     verbose_name_plural = "grupos (os times de cada grupo ficam na página do grupo)"
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).annotate(teams_count=Count("group_teams"))
+
+    def has_add_permission(self, request, obj=None):
+        if obj is not None and obj.format == Stage.Format.LEAGUE:
+            return False
+        return super().has_add_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if obj is not None and obj.format == Stage.Format.LEAGUE:
+            return False
+        return super().has_delete_permission(request, obj)
+
+    @admin.display(description="times")
+    def teams_link(self, obj):
+        if obj is None or obj.pk is None:
+            return "Salve para cadastrar os times."
+        return format_html('<a href="{}">Times do grupo ({})</a>', change_url_of(obj), getattr(obj, "teams_count", 0))
 
 
 class RoundInline(Inline):
+    """Rodadas da fase; cada uma abre a página com os jogos (e, no mata-mata, os confrontos)."""
+
     model = Round
-    fields = ("number", "name")
+    fields = ("number", "name", "matches_link")
+    readonly_fields = ("matches_link",)
     ordering = ("number",)
-    classes = ("collapse",)
+
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .select_related("stage")
+            .annotate(matches_count=Count("matches", distinct=True), ties_count=Count("ties", distinct=True))
+        )
+
+    @admin.display(description="jogos")
+    def matches_link(self, obj):
+        if obj is None or obj.pk is None:
+            return "Salve para cadastrar os jogos."
+        if obj.stage.format == Stage.Format.KNOCKOUT:
+            label = f"Confrontos e jogos ({getattr(obj, 'ties_count', 0)} confrontos, {getattr(obj, 'matches_count', 0)} jogos)"
+        else:
+            label = f"Jogos da rodada ({getattr(obj, 'matches_count', 0)})"
+        return format_html('<a href="{}">{}</a>', change_url_of(obj), label)
+
+
+class PointAdjustmentForm(forms.ModelForm):
+    class Meta:
+        model = PointAdjustment
+        fields = ("team", "points", "reason")
+
+    def clean_points(self):
+        points = self.cleaned_data.get("points")
+        if points == 0:
+            raise forms.ValidationError("Informe um número diferente de zero (negativo tira pontos).")
+        return points
+
+
+class PointAdjustmentInline(Inline):
+    """Punição (pontos negativos) ou bonificação (positivos) de um time na fase.
+    Gravar ou apagar recalcula as tabelas da fase e publica a classificação."""
+
+    model = PointAdjustment
+    form = PointAdjustmentForm
+    fields = ("team", "points", "reason", "created_at")
+    readonly_fields = ("created_at",)
+    ordering = ("created_at", "id")
+    verbose_name = "punição ou bonificação"
+    verbose_name_plural = "punições e bonificações em pontos (negativo = time perde pontos)"
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("team")
+
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        field = formset.form.base_fields["team"]
+        # Só os times dos grupos da fase (a escolha fora deles é recusada), sem atalhos de cadastro.
+        field.queryset = Team.objects.filter(group_entries__group__stage=obj).distinct().order_by("name") if obj else Team.objects.none()
+        field.choices = list(field.choices)  # lida uma vez para todas as linhas
+        for flag in ("can_add_related", "can_change_related", "can_delete_related", "can_view_related"):
+            setattr(field.widget, flag, False)
+        return formset
 
 
 # --- Competição, temporada e fase -------------------------------------------------------
@@ -416,24 +617,73 @@ class RoundInline(Inline):
 
 class SeasonInline(Inline):
     model = Season
-    fields = ("year",)
-    show_change_link = True
+    fields = ("year", "open")
+    readonly_fields = ("open",)
+    ordering = ("-year",)
+    verbose_name_plural = "temporadas"
+
+    @admin.display(description="página")
+    def open(self, obj):
+        return open_link(obj, "abrir (fases)")
 
 
 @admin.register(Competition)
-class CompetitionAdmin(StandingCacheDeletionMixin, BaseAdmin):
+class CompetitionAdmin(HierarchyAdminMixin, StandingCacheDeletionMixin, BaseAdmin):
+    """Ponto de entrada: competição → temporadas → fases → rodadas → jogos."""
+
     list_display = ("name", "short_name", "slug", "position", "seasons_list")
     list_editable = ("position",)
     search_fields = ("name", "short_name", "slug")
     prepopulated_fields = {"slug": ("name",)}
     inlines = [SeasonInline]
+    readonly_fields = ("stages_panel",)
+    fieldsets = (
+        (None, {"fields": ("name", "short_name", "slug", "position")}),
+        (
+            "Fases de cada temporada",
+            {
+                "fields": ("stages_panel",),
+                "description": "Abra a fase para cuidar de grupos, rodadas, jogos e classificação.",
+            },
+        ),
+    )
 
     def get_queryset(self, request):
         return super().get_queryset(request).prefetch_related("seasons")
 
+    def get_fieldsets(self, request, obj=None):
+        fieldsets = super().get_fieldsets(request, obj)
+        return fieldsets if obj is not None else fieldsets[:1]
+
     @admin.display(description="temporadas")
     def seasons_list(self, obj):
         return ", ".join(str(season.year) for season in obj.seasons.all()) or "—"
+
+    @admin.display(description="fases")
+    def stages_panel(self, obj):
+        if obj is None or obj.pk is None:
+            return "—"
+        seasons = list(obj.seasons.order_by("-year").prefetch_related("stages"))
+        if not seasons:
+            return "Cadastre uma temporada abaixo e salve: depois é só abrir a temporada para criar as fases."
+        add_url = reverse("admin:competitions_stage_add")
+        rows = []
+        for season in seasons:
+            stages = sorted(season.stages.all(), key=lambda stage: (stage.position, stage.pk))
+            links = format_html_join(
+                " · ",
+                "{} <small>({})</small>",
+                ((admin_link(stage, stage.name), stage.get_format_display()) for stage in stages),
+            )
+            rows.append(
+                (
+                    admin_link(season, f"Temporada {season.year}"),
+                    links or "nenhuma fase ainda",
+                    format_html('<a href="{}?season={}">+ adicionar fase</a>', add_url, season.pk),
+                )
+            )
+        items = format_html_join("", '<li style="margin:0 0 .4em">{}: {} · {}</li>', rows)
+        return format_html('<ul style="margin:0;padding-left:1.1em">{}</ul>', items)
 
 
 def format_change_problem(stage: Stage, new_format: str) -> str | None:
@@ -449,6 +699,8 @@ def format_change_problem(stage: Stage, new_format: str) -> str | None:
         return "A fase tem confrontos cadastrados: apague-os antes de mudar o formato."
     if new_format == Stage.Format.KNOCKOUT and GroupTeam.objects.filter(group__stage=stage).exists():
         return "A fase tem times nos grupos: tire-os antes de transformá-la em mata-mata (mata-mata não tem grupos)."
+    if new_format == Stage.Format.KNOCKOUT and stage.point_adjustments.exists():
+        return "A fase tem punições em pontos: apague-as antes de transformá-la em mata-mata (mata-mata não tem tabela)."
     if new_format == Stage.Format.LEAGUE and stage.groups.count() > 1:
         return "Pontos corridos tem um grupo só: apague os grupos a mais antes de mudar o formato."
     return None
@@ -488,14 +740,13 @@ class StageInlineForm(StageFormatMixin, forms.ModelForm):
 
 
 class StageInline(Inline):
-    """Fases da temporada. Pontuação, critérios e zonas ficam na página da fase."""
+    """Fases da temporada. Pontuação, critérios, zonas, grupos e rodadas ficam na página da fase."""
 
     model = Stage
     form = StageInlineForm
-    fields = ("name", "position", "format", "points_summary")
-    readonly_fields = ("points_summary",)
+    fields = ("name", "position", "format", "points_summary", "open")
+    readonly_fields = ("points_summary", "open")
     ordering = ("position", "id")
-    show_change_link = True
 
     @admin.display(description="pontuação (V/E/D)")
     def points_summary(self, obj):
@@ -503,15 +754,23 @@ class StageInline(Inline):
             return "3/1/0 (padrão)"
         return f"{obj.points_win}/{obj.points_draw}/{obj.points_loss}"
 
+    @admin.display(description="página")
+    def open(self, obj):
+        return open_link(obj, "abrir (grupos, rodadas, jogos)")
+
 
 @admin.register(Season)
-class SeasonAdmin(StandingCacheDeletionMixin, BaseAdmin):
+class SeasonAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, StandingCacheDeletionMixin, BaseAdmin):
     list_display = ("__str__", "competition", "year")
     list_filter = ("competition",)
     search_fields = ("competition__name", "competition__short_name", "year")
     list_select_related = ("competition",)
     autocomplete_fields = ("competition",)
     inlines = [StageInline]
+    parent_params = (("competition", Competition),)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("competition")
 
     def save_formset(self, request, form, formset, change):
         super().save_formset(request, form, formset, change)
@@ -528,26 +787,46 @@ class SeasonAdmin(StandingCacheDeletionMixin, BaseAdmin):
                 standings_services.on_stage_rules_changed(stage, recalc="format" in changed)
 
 
+class WriteLockedPostMixin:
+    """POST do formulário inteiro — validação e gravação — dentro da trava global de
+    escrita (`core.locks`), na fila dos lançamentos.
+
+    * As conferências do formulário (jogo repetido no confronto, número de jogos,
+      lançamentos refeitos) leem o banco: sem a trava, dois "Salvar" simultâneos (ou o
+      clique duplo) passariam os dois; com ela, o segundo vê o primeiro e recebe o erro
+      do formulário (o banco ainda recusa, por `uniq_match_tie_leg` e pelos gatilhos).
+    * Ordem única de travas: a linha do confronto só é gravada depois da trava global,
+      como no caminho dos lançamentos (que reapura o confronto) — sem deadlock.
+    """
+
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+        if request.method == "POST":
+            with locked_atomic():
+                return super().changeform_view(request, object_id, form_url, extra_context)
+        return super().changeform_view(request, object_id, form_url, extra_context)
+
+
 @admin.register(Stage)
-class StageAdmin(StandingCacheDeletionMixin, BaseAdmin):
+class StageAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, WriteLockedPostMixin, StandingCacheDeletionMixin, BaseAdmin):
     form = StageForm
     list_display = ("name", "season", "format", "position", "points_summary", "criteria_summary")
     list_filter = ("format", "season__competition", "season__year")
     search_fields = ("name", "season__competition__name", "season__competition__short_name")
     list_select_related = ("season__competition",)
     autocomplete_fields = ("season",)
-    readonly_fields = ("groups_links",)
+    readonly_fields = ("standings_link",)
+    parent_params = (("season", Season),)
     fieldsets = (
         (None, {"fields": ("season", "name", "position", "format")}),
         (
             "Pontuação",
             {
                 "fields": (("points_win", "points_draw", "points_loss"),),
-                "description": "Mudar a pontuação ou os critérios recalcula as tabelas da fase; "
+                "description": "Mudar a pontuação, os critérios ou as punições recalcula as tabelas da fase; "
                 "mudar zona ou cor só republica a classificação.",
             },
         ),
-        ("Grupos", {"fields": ("groups_links",)}),
+        ("De onde vem a classificação", {"fields": ("standings_link",), "description": STANDINGS_HELP}),
     )
 
     def get_queryset(self, request):
@@ -567,9 +846,8 @@ class StageAdmin(StandingCacheDeletionMixin, BaseAdmin):
             return [StageCriterionInline, StandingZoneInline, GroupInline, RoundInline]
         if obj.format == Stage.Format.KNOCKOUT:
             return [RoundInline]
-        if obj.format == Stage.Format.LEAGUE:
-            return [StageCriterionInline, StandingZoneInline, RoundInline]
-        return [StageCriterionInline, StandingZoneInline, GroupInline, RoundInline]
+        # O uso do dia a dia primeiro (rodadas e grupos); depois as regras da tabela.
+        return [RoundInline, GroupInline, PointAdjustmentInline, StageCriterionInline, StandingZoneInline]
 
     def get_formset_kwargs(self, request, obj, inline, prefix):
         kwargs = super().get_formset_kwargs(request, obj, inline, prefix)
@@ -586,11 +864,12 @@ class StageAdmin(StandingCacheDeletionMixin, BaseAdmin):
         apply_stage_format(stage)
         if not stage.has_table:
             return
-        criteria_changed = any(
-            formset.model is StageCriterion and (formset.new_objects or formset.changed_objects or formset.deleted_objects)
+        table_changed = any(
+            formset.model in (StageCriterion, PointAdjustment)
+            and (formset.new_objects or formset.changed_objects or formset.deleted_objects)
             for formset in formsets
         )
-        recalc = not change or criteria_changed or bool(POINTS_FIELDS & set(form.changed_data))
+        recalc = not change or table_changed or bool(POINTS_FIELDS & set(form.changed_data))
         try:
             standings_services.on_stage_rules_changed(stage, recalc=recalc)
         except ConfigError as exc:  # pragma: no cover - os formulários já validaram
@@ -608,17 +887,16 @@ class StageAdmin(StandingCacheDeletionMixin, BaseAdmin):
         keys = [item.key for item in sorted(obj.criteria.all(), key=lambda item: item.position)]
         return ", ".join(CRITERIA[key].label if key in CRITERIA else f"{key}?" for key in keys) or "—"
 
-    @admin.display(description="grupos")
-    def groups_links(self, obj):
+    @admin.display(description="tabela pública")
+    def standings_link(self, obj):
         if obj is None or obj.pk is None:
             return "—"
-        groups = list(obj.groups.order_by("name"))
-        if not groups:
-            return "—"
-        return format_html_join(" · ", "{}", ((admin_link(group, group.name),) for group in groups))
+        competition = obj.season.competition
+        url = f"{reverse('competition')}?slug={competition.slug}&stage={obj.pk}"
+        return format_html('<a href="{}" target="_blank" rel="noopener">Ver a classificação ao vivo na página da competição</a>', url)
 
 
-# --- Grupo e rodada -----------------------------------------------------------------------
+# --- Grupo ------------------------------------------------------------------------------------
 
 
 class GroupTeamFormSet(PreloadedChoicesFormSet):
@@ -704,8 +982,9 @@ class GroupForm(forms.ModelForm):
 
 
 @admin.register(Group)
-class GroupAdmin(StandingCacheDeletionMixin, BaseAdmin):
+class GroupAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, StandingCacheDeletionMixin, BaseAdmin):
     form = GroupForm
+    parent_params = (("stage", Stage),)
     list_display = ("name", "stage", "teams_count")
     list_filter = ("stage__season__competition", "stage")
     search_fields = ("name", "stage__name", "stage__season__competition__name")
@@ -753,44 +1032,13 @@ class GroupAdmin(StandingCacheDeletionMixin, BaseAdmin):
                 publish_stage_standings(stage)
 
 
-class RoundForm(forms.ModelForm):
-    class Meta:
-        model = Round
-        fields = ("stage", "number", "name")
-
-    def clean_stage(self):
-        stage = self.cleaned_data["stage"]
-        round_ = self.instance
-        if round_.pk and stage is not None and stage.pk != round_.stage_id and (round_.matches.exists() or round_.ties.exists()):
-            raise forms.ValidationError("A rodada já tem partidas ou confrontos: ela não muda de fase.")
-        return stage
-
-
-@admin.register(Round)
-class RoundAdmin(BaseAdmin):
-    form = RoundForm
-    list_display = ("__str__", "number", "stage")
-    list_filter = ("stage__season__competition", "stage")
-    search_fields = ("name", "number", "stage__name", "stage__season__competition__name")
-    list_select_related = ("stage__season__competition",)
-    autocomplete_fields = ("stage",)
-    ordering = ("stage", "number")
-
-
-# --- Time e jogador -------------------------------------------------------------------------
-
-
-class PlayerInline(Inline):
-    model = Player
-    fields = ("number", "name", "position", "active")
-    ordering = ("number", "name")
-
-    def get_queryset(self, request):
-        return super().get_queryset(request).select_related("team")  # `Player.__str__` usa a sigla do time
+# --- Time -------------------------------------------------------------------------------------
 
 
 @admin.register(Team)
 class TeamAdmin(BaseAdmin):
+    """Times. Jogadores não têm cadastro: o nome é digitado no lance e na escalação."""
+
     list_display = ("crest_small", "name", "short_name", "city", "primary_swatch", "secondary_swatch")
     list_display_links = ("crest_small", "name")
     search_fields = ("name", "short_name", "city")
@@ -799,7 +1047,6 @@ class TeamAdmin(BaseAdmin):
         (None, {"fields": ("name", "short_name", "city")}),
         ("Identidade", {"fields": (("color_primary", "color_secondary"), "crest_url", "crest_preview")}),
     )
-    inlines = [PlayerInline]
 
     @staticmethod
     def _crest(obj, size: int):
@@ -840,16 +1087,3 @@ class TeamAdmin(BaseAdmin):
     @admin.display(description="cor secundária")
     def secondary_swatch(self, obj):
         return color_swatch(obj.color_secondary)
-
-
-@admin.register(Player)
-class PlayerAdmin(BaseAdmin):
-    list_display = ("name", "team", "number", "position", "active")
-    list_filter = ("position", "active", "team")
-    search_fields = ("name", "team__name", "team__short_name")
-    list_select_related = ("team",)
-    autocomplete_fields = ("team",)
-    ordering = ("team__name", "number", "name")
-
-    def get_queryset(self, request):
-        return super().get_queryset(request).select_related("team")

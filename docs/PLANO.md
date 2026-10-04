@@ -145,6 +145,8 @@ Restrições que sustentam as regras:
 
 Depois do MVP entram `players`, `match_lineups`, `match_officials`, `match_broadcasts` e `match_stats`, além de público e renda como colunas de `matches`.
 
+> **Revisão depois da implementação:** o cadastro de jogadores (`players`) saiu. O nome do jogador é digitado no lance (`payload`) e na escalação (`match_lineup_players.name`); `match_events.player_id` foi removido. Ver `docs/CONTRACT.md`.
+
 ## Regras de domínio
 
 As regras vivem em quatro funções puras, testáveis sem banco: `apply_event`, `visible_events`, `compute_standings` e `compute_tie_result`.
@@ -414,7 +416,7 @@ O back vem inteiro antes do front: fases 0 a 6. O MVP fecha na fase 8; o CSS é 
 | Front | 7. Tela do operador | `operator.html`: login, lançamento de eventos, mudança de status e cancelamento | Um operador lança um jogo inteiro pela tela, sem chamar a API à mão |
 | Front | 8. Home e página da competição | `index.html` com menu, relógio, últimos gols, jogos do dia com classificação e legenda, e alertas de gol; `competition.html` com rodadas, classificação e confrontos do mata-mata; lances em acordeão e stream | Duas abas acompanham um jogo ao vivo sem recarregar, na home e na página da competição; um gol lançado mostra o aviso na página, e toca o som e gera a notificação em quem ativou |
 | Front | 9. CSS | Etapa à parte, a discutir; requisito já registrado: classificação à direita dos jogos, topo alinhado ao do primeiro jogo | A definir na própria etapa |
-| Depois | 10. Enriquecimento | Jogadores, escalação, árbitros, transmissão, público, renda e estatísticas | Substituição e cartão validam contra quem está em campo |
+| Depois | 10. Enriquecimento | Jogadores, escalação, árbitros, transmissão, público, renda e estatísticas (revisão: jogadores sem cadastro, só nomes na escalação) | Substituição e cartão validam contra quem está em campo |
 | Depois | 11. Operação | Adiamento e suspensão completos, auditoria, logs estruturados e métricas | Toda ação de operador aparece na auditoria, com autor e horário |
 | Depois | 12. API pública | Rotas `/public/v1`, serializadores com lista de permissão, cache HTTP, chave, limite de uso e documentação OpenAPI | Um teste de contrato prova que gol anulado e tipos internos não aparecem |
 

@@ -1,7 +1,8 @@
 /**
  * Classificação: uma <table> por grupo com <caption>, faixa de zona com o nome
  * em texto, destaque de quem está em jogo, marca de empate, legenda (amostra SVG
- * com fill vindo da API) e critérios de desempate na ordem configurada.
+ * com fill vindo da API), critérios de desempate na ordem configurada e punições em
+ * pontos (marca "*" nos pontos ajustados e a lista com o motivo embaixo da legenda).
  *
  * Nada de regra aqui: ordem, zonas, cores e critérios chegam prontos do back.
  */
@@ -22,6 +23,36 @@ const COLUMNS = [
 
 function signed(n) {
   return n > 0 ? `+${n}` : String(n);
+}
+
+/** Pontos de um ajuste com o sinal tipográfico: −3, +2. */
+export function adjustmentLabel(points) {
+  const n = Number(points) || 0;
+  return n < 0 ? `\u2212${Math.abs(n)}` : `+${n}`;
+}
+
+/** Linha da nota de punições: "Santa Cruz: −3 pts — escalação irregular". */
+export function adjustmentNote(item) {
+  const name = item?.team?.name || item?.team?.short_name || 'Time';
+  const reason = item?.reason ? ` — ${item.reason}` : '';
+  return `${name}: ${adjustmentLabel(item?.points)} pts${reason}`;
+}
+
+/** Texto do título (e do leitor de tela) da marca "*" nos pontos ajustados. */
+export function adjustmentTitle(points) {
+  const n = Number(points) || 0;
+  const amount = Math.abs(n) === 1 ? '1 ponto' : `${Math.abs(n)} pontos`;
+  return n < 0 ? `Punição: perdeu ${amount} fora de campo` : `Bonificação: ganhou ${amount} fora de campo`;
+}
+
+function pointsCell(row, col) {
+  const adjustment = Number(row.points_adjustment) || 0;
+  if (!adjustment) return h('td', { class: col.cls, text: row.points ?? 0 });
+  return h('td', { class: [col.cls, 'is-adjusted'] },
+    String(row.points ?? 0),
+    h('abbr', { class: 'adj-mark', title: adjustmentTitle(adjustment), text: '*' }),
+    h('span', { class: 'visually-hidden', text: ` (${adjustmentTitle(adjustment).toLowerCase()})` }),
+  );
 }
 
 function swatch(color) {
@@ -81,7 +112,9 @@ function groupTable(standings, group, opts, multiple) {
         row.tied ? h('abbr', { class: 'tied-mark', title: 'Empate não desfeito pelos critérios (ordem alfabética)', text: '=' }) : null,
       ),
       teamCell(row, previousZone),
-      ...COLUMNS.map((c) => h('td', { class: c.cls, text: c.key === 'goal_difference' ? signed(row[c.key] ?? 0) : (row[c.key] ?? 0) })),
+      ...COLUMNS.map((c) => (c.key === 'points'
+        ? pointsCell(row, c)
+        : h('td', { class: c.cls, text: c.key === 'goal_difference' ? signed(row[c.key] ?? 0) : (row[c.key] ?? 0) }))),
     );
     previousZone = row.zone?.name || '';
     return tr;
@@ -96,6 +129,14 @@ function footer(standings, opts, rows = []) {
     parts.push(h('ul', { class: 'legend', 'aria-label': 'Legenda das zonas' }, ...standings.legend.map((item) => h('li', { class: 'legend__item' },
       swatch(item.color), h('span', { text: item.name }), rangeLabel(item) ? h('span', { class: 'legend__range', text: rangeLabel(item) }) : null,
     ))));
+  }
+  if (standings.adjustments?.length) {
+    // Punição muda a tabela: aparece sempre (mesmo sem legenda), com o motivo.
+    parts.push(h('ul', { class: 'adjustments', 'aria-label': 'Punições e bonificações em pontos' },
+      ...standings.adjustments.map((item) => h('li', { class: 'adjustments__item' },
+        h('span', { class: 'adj-mark', 'aria-hidden': 'true', text: '*' }),
+        h('span', { text: adjustmentNote(item) }),
+      ))));
   }
   if (opts.criteria !== false && standings.criteria?.length) {
     const tied = rows.some((r) => r.tied);

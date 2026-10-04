@@ -1,6 +1,6 @@
 """Carga de demonstração: duas competições, clubes reais de Pernambuco, jogos do dia.
 
-Uso: `python manage.py seed [--reset] [--date YYYY-MM-DD]` (padrão: hoje, horário de Brasília).
+Uso: `python manage.py seed [--reset | --clear] [--date YYYY-MM-DD]` (padrão: hoje, horário de Brasília).
 
 * Usuários: "admin" (Administrador) e "operador" (Operador), com as senhas de
   SEED_ADMIN_PASSWORD / SEED_OPERATOR_PASSWORD (padrão "raizes-admin-2026" /
@@ -18,8 +18,15 @@ Uso: `python manage.py seed [--reset] [--date YYYY-MM-DD]` (padrão: hoje, horá
 
 Todo lance e toda mudança de status passam pelos serviços (`matches.services`, origem
 "script", com `at=` para datar os lances e o relógio dos jogos ao vivo fazer sentido).
+Jogadores não têm cadastro: o elenco de cada time é uma lista de nomes gerada em memória
+(`simulate_match.roster`), usada nas escalações e nos lances.
+
 Com `--reset`, apaga antes o que o seed criou (em ordem segura de chaves estrangeiras),
-mantendo os usuários; sem ele, recusa rodar sobre dados do seed já existentes.
+mantendo os usuários; sem ele, recusa rodar sobre dados do seed já existentes. Com
+`--clear`, só apaga (não recria): competições do seed com temporadas, fases, grupos,
+rodadas, partidas, lances, confrontos, escalações, punições, a classificação e as
+mensagens do outbox dessas partidas e fases; os times do seed que não são usados fora
+dele; usuários e auditoria ficam.
 """
 
 from __future__ import annotations
@@ -42,7 +49,6 @@ from competitions.models import (
     Competition,
     Group,
     GroupTeam,
-    Player,
     Round,
     Season,
     Stage,
@@ -51,16 +57,21 @@ from competitions.models import (
     Team,
 )
 from core import timeutils
+from core.locks import locked_atomic
 from matches.management.commands.simulate_match import (
+    FIRST_NAMES,
+    SURNAMES,
     VAR_INCIDENTS,
     MatchClock,
     Play,
     PlayRunner,
     Poster,
     Squad,
+    SquadPlayer,
     pick_eleven,
     quiet_audit_log,
     random_plays,
+    roster,
 )
 from matches.domain import Period
 from matches.models import (
@@ -73,6 +84,7 @@ from matches.models import (
     MatchStat,
     Tie,
 )
+from realtime.models import Outbox
 from standings.models import Standing
 
 SEED_SLUGS = ("pernambucano-raiz", "copa-pernambuco")
@@ -82,10 +94,6 @@ PAST_ROUNDS = 4
 TODAY_ROUND = 5
 LEAGUE_SLOTS = (time(16, 0), time(18, 30), time(20, 0), time(21, 30), time(16, 0))
 FORMATIONS = {"4-3-3": (4, 3, 3), "4-4-2": (4, 4, 2), "4-2-3-1": (4, 5, 1), "3-5-2": (3, 5, 2), "4-1-4-1": (4, 5, 1)}
-ROSTER = (  # posição e número de cada um dos 18 jogadores do elenco
-    ("GK", 1), ("DF", 2), ("DF", 3), ("DF", 4), ("MF", 5), ("DF", 6), ("FW", 7), ("MF", 8), ("FW", 9),
-    ("MF", 10), ("FW", 11), ("GK", 12), ("DF", 13), ("DF", 14), ("MF", 15), ("MF", 16), ("FW", 17), ("FW", 18),
-)
 
 
 @dataclass(frozen=True)
@@ -134,23 +142,6 @@ COPA_CLUBS = (
     Club("Torre", "TOR", "Recife", "#7A1F1F", "#FFFFFF", "Estádio Municipal do Recife", "Recife, PE", 1),
 )
 
-FIRST_NAMES = (
-    "Matheus", "Gabriel", "Lucas", "Rafael", "Thiago", "Felipe", "Bruno", "Diego", "Igor", "Caio", "Vinícius",
-    "Rodrigo", "André", "Leandro", "Wellington", "Jefferson", "Anderson", "Everton", "Renan", "Marcos", "Paulo",
-    "Danilo", "Hugo", "Samuel", "Ramon", "Gustavo", "Luan", "Kauã", "Arthur", "Davi", "Pedro", "João", "Cícero",
-    "Josué", "Edson", "Fábio", "Márcio", "Wagner", "Erick", "Iago", "Wesley", "Alisson", "Robson", "Elias",
-    "Jonas", "Ítalo", "Jadson", "Wanderson", "Elton", "Patrick", "Rômulo", "Talles", "Yuri", "Douglas", "Emerson",
-)
-SURNAMES = (
-    "Silva", "Santos", "Oliveira", "Souza", "Lima", "Pereira", "Ferreira", "Costa", "Rodrigues", "Almeida",
-    "Nascimento", "Araújo", "Barbosa", "Cavalcanti", "Albuquerque", "Melo", "Ribeiro", "Carvalho", "Gomes",
-    "Freitas", "Monteiro", "Bezerra", "Tavares", "Lins", "Moura", "Pessoa", "Cordeiro", "Batista", "Brandão",
-    "Siqueira", "Veloso", "Queiroz", "Rocha", "Farias", "Leite", "Macedo", "Galvão", "Pontes", "Marinho", "Aragão",
-)
-NICKNAMES = (
-    "Dudu", "Biel", "Netinho", "Thiaguinho", "Pedrinho", "Juninho", "Zé Roberto", "Toinho", "Ciço", "Galego",
-    "Nino", "Didi", "Tonhão", "Caíque", "Juca", "Tita", "Bilu", "Nem", "Léo Paraíba", "Jajá",
-)
 COACH_FIRST_NAMES = ("Givanildo", "Waldemar", "Severino", "Evaristo", "Nelson", "Arnaldo", "Ivan", "Gilberto", "Roberval", "Ademir", "Hélcio", "Josias")
 STATES = ("PE", "PE", "PE", "PB", "AL", "RN", "BA", "CE", "SE")
 BROADCASTERS = (
@@ -201,6 +192,22 @@ def local_dt(day: date, at: time) -> datetime:
     return datetime.combine(day, at, tzinfo=timeutils.app_tz())
 
 
+def purge_outbox_for(match_ids: set[int], stage_ids: set[int]) -> int:
+    """Apaga do outbox as mensagens das partidas (`match`) e fases (`standings`) dadas e
+    as listas de gols (`goals`) que citam alguma das partidas. Precisa da trava de escrita."""
+    if not match_ids and not stage_ids:
+        return 0
+    doomed = set(
+        Outbox.objects.filter(topic=Outbox.Topic.MATCH, payload__match__id__in=list(match_ids)).values_list("id", flat=True)
+    ) | set(Outbox.objects.filter(topic=Outbox.Topic.STANDINGS, payload__stage_id__in=list(stage_ids)).values_list("id", flat=True))
+    for row_id, payload in Outbox.objects.filter(topic=Outbox.Topic.GOALS).values_list("id", "payload").iterator():
+        goals = [change.get("goal") or {} for change in payload.get("changes") or []] + list(payload.get("latest_goals") or [])
+        if any(isinstance(goal, dict) and goal.get("match_id") in match_ids for goal in goals):
+            doomed.add(row_id)
+    deleted, _ = Outbox.objects.filter(id__in=doomed).delete()
+    return deleted
+
+
 class Seeder:
     def __init__(self, day: date, out):
         self.day = day
@@ -212,7 +219,7 @@ class Seeder:
         self.day_start, self.day_end = timeutils.day_bounds(day)
         self.teams: dict[str, Team] = {}
         self.clubs: dict[int, Club] = {}
-        self.players: dict[int, list[Player]] = {}
+        self.players: dict[int, list[SquadPlayer]] = {}  # elenco em memória (sem cadastro)
         self.operator = None
         self.counts = {"matches": 0, "events": 0}
         self.live: list[Match] = []  # jogos deixados ao vivo (para o aviso final)
@@ -223,24 +230,38 @@ class Seeder:
     def has_seed_data() -> bool:
         return Competition.objects.filter(slug__in=SEED_SLUGS).exists()
 
-    def reset(self) -> None:
-        competitions = Competition.objects.filter(slug__in=SEED_SLUGS)
-        matches = Match.objects.filter(stage__season__competition__in=competitions)
-        events = MatchEvent.objects.filter(match__in=matches)
-        events.update(annuls_event=None)  # gol anulado aponta para o gol (PROTECT)
-        events.delete()
-        matches.delete()  # escalações, arbitragem, transmissões e estatísticas vão junto
-        Tie.objects.filter(stage__season__competition__in=competitions).delete()
-        competitions.delete()  # temporadas, fases, critérios, zonas, grupos, rodadas, classificação
-        kept = []
-        for team in Team.objects.filter(name__in=[club.name for club in (*PERNAMBUCANO_CLUBS, *COPA_CLUBS)]):
-            try:
-                with transaction.atomic():
-                    team.delete()  # jogadores vão junto
-            except ProtectedError:
-                kept.append(team.name)  # usado fora do seed: fica (e é reaproveitado)
+    def reset(self) -> dict[str, int]:
+        """Apaga o que o seed criou (mantém usuários e auditoria) e devolve as contagens.
+
+        Também tira do outbox as mensagens das partidas e fases apagadas (`match` e
+        `standings`) e as listas de gols (`goals`) que citam essas partidas — com a
+        trava de escrita, para não cruzar com um lançamento: uma página que reconecte
+        não recebe de novo uma partida que não existe mais."""
+        with locked_atomic():
+            competitions = Competition.objects.filter(slug__in=SEED_SLUGS)
+            matches = Match.objects.filter(stage__season__competition__in=competitions)
+            match_ids = set(matches.values_list("id", flat=True))
+            stage_ids = set(Stage.objects.filter(season__competition__in=competitions).values_list("id", flat=True))
+            counts = {"competitions": competitions.count(), "matches": len(match_ids), "outbox": 0, "teams": 0}
+            events = MatchEvent.objects.filter(match__in=matches)
+            counts["events"] = events.count()
+            events.update(annuls_event=None)  # gol anulado aponta para o gol (PROTECT)
+            events.delete()
+            matches.delete()  # escalações, arbitragem, transmissões e estatísticas vão junto
+            Tie.objects.filter(stage__season__competition__in=competitions).delete()
+            competitions.delete()  # temporadas, fases, critérios, zonas, punições, grupos, rodadas, classificação
+            counts["outbox"] = purge_outbox_for(match_ids, stage_ids)
+            kept = []
+            for team in Team.objects.filter(name__in=[club.name for club in (*PERNAMBUCANO_CLUBS, *COPA_CLUBS)]):
+                try:
+                    with transaction.atomic():
+                        team.delete()
+                        counts["teams"] += 1
+                except ProtectedError:
+                    kept.append(team.name)  # usado fora do seed: fica (e é reaproveitado)
         if kept:
             self.out.write(f"Times mantidos (usados fora do seed): {', '.join(sorted(kept))}.")
+        return counts
 
     # --- Usuários ------------------------------------------------------------------------------
 
@@ -270,7 +291,7 @@ class Seeder:
                 self.operator = user
         return result
 
-    # --- Times e jogadores --------------------------------------------------------------------
+    # --- Times e elencos --------------------------------------------------------------------
 
     def ensure_teams(self) -> None:
         for club in (*PERNAMBUCANO_CLUBS, *COPA_CLUBS):
@@ -285,31 +306,7 @@ class Seeder:
             )
             self.teams[club.name] = team
             self.clubs[team.pk] = club
-        existing = set(Player.objects.filter(team__in=self.teams.values()).values_list("team_id", flat=True).distinct())
-        new_players = []
-        for team in self.teams.values():
-            if team.pk not in existing:
-                new_players.extend(self._roster(team))
-        Player.objects.bulk_create(new_players)
-        for player in Player.objects.filter(team__in=self.teams.values()).order_by("team_id", "number", "name"):
-            self.players.setdefault(player.team_id, []).append(player)
-
-    @staticmethod
-    def _roster(team: Team) -> list[Player]:
-        rng = random.Random(f"elenco:{team.name}")
-        used: set[str] = set()
-        players = []
-        for position, number in ROSTER:
-            for _ in range(50):
-                if rng.random() < 0.22:
-                    name = rng.choice(NICKNAMES)
-                else:
-                    name = f"{rng.choice(FIRST_NAMES)} {rng.choice(SURNAMES)}"
-                if name not in used:
-                    break
-            used.add(name)
-            players.append(Player(team=team, name=name, number=number, position=position))
-        return players
+            self.players[team.pk] = roster(team)  # nomes em memória: jogador não tem cadastro
 
     def coach(self, team: Team) -> str:
         rng = random.Random(f"tecnico:{team.name}")
@@ -374,11 +371,11 @@ class Seeder:
         lineup = MatchLineup.objects.create(match=match, team=team, formation=formation, coach=self.coach(team))
         MatchLineupPlayer.objects.bulk_create(
             [
-                MatchLineupPlayer(lineup=lineup, player=p, name=p.name, number=p.number, position=p.position, starter=True, order=n)
+                MatchLineupPlayer(lineup=lineup, name=p.name, number=p.number, position=p.position, starter=True, order=n)
                 for n, p in enumerate(starters, start=1)
             ]
             + [
-                MatchLineupPlayer(lineup=lineup, player=p, name=p.name, number=p.number, position=p.position, starter=False, order=n)
+                MatchLineupPlayer(lineup=lineup, name=p.name, number=p.number, position=p.position, starter=False, order=n)
                 for n, p in enumerate(bench[:5], start=1)
             ]
         )
@@ -650,20 +647,37 @@ class Command(BaseCommand):
     help = "Carga de demonstração: duas competições com clubes de Pernambuco, jogos encerrados, ao vivo e do dia."
 
     def add_arguments(self, parser):
-        parser.add_argument("--reset", action="store_true", help="Apaga os dados do seed antes (mantém os usuários).")
+        modes = parser.add_mutually_exclusive_group()
+        modes.add_argument("--reset", action="store_true", help="Apaga os dados do seed antes e recria (mantém os usuários).")
+        modes.add_argument(
+            "--clear", action="store_true", help="Só apaga os dados do seed (competições, jogos, times do seed), sem recriar; mantém os usuários."
+        )
         parser.add_argument("--date", default=None, help="Dia dos jogos ao vivo, YYYY-MM-DD (padrão: hoje em Brasília).")
 
-    def handle(self, *args, reset=False, date=None, **options):
+    def handle(self, *args, reset=False, clear=False, date=None, **options):
         try:
             day = timeutils.parse_day(date) or timeutils.local_today()
         except ValueError as exc:
             raise CommandError("Use --date no formato YYYY-MM-DD.") from exc
         started = clock_time.monotonic()
         seeder = Seeder(day, self.stdout)
+        if clear:
+            if not seeder.has_seed_data():
+                self.stdout.write("Nada a apagar: não há dados do seed.")
+                return
+            counts = seeder.reset()
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Dados do seed apagados: {counts['competitions']} competições, {counts['matches']} partidas, "
+                    f"{counts['events']} lançamentos, {counts['teams']} times e {counts['outbox']} mensagens do outbox. "
+                    "Usuários e auditoria mantidos."
+                )
+            )
+            return
         with quiet_audit_log(), transaction.atomic():
             if seeder.has_seed_data():
                 if not reset:
-                    raise CommandError("Os dados do seed já existem. Rode com --reset para recriá-los.")
+                    raise CommandError("Os dados do seed já existem. Rode com --reset para recriá-los (ou --clear para só apagar).")
                 seeder.reset()
             users = seeder.ensure_users()
             seeder.ensure_teams()

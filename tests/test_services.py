@@ -11,8 +11,8 @@ import pytest
 
 from competitions.models import StageCriterion, StandingZone
 from core import timeutils
-from matches import selectors, services
-from matches.domain import DomainError, NewEvent
+from matches import context, selectors, services
+from matches.domain import DomainError, LineupPlayer, NewEvent
 from matches.models import Match, MatchEvent, MatchLineup, MatchLineupPlayer, Tie
 from observability.metrics import metrics
 from observability.models import AuditLog
@@ -739,9 +739,14 @@ def test_lineup_validation_warns_and_completes_player(league, live_match, operat
         op.goal(sport, 7, "Lucas Arcanjo")
     assert info.value.code == "confirmation_required"
     assert [warning.code for warning in info.value.warnings] == ["player_not_on_field"]
-    with pytest.raises(DomainError) as info:
+    # Jogador não tem cadastro: id de jogador é recusado antes do domínio (400 na API).
+    with pytest.raises(services.InvalidInput) as invalid:
         op.post("goal", team_id=sport.id, minute=8, player_id=987654, payload={"player": "Fantasma"}, confirm=True)
-    assert info.value.code == "invalid_payload" and info.value.details["field"] == "player_id"
+    assert invalid.value.field == "player_id"
+    with pytest.raises(services.InvalidInput) as invalid:
+        op.post("substitution", team_id=sport.id, minute=9, payload={"player_out": "Zé Roberto", "player_in": "Lucas Arcanjo", "player_in_id": 3})
+    assert invalid.value.field == "payload.player_in_id"
+    assert context.lineups_for(live_match)[sport.id][0] == LineupPlayer(name="Zé Roberto", starter=True, player_id=None, number=10)
 
 
 # --- Admin ----------------------------------------------------------------------------------------

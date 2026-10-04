@@ -9,7 +9,10 @@ e devolve as linhas em ordem. Pontuação, critérios e legenda são dados da fa
 1. Considera as partidas encerradas; na visão ao vivo (live=True), também as em
    andamento (status live ou suspended).
 2. Soma jogos, vitórias, empates, derrotas, gols pró, gols contra e cartões.
-3. Calcula os pontos com a pontuação da fase.
+3. Calcula os pontos com a pontuação da fase e soma o ajuste do time
+   (`adjustments`: punição negativa ou bonificação positiva, cadastrada na fase).
+   Os pontos ajustados valem para o critério "points" e para a ordem; o confronto
+   direto continua só com os resultados dos jogos.
 4. Aplica os critérios na ordem configurada; cada um separa só os times que o
    anterior deixou empatados. Cada critério é uma função que recebe o BLOCO de
    times ainda empatados e devolve um valor por time (maior = melhor). Assim o
@@ -24,6 +27,9 @@ import unicodedata
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from itertools import groupby, pairwise
+from types import MappingProxyType
+
+NO_ADJUSTMENTS: Mapping[int, int] = MappingProxyType({})
 
 
 @dataclass(frozen=True)
@@ -69,6 +75,7 @@ class Row:
     yellow_cards: int
     red_cards: int
     tied: bool = False
+    adjustment: int = 0  # já somado em `points` (punição < 0, bonificação > 0)
 
     @property
     def goal_difference(self) -> int:
@@ -243,10 +250,18 @@ def _split(blocks: list[list[Row]], fn: Callable[[Sequence[Row], CriterionContex
     return result
 
 
-def compute_standings(teams: Sequence[TeamEntry], matches: Sequence[MatchResult], rules: Rules, *, live: bool = False) -> list[Row]:
+def compute_standings(
+    teams: Sequence[TeamEntry],
+    matches: Sequence[MatchResult],
+    rules: Rules,
+    *,
+    live: bool = False,
+    adjustments: Mapping[int, int] = NO_ADJUSTMENTS,
+) -> list[Row]:
     """Linhas da classificação, já ordenadas e com posições 1..n.
 
-    Todo time de `teams` ganha uma linha, mesmo sem jogos. Partidas com time fora de
+    `adjustments` = {team_id: pontos} somados aos pontos dos jogos (negativo = punição);
+    time fora de `teams` é ignorado. Todo time de `teams` ganha uma linha, mesmo sem jogos. Partidas com time fora de
     `teams` (ou de um time contra ele mesmo) são ignoradas. Critério fora do catálogo
     levanta ConfigError("criterion_unknown").
     """
@@ -280,9 +295,10 @@ def compute_standings(teams: Sequence[TeamEntry], matches: Sequence[MatchResult]
             lost=t.lost,
             goals_for=t.goals_for,
             goals_against=t.goals_against,
-            points=t.won * rules.points_win + t.drawn * rules.points_draw + t.lost * rules.points_loss,
+            points=t.won * rules.points_win + t.drawn * rules.points_draw + t.lost * rules.points_loss + adjustments.get(team_id, 0),
             yellow_cards=t.yellow,
             red_cards=t.red,
+            adjustment=adjustments.get(team_id, 0),
         )
         for team_id, t in totals.items()
     ]

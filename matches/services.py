@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from competitions.models import Group, Player
+from competitions.models import Group
 from core import timeutils
 from core.locks import locked_atomic
 from observability import audit
@@ -106,7 +106,12 @@ def post_event(
     request=None,
     at: datetime | None = None,
 ) -> PostResult:
-    """Lança um evento (lance, estrutural ou status). Ver o docstring do módulo."""
+    """Lança um evento (lance, estrutural ou status). Ver o docstring do módulo.
+
+    Jogador não tem cadastro: id de jogador (`player_id`, `payload.player_id`,
+    `payload.player_out_id`, `payload.player_in_id`) → `InvalidInput` (400); o nome vai em
+    `payload.player` (substituição: `payload.player_out`/`payload.player_in`)."""
+    _check_no_player_ids(new)
     return _counting_rejections(
         lambda: _post(match_id, user, lambda: new, key=idempotency_key, source=source, confirm=confirm, request=request, at=at, action=None)
     )
@@ -240,6 +245,20 @@ def _check_write(user, key: str | None, source: str | None) -> None:
             raise InvalidInput("idempotency_key", f"A chave de idempotência não pode conter \"{DERIVED_KEY_MARK}\".")
     if source is not None and source not in SOURCES:
         raise InvalidInput("source", f"Origem inválida: use {', '.join(sorted(SOURCES))}.")
+
+
+PLAYER_ID_KEYS = ("player_id", "player_out_id", "player_in_id")
+
+
+def _check_no_player_ids(new: NewEvent) -> None:
+    """Jogadores não têm cadastro: lançamento com id de jogador é recusado (400)."""
+    message = "Jogadores não têm cadastro: informe o nome (payload.player; na substituição, payload.player_out e payload.player_in)."
+    if new.player_id is not None:
+        raise InvalidInput("player_id", message)
+    payload = new.payload if isinstance(new.payload, Mapping) else {}
+    for key in PLAYER_ID_KEYS:
+        if key in payload:
+            raise InvalidInput(f"payload.{key}", message)
 
 
 def _replay(match_id: int, key: str) -> PostResult | None:
@@ -403,7 +422,6 @@ class _Work:
                     minute=event.minute,
                     stoppage=event.stoppage,
                     team_id=event.team_id,
-                    player_id=event.player_id,
                     payload=payload,
                     annuls_event_id=event.annuls_event_id,
                     idempotency_key=key if index == 0 else f"{key}{DERIVED_KEY_MARK}{index}",
@@ -412,7 +430,6 @@ class _Work:
                     created_at=at,
                 )
             )
-        _check_players(rows)
         MatchEvent.objects.bulk_create(rows)
         self.rows.extend(rows)
         return rows
@@ -616,24 +633,6 @@ def _aware(value: str | datetime) -> datetime:
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=timeutils.app_tz())
     return moment
-
-
-def _check_players(rows: Sequence[MatchEvent]) -> None:
-    """Jogador informado por id precisa existir (a FK só falharia no commit)."""
-    wanted: dict[int, str] = {}
-    for row in rows:
-        if row.player_id is not None:
-            wanted.setdefault(row.player_id, "player_id")
-        for key in ("player_out_id", "player_in_id"):
-            value = row.payload.get(key)
-            if isinstance(value, int):
-                wanted.setdefault(value, f"payload.{key}")
-    if not wanted:
-        return
-    found = set(Player.objects.filter(id__in=wanted).values_list("id", flat=True))
-    for player_id, field_name in wanted.items():
-        if player_id not in found:
-            raise DomainError("invalid_payload", "Jogador não encontrado.", {"field": field_name, "player_id": player_id})
 
 
 def _text(value) -> str | None:

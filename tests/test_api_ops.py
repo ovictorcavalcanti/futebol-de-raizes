@@ -139,6 +139,9 @@ def events_count(match) -> int:
 def test_whole_match_through_api_with_annulled_goal(league, match, operator_client, monkeypatch):
     sport, nautico = league["teams"][0], league["teams"][1]
     clock = use_clock(monkeypatch, timeutils.now().replace(microsecond=0) - timedelta(minutes=130))
+    # Início no relógio do teste: perto da meia-noite de Brasília, "agora − 5 min" seria outro
+    # dia que o do relógio, e a partida ficaria fora da home pedida no fim.
+    Match.objects.filter(pk=match.pk).update(kickoff_at=clock.now)
     op = ApiOp(operator_client, match, clock)
 
     start = op.post("match_start")
@@ -220,7 +223,6 @@ def test_invalid_transitions_and_rules_return_422_with_code_and_write_nothing(le
         ({"type": "goal", "minute": 50, "team_id": sport.id, "payload": {"player": "X"}}, "invalid_minute"),
         ({"type": "goal_annulled", "minute": 12, "annuls_event_id": 999999, "payload": {"reason": "VAR"}}, "annul_target_invalid"),
         ({"type": "dance", "minute": 10}, "unknown_event_type"),
-        ({"type": "goal", "minute": 10, "team_id": sport.id, "player_id": 999999, "payload": {"player": "X"}}, "invalid_payload"),
     ]
     for body, code in cases:
         result = op.post(body.pop("type"), expect=422, **body)
@@ -228,6 +230,27 @@ def test_invalid_transitions_and_rules_return_422_with_code_and_write_nothing(le
         assert "warnings" not in result
     assert events_count(match) == 1
     assert Match.objects.get(pk=match.pk).home_score == 0
+
+
+def test_player_ids_are_rejected_players_are_names(op, league, match):
+    """Jogador não tem cadastro: id de jogador no corpo → 400 invalid_input; o lance
+    leva o nome (EventOut.player = {"id": null, "name": ...})."""
+    sport = league["teams"][0]
+    op.post("match_start")
+    body = op.post("goal", expect=400, minute=10, team_id=sport.id, player_id=7, payload={"player": "Zé Roberto"})
+    assert_error(body, "invalid_input")
+    assert body["details"]["field"] == "player_id"
+    body = op.post(
+        "substitution", expect=400, minute=11, team_id=sport.id,
+        payload={"player_out": "Zé Roberto", "player_in": "Lucas Arcanjo", "player_out_id": 3},
+    )
+    assert_error(body, "invalid_input")
+    assert body["details"]["field"] == "payload.player_out_id"
+    assert events_count(match) == 1
+    goal = op.goal(sport, 12, "Zé Roberto")
+    assert goal["event"]["player"] == {"id": None, "name": "Zé Roberto"}
+    sub = op.post("substitution", minute=13, team_id=sport.id, payload={"player_out": "Zé Roberto", "player_in": "Lucas Arcanjo"})
+    assert sub["event"]["payload"] == {"player_out": "Zé Roberto", "player_in": "Lucas Arcanjo"}
 
 
 def test_unknown_match_is_404(op, operator_client):

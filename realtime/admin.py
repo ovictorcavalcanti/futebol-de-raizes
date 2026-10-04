@@ -1,7 +1,11 @@
-"""Django Admin do outbox: somente leitura, só para o Administrador (realtime.view_outbox)."""
+"""Django Admin do outbox: somente leitura, só para o Administrador (realtime.view_outbox).
+
+Fica fora do índice (é detalhe técnico do tempo real); a lista continua em
+/admin/realtime/outbox/ para quem tem a permissão."""
 
 from django.contrib import admin
 
+from competitions.admin import HiddenFromIndexMixin
 from observability.admin import AuditedModelAdmin, ReadOnlyAdminMixin, pretty_json
 
 from .models import Outbox
@@ -23,7 +27,7 @@ class PublishedFilter(admin.SimpleListFilter):
 
 
 @admin.register(Outbox)
-class OutboxAdmin(ReadOnlyAdminMixin, AuditedModelAdmin):
+class OutboxAdmin(HiddenFromIndexMixin, ReadOnlyAdminMixin, AuditedModelAdmin):
     list_display = ("id", "topic", "created_at", "published_at")
     list_filter = ("topic", PublishedFilter)
     date_hierarchy = "created_at"

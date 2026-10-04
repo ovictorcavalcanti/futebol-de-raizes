@@ -994,6 +994,55 @@ def test_admin_claro_por_padrao_e_com_o_mesmo_tema_do_site(browser, base_url, co
         ctx.close()
 
 
+# --- Django Admin: navegação por competição e punição em pontos ---------------------------------------
+
+
+def test_admin_navega_pela_competicao_e_punicao_aparece_ao_vivo(new_context, console):
+    """O admin desce Competição › Temporada › Fase pela trilha; uma punição de 3 pontos
+    salva na fase chega à página da competição aberta (pelo stream), com a marca nos pontos
+    e o motivo embaixo da legenda; apagar a punição tira as duas coisas."""
+    from playwright.sync_api import expect
+
+    site = console.watch(new_context().new_page(), "competicao-punicao")
+    site.goto("/competition.html?slug=pernambucano-raiz")
+    expect(site.locator("#stage-standings .standings__group")).to_have_count(1)
+    expect(site.locator("#stage-standings .adjustments")).to_have_count(0)
+
+    admin = console.watch(new_context(1280, 900).new_page(), "admin-punicao")
+    admin.goto("/admin/login/")
+    admin.fill("#id_username", "admin")
+    admin.fill("#id_password", os.environ.get("SEED_ADMIN_PASSWORD") or "raizes-admin-2026")
+    admin.locator('input[type="submit"]').click()
+    expect(admin.locator("#content")).to_contain_text("Comece por")
+    expect(admin.locator("#content a", has_text="Partidas")).to_have_count(0)  # sem a lista global
+    admin.locator('#content a[href="/admin/competitions/competition/"]').first.click()
+    admin.get_by_role("link", name="Pernambucano Raiz").click()
+    admin.locator(".field-stages_panel").get_by_role("link", name="Fase única").click()
+    crumbs = admin.locator(".breadcrumbs")
+    expect(crumbs).to_contain_text("Início")
+    expect(crumbs).to_contain_text("Pernambucano Raiz")
+    expect(crumbs).to_contain_text("Fase única")
+    expect(admin.locator("body")).to_contain_text("a ao vivo inclui")
+
+    group = admin.locator("#point_adjustments-group")
+    group.locator(".add-row a").click()
+    group.locator('select[name="point_adjustments-0-team"]').select_option(label="Santa Cruz")
+    group.locator('input[name="point_adjustments-0-points"]').fill("-3")
+    group.locator('input[name="point_adjustments-0-reason"]').fill("escalação irregular")
+    admin.locator('input[name="_continue"]').click()
+    expect(admin.locator(".messagelist")).to_be_visible()
+
+    note = site.locator("#stage-standings .adjustments")
+    expect(note).to_contain_text("Santa Cruz: \u22123 pts — escalação irregular", timeout=20_000)
+    santa = site.locator("#stage-standings tr", has=site.locator(".team-cell__name", has_text="Santa Cruz"))
+    expect(santa.locator(".col-pts .adj-mark")).to_have_attribute("title", "Punição: perdeu 3 pontos fora de campo")
+
+    admin.locator('input[name="point_adjustments-0-DELETE"]').check()
+    admin.locator('input[name="_continue"]').click()
+    expect(note).to_have_count(0, timeout=20_000)
+    expect(santa.locator(".adj-mark")).to_have_count(0)
+
+
 # --- Tempo real: o servidor cai e volta ------------------------------------------------------------
 
 

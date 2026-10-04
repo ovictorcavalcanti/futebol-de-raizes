@@ -1,0 +1,11 @@
+{% extends "admin/index.html" %}
+{# Índice enxuto: só os pontos de entrada. Temporadas, fases, grupos, rodadas, jogos, #}
+{# confrontos e escalações ficam dentro de cada competição (navegação por competição). #}
+{% block content %}
+<p class="help" style="margin:0 0 16px;font-size:.9rem">
+  Comece por <a href="{% url 'admin:competitions_competition_changelist' %}">Competições</a>:
+  dentro de cada uma ficam as temporadas, as fases (grupos, classificação e punições), as rodadas
+  e os jogos. Os lances são lançados na <a href="{% url 'operator' %}">tela do operador</a>.
+</p>
+{{ block.super }}
+{% endblock %}

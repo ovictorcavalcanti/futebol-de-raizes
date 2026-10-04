@@ -1,7 +1,8 @@
 """Classificação: recalcular o cache (`Standing`) e ler a tabela pronta para a API.
 
 `recompute_group` refaz as duas visões (oficial e ao vivo) de um grupo a partir das
-partidas e dos cartões visíveis; roda dentro da transação do lançamento. A leitura
+partidas, dos cartões visíveis e das punições/bonificações da fase (`PointAdjustment`);
+roda dentro da transação do lançamento. A leitura
 (`stage_standings`) devolve o StageStandingsOut do CONTRACT: critérios na ordem
 configurada, legenda, zona de cada linha e quem está em campo agora (`playing`).
 
@@ -26,7 +27,7 @@ from realtime.outbox import enqueue
 
 from . import domain
 from .domain import CRITERIA, ConfigError, Rules, TeamEntry, Zone, compute_standings, validate_rules, zone_for
-from .models import Standing
+from .models import PointAdjustment, Standing
 
 log = logging.getLogger("fdr.standings")
 
@@ -75,6 +76,14 @@ def validate_stage(stage: Stage) -> None:
     validate_rules(_points(stage), criteria, stage_zones(stage))
 
 
+def stage_adjustments(stage_id: int) -> dict[int, int]:
+    """{team_id: soma dos pontos ajustados} da fase (punição < 0, bonificação > 0)."""
+    totals: dict[int, int] = defaultdict(int)
+    for team_id, points in PointAdjustment.objects.filter(stage_id=stage_id).values_list("team_id", "points"):
+        totals[team_id] += points
+    return dict(totals)
+
+
 # --- Recalcular ----------------------------------------------------------------------
 
 
@@ -117,16 +126,24 @@ def _group_inputs(group: Group, teams: Sequence[GroupTeam]) -> tuple[list[TeamEn
     return entries, results
 
 
-def compute_group(group: Group, *, rules: Rules | None = None, teams: Sequence[GroupTeam] | None = None) -> dict[str, list[domain.Row]]:
+def compute_group(
+    group: Group,
+    *,
+    rules: Rules | None = None,
+    teams: Sequence[GroupTeam] | None = None,
+    adjustments: dict[int, int] | None = None,
+) -> dict[str, list[domain.Row]]:
     """Linhas das duas visões do grupo, sem gravar: {"official": [...], "live": [...]}."""
     if rules is None:
         rules = stage_rules(group.stage)
     if teams is None:
         teams = list(GroupTeam.objects.filter(group=group).select_related("team"))
+    if adjustments is None:
+        adjustments = stage_adjustments(group.stage_id)
     entries, results = _group_inputs(group, teams)
     return {
-        Standing.Kind.OFFICIAL: compute_standings(entries, results, rules, live=False),
-        Standing.Kind.LIVE: compute_standings(entries, results, rules, live=True),
+        Standing.Kind.OFFICIAL: compute_standings(entries, results, rules, live=False, adjustments=adjustments),
+        Standing.Kind.LIVE: compute_standings(entries, results, rules, live=True, adjustments=adjustments),
     }
 
 
@@ -149,6 +166,7 @@ def recompute_group(group: Group) -> dict[str, list[domain.Row]]:
                 goals_for=row.goals_for,
                 goals_against=row.goals_against,
                 points=row.points,
+                adjustment=row.adjustment,
                 yellow_cards=row.yellow_cards,
                 red_cards=row.red_cards,
                 tied=row.tied,
@@ -168,8 +186,9 @@ def recompute_stage(stage: Stage) -> None:
 
 def on_stage_rules_changed(stage: Stage, recalc: bool = True) -> None:
     """Fase salva no admin. Valida as regras (ConfigError), recalcula os grupos
-    quando pontuação/critérios mudaram (`recalc`) e publica a classificação nova
-    (mudar só zona ou cor não recalcula, mas publica). Mata-mata não tem tabela: nada a fazer."""
+    quando pontuação, critérios ou punições/bonificações mudaram (`recalc`) e publica
+    a classificação nova (mudar só zona ou cor não recalcula, mas publica). Mata-mata
+    não tem tabela: nada a fazer."""
     if not stage.has_table:
         return
     validate_stage(stage)
@@ -202,6 +221,7 @@ def _row_out(row, team, zones: Sequence[Zone], playing: set[int]) -> dict:
         "goals_against": row.goals_against,
         "goal_difference": row.goals_for - row.goals_against,
         "points": row.points,
+        "points_adjustment": row.adjustment,
         "yellow_cards": row.yellow_cards,
         "red_cards": row.red_cards,
         "tied": row.tied,
@@ -234,25 +254,36 @@ def stages_standings(stages: Iterable[Stage], live: bool = True) -> dict[int, di
     cached: dict[int, list[Standing]] = defaultdict(list)
     for row in Standing.objects.filter(group__stage_id__in=ids, kind=kind).select_related("team").order_by("group_id", "position"):
         cached[row.group_id].append(row)
+    adjustments: dict[int, dict[int, int]] = defaultdict(lambda: defaultdict(int))
+    adjustment_rows: dict[int, list[PointAdjustment]] = defaultdict(list)
+    for item in PointAdjustment.objects.filter(stage_id__in=ids).select_related("team").order_by("stage_id", "created_at", "id"):
+        adjustments[item.stage_id][item.team_id] += item.points
+        adjustment_rows[item.stage_id].append(item)
     playing: dict[int, set[int]] = defaultdict(set)
     for stage_id, home, away in Match.objects.filter(stage_id__in=ids, status__in=PLAYING_STATUSES).values_list(
         "stage_id", "home_team_id", "away_team_id"
     ):
         playing[stage_id].update((home, away))
 
+    from matches.selectors import serialize_team
+
     result = {}
     for stage in stages:
         rules = stage_rules(stage, criteria.get(stage.id, []))
         stage_zones_ = zones.get(stage.id, [])
+        stage_adjustments_ = dict(adjustments.get(stage.id, {}))
         out_groups = []
         for group in groups.get(stage.id, []):
             teams = members.get(group.id, [])
             rows = cached.get(group.id, [])
-            if {row.team_id for row in rows} != {item.team_id for item in teams}:
-                # Sem cache (ou cache de outro elenco): calcula na hora, sem gravar.
+            stale = {row.team_id for row in rows} != {item.team_id for item in teams} or any(
+                row.adjustment != stage_adjustments_.get(row.team_id, 0) for row in rows
+            )
+            if stale:
+                # Sem cache (ou cache de outro elenco ou de outros ajustes): calcula na hora, sem gravar.
                 group.stage = stage
                 team_map = {item.team_id: item.team for item in teams}
-                computed = compute_group(group, rules=rules, teams=teams)[kind]
+                computed = compute_group(group, rules=rules, teams=teams, adjustments=stage_adjustments_)[kind]
                 rows_out = [_row_out(row, team_map[row.team_id], stage_zones_, playing[stage.id]) for row in computed]
             else:
                 rows_out = [_row_out(row, row.team, stage_zones_, playing[stage.id]) for row in rows]
@@ -268,6 +299,10 @@ def stages_standings(stages: Iterable[Stage], live: bool = True) -> dict[int, di
                 for zone in stage_zones_
             ],
             "groups": out_groups,
+            "adjustments": [
+                {"team": serialize_team(item.team), "points": item.points, "reason": item.reason}
+                for item in adjustment_rows.get(stage.id, [])
+            ],
         }
     return result
 

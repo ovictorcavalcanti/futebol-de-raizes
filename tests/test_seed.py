@@ -16,11 +16,16 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db.models import Sum
 
-from competitions.models import Competition, StageCriterion, StandingZone, Team
+from competitions.management.commands.seed import SEED_SLUGS
+from competitions.models import Competition, Stage, StageCriterion, StandingZone, Team
+from core.locks import locked_atomic
 from core import timeutils
 from matches import selectors
 from matches.management.commands import simulate_match
-from matches.models import Match, MatchEvent, MatchLineup, MatchOfficial, MatchStat, Tie
+from matches.models import Match, MatchEvent, MatchLineup, MatchLineupPlayer, MatchOfficial, MatchStat, Tie
+from observability.models import AuditLog
+from realtime.models import Outbox
+from realtime.outbox import enqueue
 from standings.models import Standing
 from tests.factories import make_knockout, make_league, make_match, make_tie_matches
 
@@ -115,9 +120,10 @@ def check_structure() -> None:
     assert lineup.entries.filter(starter=True).count() == 11 and lineup.entries.filter(starter=False).count() == 5
     assert MatchStat.objects.filter(match__in=started).exists()
     assert all(match.attendance and match.revenue_cents for match in started)
-    # Gols dos jogos com escalação saíram de quem estava escalado.
+    # Gols dos jogos com escalação saíram de quem estava escalado (só nomes: jogador não tem cadastro).
     for goal in MatchEvent.objects.filter(match__in=started, type="goal", voided_at__isnull=True).exclude(payload__origin="own_goal"):
-        assert goal.player_id and goal.player.team_id == goal.team_id
+        names = set(MatchLineupPlayer.objects.filter(lineup__match=goal.match, lineup__team_id=goal.team_id).values_list("name", flat=True))
+        assert goal.payload["player"] in names
 
 
 def test_seed_runs_on_empty_db_and_reruns_with_reset(monkeypatch):
@@ -150,6 +156,34 @@ def test_seed_runs_on_empty_db_and_reruns_with_reset(monkeypatch):
     season = Competition.objects.get(slug="pernambucano-raiz").seasons.get()
     assert season.year == 2026
 
+    # --clear: apaga tudo o que o seed criou (outbox das partidas e fases inclusive), sem
+    # recriar; usuários, auditoria e o que não é do seed ficam.
+    other = make_league(n_teams=2, team_names=["Clube de Fora", "Outro de Fora"])
+    outside = make_match(other["stage"], *other["teams"])
+    with locked_atomic():
+        enqueue("match", {"stage_id": other["stage"].pk, "competition_id": other["competition"].pk, "match": {"id": outside.pk}})
+    seed_ids = set(Match.objects.filter(stage__season__competition__slug__in=SEED_SLUGS).values_list("id", flat=True))
+    seed_stages = set(Stage.objects.filter(season__competition__slug__in=SEED_SLUGS).values_list("id", flat=True))
+    assert Outbox.objects.filter(topic="match", payload__match__id__in=list(seed_ids)).exists()
+    audit_rows = AuditLog.objects.count()
+    output = run_seed("--clear")
+    assert "Dados do seed apagados" in output and "Usuários e auditoria mantidos" in output
+    assert not Competition.objects.filter(slug__in=SEED_SLUGS).exists()
+    assert set(Match.objects.values_list("id", flat=True)) == {outside.pk}
+    assert not MatchEvent.objects.exists() and not Standing.objects.filter(group__stage_id__in=seed_stages).exists()
+    assert not Team.objects.filter(name="Sport").exists()
+    assert Team.objects.filter(name="Clube de Fora").exists()
+    assert not Outbox.objects.filter(topic="match", payload__match__id__in=list(seed_ids)).exists()
+    assert not Outbox.objects.filter(topic="standings", payload__stage_id__in=list(seed_stages)).exists()
+    for payload in Outbox.objects.filter(topic="goals").values_list("payload", flat=True):
+        assert not {goal["match_id"] for goal in payload["latest_goals"]} & seed_ids
+    assert Outbox.objects.filter(topic="match", payload__match__id=outside.pk).exists()
+    assert User.objects.filter(username__in=["admin", "operador"]).count() == 2
+    assert AuditLog.objects.count() == audit_rows
+    assert "Nada a apagar" in run_seed("--clear")
+    with pytest.raises(CommandError):
+        run_seed("--clear", "--reset")
+
 
 def test_seed_rejects_bad_date():
     with pytest.raises(CommandError, match="YYYY-MM-DD"):
@@ -175,7 +209,6 @@ def simulate(match, *args) -> str:
 def test_simulate_match_finishes_a_scheduled_match(operator_user, no_sleep):
     league = make_league(n_teams=2, team_names=["Sport", "Náutico"])
     sport, nautico = league["teams"]
-    sport.players.create(name="Zé Roberto", number=9, position="FW")
     match = make_match(league["stage"], sport, nautico)
     output = simulate(match, "--seed", "3")
     match.refresh_from_db()

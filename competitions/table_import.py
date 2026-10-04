@@ -27,7 +27,8 @@ os candidatos.
 Participantes = times que já estão na fase + os de `times`/`grupos` (que entram na
 tabela; grupo novo é criado). Jogo com time fora dos participantes, ou time em dois
 jogos da mesma rodada, é recusado. Na fase de grupos, times de grupos diferentes
-podem se enfrentar (ex.: Copa do Nordeste); o jogo fica no grupo do mandante.
+podem se enfrentar (ex.: Copa do Nordeste): o jogo fica no grupo do mandante e conta
+na classificação dos dois grupos.
 
 Rodada que já existe (pelo número) recebe os jogos; jogo que já existe na rodada
 (mesmos mandante e visitante) é pulado.

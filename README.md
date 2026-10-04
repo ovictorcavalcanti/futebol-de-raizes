@@ -318,7 +318,7 @@ se for de mais de um time, o import recusa e lista os candidatos. `data` é o ho
 
 São recusados: time que não está no campeonato (nem na fase nem em `times`/`grupos`), time em
 dois jogos da mesma rodada e time em dois grupos. Times de grupos diferentes podem se enfrentar
-(como na Copa do Nordeste): o jogo fica no grupo do mandante. Rodada que já existe (pelo número)
+(como na Copa do Nordeste): o jogo fica no grupo do mandante e conta na classificação dos dois. Rodada que já existe (pelo número)
 recebe os jogos e jogo repetido (mesmos mandante e visitante na rodada) é pulado. Com qualquer
 erro, nada é gravado e o campo mostra onde e por quê. Mata-mata ainda não é aceito.
 

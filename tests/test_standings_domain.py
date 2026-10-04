@@ -483,14 +483,17 @@ def test_single_team_and_empty_group():
     assert compute_standings([], [], Rules()) == []
 
 
-def test_matches_with_outside_teams_are_ignored():
+def test_match_against_outside_team_counts_only_for_the_inside_team():
+    """Jogo entre grupos (ex.: Copa do Nordeste): conta para o time do grupo."""
     league = League("Sport", "Náutico").play("Sport", 2, 1, "Náutico")
-    league.matches.append(MatchResult(1, 99, 0, 7, "finished"))
-    league.matches.append(MatchResult(99, 2, 0, 7, "finished"))
-    league.matches.append(MatchResult(2, 2, 9, 9, "finished"))  # time contra ele mesmo
+    league.matches.append(MatchResult(1, 99, 0, 7, "finished"))  # Sport perde para time de outro grupo
+    league.matches.append(MatchResult(99, 2, 0, 7, "finished"))  # Náutico vence fora
+    league.matches.append(MatchResult(98, 99, 3, 3, "finished"))  # nenhum dos dois: ignorado
+    league.matches.append(MatchResult(2, 2, 9, 9, "finished"))  # time contra ele mesmo: ignorado
     table = by_name(league.table())
-    assert line(table["Sport"]) == (1, 1, 0, 0, 2, 1, 3)
-    assert line(table["Náutico"]) == (1, 0, 0, 1, 1, 2, 0)
+    assert line(table["Sport"]) == (2, 1, 0, 1, 2, 8, 3)
+    assert line(table["Náutico"]) == (2, 1, 0, 1, 8, 2, 3)
+    assert len(table) == 2  # time de fora não ganha linha
 
 
 def test_unknown_criterion_in_rules_raises():

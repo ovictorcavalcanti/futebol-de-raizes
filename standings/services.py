@@ -17,7 +17,7 @@ import logging
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 
-from django.db.models import Count
+from django.db.models import Count, Q
 
 from competitions.models import Group, GroupTeam, Stage, StageCriterion, StandingZone
 from core.locks import locked_atomic
@@ -89,17 +89,18 @@ def stage_adjustments(stage_id: int) -> dict[int, int]:
 
 def _group_inputs(group: Group, teams: Sequence[GroupTeam]) -> tuple[list[TeamEntry], list[domain.MatchResult]]:
     entries = [TeamEntry(item.team_id, item.team.name, item.lot_order) for item in teams]
-    matches = list(
-        Match.objects.filter(group=group, status__in=COUNTED_STATUSES).values_list(
-            "id", "home_team_id", "away_team_id", "home_score", "away_score", "status"
-        )
+    team_ids = [item.team_id for item in teams]
+    # Os jogos dos times do grupo na fase, contra qualquer adversário: jogo entre grupos
+    # (ex.: Copa do Nordeste) conta para os dois grupos.
+    group_matches = Match.objects.filter(stage_id=group.stage_id, status__in=COUNTED_STATUSES).filter(
+        Q(group=group) | Q(home_team_id__in=team_ids) | Q(away_team_id__in=team_ids)
     )
+    matches = list(group_matches.values_list("id", "home_team_id", "away_team_id", "home_score", "away_score", "status"))
     cards: dict[tuple[int, int, str], int] = {}
     if matches:
         rows = (
             MatchEvent.objects.filter(
-                match__group=group,
-                match__status__in=COUNTED_STATUSES,
+                match_id__in=[row[0] for row in matches],
                 voided_at__isnull=True,
                 type__in=CARD_TYPES,
                 team__isnull=False,
@@ -145,6 +146,19 @@ def compute_group(
         Standing.Kind.OFFICIAL: compute_standings(entries, results, rules, live=False, adjustments=adjustments),
         Standing.Kind.LIVE: compute_standings(entries, results, rules, live=True, adjustments=adjustments),
     }
+
+
+def groups_of_match(match) -> list[Group]:
+    """Grupos cuja tabela o jogo afeta: o do jogo e os dos dois times na fase (jogo entre
+    grupos conta para os dois)."""
+    if not match.stage.has_table:
+        return []
+    return list(
+        Group.objects.filter(stage_id=match.stage_id)
+        .filter(Q(id=match.group_id) | Q(group_teams__team_id__in=[match.home_team_id, match.away_team_id]))
+        .select_related("stage")
+        .distinct()
+    )
 
 
 def recompute_group(group: Group) -> dict[str, list[domain.Row]]:

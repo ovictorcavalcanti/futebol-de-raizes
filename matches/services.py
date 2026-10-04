@@ -176,7 +176,7 @@ def on_match_edited(match: Match, changed_fields, user=None, request=None) -> No
 
         stages = {match.stage_id: match.stage} if match.stage.has_table else {}
         if names & TABLE_FIELDS:
-            groups = set()
+            groups = {group.id for group in standings_services.groups_of_match(match)}  # o do jogo e os dos times
             if match.group_id:
                 groups.add(match.group_id)
             old_group = _pk(previous.get("group"))
@@ -593,7 +593,8 @@ class _Work:
         # ou cartão: sem recálculo, a mensagem `standings` seria idêntica à anterior.
         recomputed = bool(match.group_id) and (after != self.before or bool(changed_types & CARD_TYPES))
         if recomputed:
-            standings_services.recompute_group(match.group)
+            for group in standings_services.groups_of_match(match):  # jogo entre grupos: os dois
+                standings_services.recompute_group(group)
 
         self.enqueue_match()
         _enqueue_legs(other_legs)

@@ -255,3 +255,28 @@ def test_point_adjustment_model_validation(league):
     assert "points" in info.value.message_dict
     with pytest.raises(IntegrityError), transaction.atomic():
         PointAdjustment.objects.create(stage=league["stage"], team=league["teams"][0], points=0, reason="x")
+
+
+def test_cross_group_match_counts_for_both_groups(operator_user):
+    """Copa do Nordeste: time do A enfrenta time do B e o jogo entra nas duas tabelas —
+    pelo caminho de escrita (o lançamento recalcula os dois grupos)."""
+    comp = make_league(n_teams=2)
+    stage = make_stage(comp["season"], "groups", name="Grupos", position=2)
+    group_a, group_b = stage.groups.create(name="A"), stage.groups.create(name="B")
+    a1, a2, b1, b2 = (make_team(f"Time {n}") for n in ("A1", "A2", "B1", "B2"))
+    for group, team in ((group_a, a1), (group_a, a2), (group_b, b1), (group_b, b2)):
+        GroupTeam.objects.create(group=group, team=team)
+    match = make_match(stage, a1, b1, group=group_a, kickoff_at=timeutils.now() - timedelta(minutes=120))
+    op = Op(match, operator_user, start=timeutils.now() - timedelta(minutes=121))
+    op.post("match_start")
+    op.goal(a1, 10)
+    op.goal(a1, 20)
+    op.goal(b1, 30)
+    for type_ in ("half_time", "second_half_start", "match_end"):
+        op.post(type_, after=20)
+    table = services.stage_standings(stage, live=False)
+    rows = {row["team"]["name"]: row for group in table["groups"] for row in group["rows"]}
+    assert (rows["Time A1"]["points"], rows["Time A1"]["played"], rows["Time A1"]["goals_for"]) == (3, 1, 2)
+    assert (rows["Time B1"]["points"], rows["Time B1"]["played"], rows["Time B1"]["goals_against"]) == (0, 1, 2)
+    assert rows["Time A2"]["played"] == rows["Time B2"]["played"] == 0
+    assert Standing.objects.filter(group=group_b, team=b1, kind="official", played=1).exists()  # cache do B refeito

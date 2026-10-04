@@ -17,9 +17,9 @@ import logging
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 
-from django.db.models import Count
+from django.db.models import Count, Q
 
-from competitions.models import Group, GroupTeam, Stage, StageCriterion, StandingZone
+from competitions.models import Group, GroupTeam, Stage, StageCriterion, StandingZone, Team
 from core.locks import locked_atomic
 from matches.domain import EventType
 from matches.models import Match, MatchEvent
@@ -27,7 +27,7 @@ from realtime.outbox import enqueue
 
 from . import domain
 from .domain import CRITERIA, ConfigError, Rules, TeamEntry, Zone, compute_standings, validate_rules, zone_for
-from .models import PointAdjustment, Standing
+from .models import PointAdjustment, Ranking, Standing
 
 log = logging.getLogger("fdr.standings")
 
@@ -87,19 +87,14 @@ def stage_adjustments(stage_id: int) -> dict[int, int]:
 # --- Recalcular ----------------------------------------------------------------------
 
 
-def _group_inputs(group: Group, teams: Sequence[GroupTeam]) -> tuple[list[TeamEntry], list[domain.MatchResult]]:
-    entries = [TeamEntry(item.team_id, item.team.name, item.lot_order) for item in teams]
-    matches = list(
-        Match.objects.filter(group=group, status__in=COUNTED_STATUSES).values_list(
-            "id", "home_team_id", "away_team_id", "home_score", "away_score", "status"
-        )
-    )
+def _results(query) -> list[domain.MatchResult]:
+    """Resultados (placar, status e cartões) das partidas de `query` (contadas na tabela)."""
+    matches = list(query.values_list("id", "home_team_id", "away_team_id", "home_score", "away_score", "status"))
     cards: dict[tuple[int, int, str], int] = {}
     if matches:
         rows = (
             MatchEvent.objects.filter(
-                match__group=group,
-                match__status__in=COUNTED_STATUSES,
+                match_id__in=[row[0] for row in matches],
                 voided_at__isnull=True,
                 type__in=CARD_TYPES,
                 team__isnull=False,
@@ -109,7 +104,7 @@ def _group_inputs(group: Group, teams: Sequence[GroupTeam]) -> tuple[list[TeamEn
             .order_by()
         )
         cards = {(row["match_id"], row["team_id"], row["type"]): row["total"] for row in rows}
-    results = [
+    return [
         domain.MatchResult(
             home_team_id=home,
             away_team_id=away,
@@ -123,7 +118,17 @@ def _group_inputs(group: Group, teams: Sequence[GroupTeam]) -> tuple[list[TeamEn
         )
         for match_id, home, away, home_score, away_score, status in matches
     ]
-    return entries, results
+
+
+def _group_inputs(group: Group, teams: Sequence[GroupTeam]) -> tuple[list[TeamEntry], list[domain.MatchResult]]:
+    entries = [TeamEntry(item.team_id, item.team.name, item.lot_order) for item in teams]
+    team_ids = [item.team_id for item in teams]
+    # Os jogos dos times do grupo na fase, contra qualquer adversário: jogo entre grupos
+    # (ex.: Copa do Nordeste) conta para os dois grupos.
+    group_matches = Match.objects.filter(stage_id=group.stage_id, status__in=COUNTED_STATUSES).filter(
+        Q(group=group) | Q(home_team_id__in=team_ids) | Q(away_team_id__in=team_ids)
+    )
+    return entries, _results(group_matches)
 
 
 def compute_group(
@@ -145,6 +150,19 @@ def compute_group(
         Standing.Kind.OFFICIAL: compute_standings(entries, results, rules, live=False, adjustments=adjustments),
         Standing.Kind.LIVE: compute_standings(entries, results, rules, live=True, adjustments=adjustments),
     }
+
+
+def groups_of_match(match) -> list[Group]:
+    """Grupos cuja tabela o jogo afeta: o do jogo e os dos dois times na fase (jogo entre
+    grupos conta para os dois)."""
+    if not match.stage.has_table:
+        return []
+    return list(
+        Group.objects.filter(stage_id=match.stage_id)
+        .filter(Q(id=match.group_id) | Q(group_teams__team_id__in=[match.home_team_id, match.away_team_id]))
+        .select_related("stage")
+        .distinct()
+    )
 
 
 def recompute_group(group: Group) -> dict[str, list[domain.Row]]:
@@ -206,10 +224,15 @@ def standings_message(stage: Stage) -> dict:
 # --- Ler ------------------------------------------------------------------------------
 
 
-def _row_out(row, team, zones: Sequence[Zone], playing: set[int]) -> dict:
+def _row_out(row, team, zones: Sequence[Zone], playing: set[int], qualified: dict | None = None) -> dict:
+    """Linha da tabela. `qualified` = {(da, até): {times}} das zonas condicionais: quem está
+    na faixa da zona mas fora desse conjunto fica sem a cor."""
     from matches.selectors import serialize_team
 
     zone = zone_for(row.position, zones)
+    if zone is not None and qualified and (zone.position_from, zone.position_to) in qualified:
+        if row.team_id not in qualified[(zone.position_from, zone.position_to)]:
+            zone = None
     return {
         "position": row.position,
         "team": serialize_team(team),
@@ -230,9 +253,10 @@ def _row_out(row, team, zones: Sequence[Zone], playing: set[int]) -> dict:
     }
 
 
-def stages_standings(stages: Iterable[Stage], live: bool = True) -> dict[int, dict]:
+def stages_standings(stages: Iterable[Stage], live: bool = True, conditional: bool = True) -> dict[int, dict]:
     """StageStandingsOut de várias fases com um número fixo de consultas
-    (critérios, zonas, grupos, times, linhas e jogos em andamento)."""
+    (critérios, zonas, grupos, times, linhas e jogos em andamento). `conditional=False`
+    ignora as zonas condicionais (usado pela própria classificação de que elas dependem)."""
     stages = [stage for stage in stages]
     if not stages:
         return {}
@@ -243,8 +267,11 @@ def stages_standings(stages: Iterable[Stage], live: bool = True) -> dict[int, di
     for stage_id, key in StageCriterion.objects.filter(stage_id__in=ids).order_by("stage_id", "position").values_list("stage_id", "key"):
         criteria[stage_id].append(key)
     zones: dict[int, list[Zone]] = defaultdict(list)
-    for zone in StandingZone.objects.filter(stage_id__in=ids).order_by("stage_id", "position_from", "id"):
+    conditions: dict[int, list[StandingZone]] = defaultdict(list)
+    for zone in StandingZone.objects.filter(stage_id__in=ids).select_related("ranking").order_by("stage_id", "position_from", "id"):
         zones[zone.stage_id].append(Zone(zone.name, zone.color, zone.position_from, zone.position_to))
+        if conditional and zone.ranking_id:
+            conditions[zone.stage_id].append(zone)
     groups: dict[int, list[Group]] = defaultdict(list)
     for group in Group.objects.filter(stage_id__in=ids).order_by("stage_id", "name", "id"):
         groups[group.stage_id].append(group)
@@ -272,6 +299,11 @@ def stages_standings(stages: Iterable[Stage], live: bool = True) -> dict[int, di
         rules = stage_rules(stage, criteria.get(stage.id, []))
         stage_zones_ = zones.get(stage.id, [])
         stage_adjustments_ = dict(adjustments.get(stage.id, {}))
+        qualified = _conditional_zones(conditions.get(stage.id, []), live)
+        conditions_text = {
+            (z.position_from, z.position_to): f"só quem estiver do {z.ranking_position_from}º ao {z.ranking_position_to}º em “{z.ranking.name}”"
+            for z in conditions.get(stage.id, [])
+        }
         out_groups = []
         for group in groups.get(stage.id, []):
             teams = members.get(group.id, [])
@@ -284,9 +316,9 @@ def stages_standings(stages: Iterable[Stage], live: bool = True) -> dict[int, di
                 group.stage = stage
                 team_map = {item.team_id: item.team for item in teams}
                 computed = compute_group(group, rules=rules, teams=teams, adjustments=stage_adjustments_)[kind]
-                rows_out = [_row_out(row, team_map[row.team_id], stage_zones_, playing[stage.id]) for row in computed]
+                rows_out = [_row_out(row, team_map[row.team_id], stage_zones_, playing[stage.id], qualified) for row in computed]
             else:
-                rows_out = [_row_out(row, row.team, stage_zones_, playing[stage.id]) for row in rows]
+                rows_out = [_row_out(row, row.team, stage_zones_, playing[stage.id], qualified) for row in rows]
             out_groups.append({"id": group.id, "name": group.name, "rows": rows_out})
         result[stage.id] = {
             "stage_id": stage.id,
@@ -295,7 +327,11 @@ def stages_standings(stages: Iterable[Stage], live: bool = True) -> dict[int, di
             "points": {"win": stage.points_win, "draw": stage.points_draw, "loss": stage.points_loss},
             "criteria": [{"key": key, "label": CRITERIA[key].label} for key in rules.criteria],
             "legend": [
-                {"name": zone.name, "color": zone.color, "from": zone.position_from, "to": zone.position_to}
+                {
+                    "name": zone.name, "color": zone.color, "from": zone.position_from, "to": zone.position_to,
+                    # só nas zonas condicionais: "só quem estiver do 1º ao 4º em “Melhores terceiros”"
+                    **({"condition": conditions_text[key]} if (key := (zone.position_from, zone.position_to)) in conditions_text else {}),
+                }
                 for zone in stage_zones_
             ],
             "groups": out_groups,
@@ -310,3 +346,107 @@ def stages_standings(stages: Iterable[Stage], live: bool = True) -> dict[int, di
 def stage_standings(stage: Stage, live: bool = True) -> dict:
     """StageStandingsOut da fase (ao vivo por padrão; `live=False` = oficial)."""
     return stages_standings([stage], live=live)[stage.id]
+
+
+# --- Classificações gerais e personalizadas (Ranking) ---------------------------------
+
+
+def ranking_rules(ranking: Ranking) -> Rules:
+    keys = [item.key for item in sorted(ranking.criteria.all(), key=lambda item: item.position)]
+    return Rules(
+        points_win=ranking.points_win,
+        points_draw=ranking.points_draw,
+        points_loss=ranking.points_loss,
+        criteria=tuple(keys) or DEFAULT_CRITERIA,
+    )
+
+
+def _conditional_zones(zones: Sequence[StandingZone], live: bool) -> dict[tuple[int, int], set[int]]:
+    """{(da, até): times dentro da faixa da classificação} de cada zona condicional."""
+    out: dict[tuple[int, int], set[int]] = {}
+    for zone in zones:
+        ranking = Ranking.objects.prefetch_related("criteria", "zones").get(pk=zone.ranking_id)
+        rows = ranking_standings(ranking, live=live)["groups"][0]["rows"]
+        low, high = zone.ranking_position_from or 1, zone.ranking_position_to or len(rows)
+        out[(zone.position_from, zone.position_to)] = {row["team"]["id"] for row in rows if low <= row["position"] <= high}
+    return out
+
+
+def _position_inputs(ranking: Ranking, stage_ids: list[int], live: bool):
+    """Posição nos grupos: quem está na posição N de cada grupo da (única) fase e os jogos
+    que contam (sem os jogos contra quem passa do tamanho do menor grupo, se pedido)."""
+    stage = Stage.objects.filter(id__in=stage_ids).first()
+    if stage is None or not ranking.group_position:
+        return [], {}, Match.objects.none()
+    table = stages_standings([stage], live=live, conditional=False)[stage.id]
+    groups = [group for group in table["groups"] if group["rows"]]
+    smallest = min((len(group["rows"]) for group in groups), default=0)
+    chosen, group_of, extra = [], {}, set()
+    for group in groups:
+        for row in group["rows"]:
+            if row["position"] == ranking.group_position:
+                chosen.append(row["team"]["id"])
+                group_of[row["team"]["id"]] = group["name"]
+            if ranking.skip_extra_teams and row["position"] > smallest:
+                extra.add(row["team"]["id"])
+    extra -= set(chosen)
+    matches = Match.objects.filter(stage=stage, status__in=COUNTED_STATUSES)
+    if extra:
+        matches = matches.exclude(home_team_id__in=extra).exclude(away_team_id__in=extra)
+    return chosen, group_of, matches
+
+
+def ranking_standings(ranking: Ranking, live: bool = True) -> dict:
+    """RankingStandingsOut: mesmo formato de StageStandingsOut (um grupo só), calculado
+    na hora. Geral: todos os times das fases marcadas (tabelas e mata-mata); personalizada:
+    só os times escolhidos. Somam todos os jogos dessas fases (mata-mata inclusive) e as
+    punições/bonificações delas."""
+    from matches.selectors import serialize_team
+
+    stage_ids = list(ranking.stages.order_by("position", "id").values_list("id", flat=True))
+    group_of: dict[int, str] = {}
+    matches = Match.objects.filter(stage_id__in=stage_ids, status__in=COUNTED_STATUSES)
+    if ranking.scope == Ranking.Scope.POSITION:
+        chosen, group_of, matches = _position_inputs(ranking, stage_ids, live)
+        teams = list(Team.objects.filter(id__in=chosen))
+    elif ranking.scope == Ranking.Scope.CUSTOM:
+        teams = list(ranking.teams.all())
+    else:
+        ids = set(GroupTeam.objects.filter(group__stage_id__in=stage_ids).values_list("team_id", flat=True))
+        for home, away in Match.objects.filter(stage_id__in=stage_ids).values_list("home_team_id", "away_team_id"):
+            ids.update((home, away))
+        teams = list(Team.objects.filter(id__in=ids))
+    by_id = {team.id: team for team in teams}
+    entries = [TeamEntry(team.id, team.name, None) for team in teams]
+    # O confronto direto (se estiver nos critérios) só olha jogos entre os times da tabela.
+    results = _results(matches)
+    adjustments: dict[int, int] = defaultdict(int)
+    for team_id, points in PointAdjustment.objects.filter(stage_id__in=stage_ids, team_id__in=by_id).values_list("team_id", "points"):
+        adjustments[team_id] += points
+    rules = ranking_rules(ranking)
+    zones = [Zone(z.name, z.color, z.position_from, z.position_to) for z in ranking.zones.order_by("position_from", "id")]
+    playing = set()
+    for home, away in Match.objects.filter(stage_id__in=stage_ids, status__in=PLAYING_STATUSES).values_list("home_team_id", "away_team_id"):
+        playing.update((home, away))
+    rows = compute_standings(entries, results, rules, live=live, adjustments=dict(adjustments))
+    kind = Standing.Kind.LIVE.value if live else Standing.Kind.OFFICIAL.value
+    return {
+        "ranking_id": ranking.id,
+        "stage_id": None,
+        "stage_name": ranking.name,
+        "scope": ranking.scope,
+        "stage_ids": stage_ids,
+        "kind": kind,
+        "points": {"win": rules.points_win, "draw": rules.points_draw, "loss": rules.points_loss},
+        "criteria": [{"key": key, "label": CRITERIA[key].label} for key in rules.criteria],
+        "legend": [{"name": z.name, "color": z.color, "from": z.position_from, "to": z.position_to} for z in zones],
+        "groups": [{"id": None, "name": ranking.name, "rows": [
+            {**_row_out(row, by_id[row.team_id], zones, playing), "group": group_of.get(row.team_id)} for row in rows
+        ]}],
+        "group_position": ranking.group_position if ranking.scope == Ranking.Scope.POSITION else None,
+        "adjustments": [
+            {"team": serialize_team(by_id[team_id]), "points": points, "reason": ""}
+            for team_id, points in adjustments.items()
+            if points
+        ],
+    }

@@ -396,7 +396,7 @@ def competition_detail(request, slug: str):
             "short_name": competition.short_name,
             "position": competition.position,
         },
-        "season": {"id": season.id, "year": season.year} if season else None,
+        "season": {"id": season.id, "year": season.year, "end_year": season.end_year, "label": season.label} if season else None,
         "stages": stage_items,
         "current_stage_id": current_stage["id"] if current_stage else None,
         "current_round_id": current_stage["current_round_id"] if current_stage else None,

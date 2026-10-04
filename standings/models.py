@@ -6,7 +6,7 @@ de verdade, cadastrado na página da fase no Django Admin."""
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from competitions.models import Group, GroupTeam, Stage, Team
+from competitions.models import HEX_COLOR, Group, GroupTeam, Season, Stage, Team
 
 
 class PointAdjustment(models.Model):
@@ -83,3 +83,83 @@ class Standing(models.Model):
     @property
     def goal_difference(self) -> int:
         return self.goals_for - self.goals_against
+
+
+class Ranking(models.Model):
+    """Classificação da temporada além das tabelas das fases: a geral do torneio (soma
+    das fases marcadas, todos os jogos, mata-mata inclusive) ou uma personalizada (só os
+    times escolhidos, ex.: briga por vaga na Série D entre 7 dos 10). Calculada na hora a
+    partir dos jogos, com pontuação, critérios e zonas próprios (sem cache)."""
+
+    class Scope(models.TextChoices):
+        OVERALL = "overall", "Geral do torneio"
+        CUSTOM = "custom", "Personalizada (times escolhidos)"
+        POSITION = "position", "Posição nos grupos (ex.: melhores terceiros)"
+
+    season = models.ForeignKey(Season, on_delete=models.CASCADE, related_name="rankings", verbose_name="temporada")
+    name = models.CharField("nome", max_length=80, help_text="Ex.: Classificação geral, Vaga na Série D.")
+    scope = models.CharField("tipo", max_length=8, choices=Scope.choices, default=Scope.OVERALL)
+    position = models.PositiveSmallIntegerField("ordem", default=0)
+    stages = models.ManyToManyField(
+        Stage, related_name="rankings_included", verbose_name="fases que entram",
+        help_text="Os jogos destas fases somam (todos, mata-mata inclusive). Deixe de fora as que não contam.",
+    )
+    teams = models.ManyToManyField(
+        Team, blank=True, related_name="rankings", verbose_name="times",
+        help_text="Só na personalizada: os times que disputam (os demais não aparecem).",
+    )
+    group_position = models.PositiveSmallIntegerField(
+        "posição no grupo", null=True, blank=True,
+        help_text="Só em “posição nos grupos”: compara quem está nesta posição em cada grupo da fase (ex.: 3).",
+    )
+    skip_extra_teams = models.BooleanField(
+        "desconsiderar jogos contra os últimos dos grupos maiores", default=False,
+        help_text="Grupos de tamanhos diferentes: nos maiores, os jogos contra quem passa do tamanho do menor "
+        "grupo (ex.: o 5º num grupo de 5, se o menor tem 4) não contam na comparação.",
+    )
+    points_win = models.PositiveSmallIntegerField("pontos por vitória", default=3)
+    points_draw = models.PositiveSmallIntegerField("pontos por empate", default=1)
+    points_loss = models.PositiveSmallIntegerField("pontos por derrota", default=0)
+    show_on_competition = models.BooleanField(
+        "mostrar na página da competição", default=False, help_text="Aparece como botão ao lado da classificação."
+    )
+    show_on_stages = models.ManyToManyField(
+        Stage, blank=True, related_name="rankings_shown", verbose_name="mostrar na página destas fases",
+        help_text="Botão ao lado da classificação quando a página mostra uma destas fases.",
+    )
+
+    class Meta:
+        db_table = "rankings"
+        ordering = ["season", "position", "id"]
+        verbose_name = "classificação geral ou personalizada"
+        verbose_name_plural = "classificações gerais e personalizadas"
+
+    def __str__(self):
+        return f"{self.name} ({self.season})"
+
+
+class RankingCriterion(models.Model):
+    ranking = models.ForeignKey(Ranking, on_delete=models.CASCADE, related_name="criteria", verbose_name="classificação")
+    position = models.PositiveSmallIntegerField("ordem")
+    key = models.CharField("critério", max_length=32)
+
+    class Meta:
+        db_table = "ranking_criteria"
+        ordering = ["ranking", "position"]
+        constraints = [models.UniqueConstraint(fields=["ranking", "position"], name="uniq_ranking_criterion_position")]
+        verbose_name = "critério de desempate"
+        verbose_name_plural = "critérios de desempate (na ordem)"
+
+
+class RankingZone(models.Model):
+    ranking = models.ForeignKey(Ranking, on_delete=models.CASCADE, related_name="zones", verbose_name="classificação")
+    name = models.CharField("nome", max_length=60)
+    color = models.CharField("cor", max_length=7, validators=[HEX_COLOR])
+    position_from = models.PositiveSmallIntegerField("da posição")
+    position_to = models.PositiveSmallIntegerField("até a posição")
+
+    class Meta:
+        db_table = "ranking_zones"
+        ordering = ["ranking", "position_from"]
+        verbose_name = "zona"
+        verbose_name_plural = "zonas (faixas coloridas)"

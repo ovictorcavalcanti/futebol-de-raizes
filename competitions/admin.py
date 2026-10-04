@@ -37,6 +37,7 @@ import re
 from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin.widgets import AutocompleteSelect
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Count, Q
 from django.forms.models import BaseInlineFormSet
@@ -49,7 +50,7 @@ from observability.admin import AuditedModelAdmin
 from realtime.outbox import enqueue
 from standings import services as standings_services
 from standings.domain import CRITERIA, ConfigError, Rules, Zone, validate_rules
-from standings.models import PointAdjustment, Standing
+from standings.models import PointAdjustment, Ranking, RankingCriterion, RankingZone, Standing
 
 from .models import (
     Competition,
@@ -62,6 +63,7 @@ from .models import (
     StandingZone,
     Team,
 )
+from .table_import import TableImportError, apply_table, parse_table
 
 HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 COLOR_FIELD_NAMES = frozenset({"color", "color_primary", "color_secondary"})
@@ -208,8 +210,8 @@ def hierarchy(obj) -> list[dict]:
     if name == "competition":
         return [{"label": obj.name, "url": change_url_of(obj)}]
     if name == "season":
-        return [*hierarchy(obj.competition), {"label": f"Temporada {obj.year}", "url": change_url_of(obj)}]
-    if name == "stage":
+        return [*hierarchy(obj.competition), {"label": f"Temporada {obj.label}", "url": change_url_of(obj)}]
+    if name in ("stage", "ranking"):
         return [*hierarchy(obj.season), {"label": obj.name, "url": change_url_of(obj)}]
     if name in ("group", "round"):
         label = obj.name if name == "group" else obj.label
@@ -499,11 +501,44 @@ class StageCriterionInline(Inline):
         return len(DEFAULT_CRITERIA) if obj is None or obj.pk is None else 0
 
 
+class StandingZoneForm(forms.ModelForm):
+    class Meta:
+        model = StandingZone
+        fields = ("name", "color", "position_from", "position_to", "ranking", "ranking_position_from", "ranking_position_to")
+
+    def clean(self):
+        cleaned = super().clean()
+        ranking, low, high = cleaned.get("ranking"), cleaned.get("ranking_position_from"), cleaned.get("ranking_position_to")
+        if ranking is None and (low or high):
+            self.add_error("ranking", "Escolha a classificação da condição (ou apague as posições).")
+        if ranking is not None:
+            if not low or not high:
+                self.add_error("ranking_position_to", "Informe a faixa da condição (ex.: da 1ª à 4ª).")
+            elif low > high:
+                self.add_error("ranking_position_to", "A faixa da condição está invertida.")
+            stage = self.instance.stage if self.instance.stage_id else None
+            if stage is not None and ranking.season_id != stage.season_id:
+                self.add_error("ranking", "A classificação precisa ser da mesma temporada da fase.")
+        return cleaned
+
+
 class StandingZoneInline(Inline):
+    """Faixas coloridas da tabela da fase. Condicional (opcional): a cor só vale para quem
+    estiver na faixa de uma classificação, ex.: 3º colocado verde só se estiver entre os 4
+    melhores terceiros."""
+
     model = StandingZone
+    form = StandingZoneForm
     formset = StandingZoneFormSet
-    fields = ("name", "color", "position_from", "position_to")
+    fields = ("name", "color", "position_from", "position_to", "ranking", "ranking_position_from", "ranking_position_to")
     ordering = ("position_from",)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "ranking":
+            stage_id = getattr(request, "resolver_match", None) and request.resolver_match.kwargs.get("object_id")
+            season_id = Stage.objects.filter(pk=stage_id).values_list("season_id", flat=True).first() if stage_id else None
+            kwargs["queryset"] = Ranking.objects.filter(season_id=season_id) if season_id else Ranking.objects.none()
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
 class GroupFormSet(BaseInlineFormSet):
@@ -617,7 +652,7 @@ class PointAdjustmentInline(Inline):
 
 class SeasonInline(Inline):
     model = Season
-    fields = ("year", "open")
+    fields = ("year", "end_year", "open")
     readonly_fields = ("open",)
     ordering = ("-year",)
     verbose_name_plural = "temporadas"
@@ -657,7 +692,7 @@ class CompetitionAdmin(HierarchyAdminMixin, StandingCacheDeletionMixin, BaseAdmi
 
     @admin.display(description="temporadas")
     def seasons_list(self, obj):
-        return ", ".join(str(season.year) for season in obj.seasons.all()) or "—"
+        return ", ".join(season.label for season in obj.seasons.all()) or "—"
 
     @admin.display(description="fases")
     def stages_panel(self, obj):
@@ -677,7 +712,7 @@ class CompetitionAdmin(HierarchyAdminMixin, StandingCacheDeletionMixin, BaseAdmi
             )
             rows.append(
                 (
-                    admin_link(season, f"Temporada {season.year}"),
+                    admin_link(season, f"Temporada {season.label}"),
                     links or "nenhuma fase ainda",
                     format_html('<a href="{}?season={}">+ adicionar fase</a>', add_url, season.pk),
                 )
@@ -727,10 +762,42 @@ class StageFormatMixin:
         return new_format
 
 
+TABLE_JSON_HELP = (
+    'Opcional (pontos corridos ou grupos): as rodadas e os jogos da fase. Ex.: {"times": ["SPT", "NAU"], '
+    '"rodadas": [{"numero": 1, "jogos": [{"mandante": "SPT", "visitante": "NAU", "data": "2027-01-15 19:00", '
+    '"local": "Ilha do Retiro", "cidade": "Recife"}]}]}. Na fase de grupos, os participantes vão em '
+    '"grupos": {"A": [...], "B": [...]}. "times"/"grupos" só precisam dos times que ainda não estão na fase. '
+    'Time pela sigla, pelo nome ou {"id": N}; data no horário de Brasília. Time fora do campeonato, ou em dois '
+    "jogos da mesma rodada, é recusado; times de grupos diferentes podem se enfrentar (o jogo fica no grupo do "
+    "mandante). Rodada existente recebe os jogos; jogo repetido é pulado. Com qualquer erro, nada é gravado."
+)
+
+
 class StageForm(StageFormatMixin, forms.ModelForm):
+    table_json = forms.CharField(
+        label="Tabela em JSON", required=False, help_text=TABLE_JSON_HELP,
+        widget=forms.Textarea(attrs={"rows": 8, "class": "vLargeTextField", "spellcheck": "false"}),
+    )
+
     class Meta:
         model = Stage
         fields = ("season", "name", "position", "format", "points_win", "points_draw", "points_loss")
+
+    def clean(self):
+        cleaned = super().clean()
+        text = (cleaned.get("table_json") or "").strip()
+        self.table_plan = None
+        if not text:
+            return cleaned
+        fmt = cleaned.get("format")
+        if fmt not in (Stage.Format.LEAGUE, Stage.Format.GROUPS):
+            self.add_error("table_json", "A tabela em JSON é só para fase de pontos corridos ou de grupos.")
+            return cleaned
+        try:
+            self.table_plan = parse_table(text, self.instance if self.instance.pk else None, fmt)
+        except TableImportError as exc:
+            self.add_error("table_json", forms.ValidationError(exc.messages))
+        return cleaned
 
 
 class StageInlineForm(StageFormatMixin, forms.ModelForm):
@@ -759,14 +826,29 @@ class StageInline(Inline):
         return open_link(obj, "abrir (grupos, rodadas, jogos)")
 
 
+class RankingInline(Inline):
+    """Classificações gerais e personalizadas da temporada; fases, times, critérios e
+    zonas ficam na página de cada uma."""
+
+    model = Ranking
+    fields = ("name", "scope", "position", "show_on_competition", "open")
+    readonly_fields = ("open",)
+    ordering = ("position", "id")
+    verbose_name_plural = "classificações gerais e personalizadas (fases, times, critérios e zonas: na página de cada uma)"
+
+    @admin.display(description="página")
+    def open(self, obj):
+        return open_link(obj, "abrir (fases, times, critérios, zonas)")
+
+
 @admin.register(Season)
 class SeasonAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, StandingCacheDeletionMixin, BaseAdmin):
-    list_display = ("__str__", "competition", "year")
+    list_display = ("__str__", "competition", "year", "end_year")
     list_filter = ("competition",)
     search_fields = ("competition__name", "competition__short_name", "year")
     list_select_related = ("competition",)
     autocomplete_fields = ("competition",)
-    inlines = [StageInline]
+    inlines = [StageInline, RankingInline]
     parent_params = (("competition", Competition),)
 
     def get_queryset(self, request):
@@ -818,6 +900,7 @@ class StageAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, WriteLockedPostMixin
     parent_params = (("season", Season),)
     fieldsets = (
         (None, {"fields": ("season", "name", "position", "format")}),
+        ("Tabela de jogos (JSON)", {"fields": ("table_json",), "classes": ("collapse",)}),
         (
             "Pontuação",
             {
@@ -837,8 +920,10 @@ class StageAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, WriteLockedPostMixin
 
     def get_fieldsets(self, request, obj=None):
         fieldsets = super().get_fieldsets(request, obj)
+        if obj is not None and not obj.has_table:
+            fieldsets = tuple(item for item in fieldsets if item[0] != "Tabela de jogos (JSON)")
         if obj is None or not obj.has_table:
-            return fieldsets[:2]
+            return fieldsets[:3] if obj is None else fieldsets[:2]
         return fieldsets
 
     def get_inlines(self, request, obj):
@@ -870,6 +955,24 @@ class StageAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, WriteLockedPostMixin
             for formset in formsets
         )
         recalc = not change or table_changed or bool(POINTS_FIELDS & set(form.changed_data))
+        plan = getattr(form, "table_plan", None)
+        if plan is not None:
+            try:
+                result = apply_table(stage, plan)
+            except (TableImportError, ValidationError) as exc:
+                transaction.set_rollback(True)
+                detail = "; ".join(getattr(exc, "messages", [str(exc)]))
+                self.message_user(request, f"Tabela em JSON recusada, nada foi gravado: {detail}", messages.ERROR)
+                return
+            recalc = recalc or bool(result.teams_added)
+            summary = f"Tabela em JSON: {result.rounds_created} rodada(s) e {result.matches_created} jogo(s) criados"
+            if result.matches_skipped:
+                summary += f", {result.matches_skipped} jogo(s) que já existiam pulados"
+            if result.groups_created:
+                summary += f"; grupos criados: {', '.join(result.groups_created)}"
+            if result.teams_added:
+                summary += f"; entraram na tabela: {', '.join(result.teams_added)}"
+            self.message_user(request, summary + ".", messages.SUCCESS)
         try:
             standings_services.on_stage_rules_changed(stage, recalc=recalc)
         except ConfigError as exc:  # pragma: no cover - os formulários já validaram
@@ -1087,3 +1190,121 @@ class TeamAdmin(BaseAdmin):
     @admin.display(description="cor secundária")
     def secondary_swatch(self, obj):
         return color_swatch(obj.color_secondary)
+
+
+# --- Classificação geral / personalizada ---------------------------------------------------
+
+
+RANKING_HELP = (
+    "Geral: soma todos os jogos (mata-mata inclusive) das fases marcadas, com todos os times delas. "
+    "Personalizada: os mesmos jogos, mas só os times escolhidos aparecem (ex.: vaga na Série D entre 7 dos 10). "
+    "Posição nos grupos: marque uma fase de grupos e a posição; compara quem está nela em cada grupo (ex.: os "
+    "melhores terceiros), com o confronto direto só entre eles. Use-a numa zona condicional da fase para tirar a "
+    "cor de quem não se classifica. "
+    "Punições e bonificações das fases marcadas também somam."
+)
+
+
+class RankingForm(forms.ModelForm):
+    class Meta:
+        model = Ranking
+        fields = (
+            "season", "name", "scope", "position", "stages", "teams", "group_position", "skip_extra_teams",
+            "points_win", "points_draw", "points_loss", "show_on_competition", "show_on_stages",
+        )
+        widgets = {"stages": forms.CheckboxSelectMultiple, "show_on_stages": forms.CheckboxSelectMultiple}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        season_id = self.instance.season_id or self.initial.get("season") or self.data.get("season")
+        stages = Stage.objects.filter(season_id=season_id).order_by("position", "id") if season_id else Stage.objects.none()
+        for name in ("stages", "show_on_stages"):
+            if name in self.fields:
+                self.fields[name].queryset = stages
+                self.fields[name].label_from_instance = lambda stage: f"{stage.name} ({stage.get_format_display()})"
+        if not season_id and "stages" in self.fields:
+            self.fields["stages"].help_text = "Escolha a temporada e salve; depois marque as fases."
+            self.fields["stages"].required = False
+
+    def clean(self):
+        cleaned = super().clean()
+        scope, teams = cleaned.get("scope"), cleaned.get("teams")
+        if scope == Ranking.Scope.CUSTOM and not teams:
+            self.add_error("teams", "A personalizada precisa dos times que disputam.")
+        if scope != Ranking.Scope.CUSTOM and teams:
+            self.add_error("teams", "Só a personalizada escolhe os times: deixe em branco.")
+        if scope == Ranking.Scope.POSITION:
+            stages = list(cleaned.get("stages") or [])
+            if len(stages) != 1 or stages[0].format != Stage.Format.GROUPS:
+                self.add_error("stages", "Posição nos grupos compara os times de uma fase de grupos: marque só ela.")
+            if not cleaned.get("group_position"):
+                self.add_error("group_position", "Informe a posição no grupo (ex.: 3 para os terceiros).")
+        elif cleaned.get("group_position"):
+            self.add_error("group_position", "Só no tipo “posição nos grupos”.")
+        return cleaned
+
+
+class RankingRulesFormSet(BaseInlineFormSet):
+    """Critérios ou zonas da classificação, conferidos antes de gravar (validate_rules)."""
+
+    def rows(self):
+        return [f.cleaned_data for f in self.forms if f.cleaned_data and not self._should_delete_form(f)]
+
+    def clean(self):
+        super().clean()
+        if any(self.errors):
+            return
+        if self.model is RankingCriterion:
+            keys = [row["key"] for row in sorted(self.rows(), key=lambda row: row.get("position") or 0)]
+            zones = []
+        else:
+            keys = list(DEFAULT_CRITERIA)
+            zones = [Zone(row["name"], row["color"], row["position_from"], row["position_to"]) for row in self.rows()]
+        if self.model is RankingCriterion and not keys:
+            return  # vazio = os critérios padrão
+        try:
+            validate_rules((3, 1, 0), keys, zones)
+        except ConfigError as exc:
+            raise forms.ValidationError(exc.message) from exc
+
+
+class RankingCriterionInline(Inline):
+    model = RankingCriterion
+    formset = RankingRulesFormSet
+    fields = ("position", "key")
+    ordering = ("position",)
+    verbose_name = "critério de desempate"
+    verbose_name_plural = "critérios de desempate (em ordem; vazio = os padrões)"
+
+    def get_formset(self, request, obj=None, **kwargs):
+        kwargs["widgets"] = {"key": forms.Select(choices=CRITERION_CHOICES)}
+        return super().get_formset(request, obj, **kwargs)
+
+
+class RankingZoneInline(Inline):
+    model = RankingZone
+    formset = RankingRulesFormSet
+    fields = ("name", "color", "position_from", "position_to")
+    ordering = ("position_from",)
+
+
+@admin.register(Ranking)
+class RankingAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, BaseAdmin):
+    """Classificação geral do torneio (soma das fases marcadas) ou personalizada (só os
+    times escolhidos), com pontuação, critérios e zonas próprios; botão na página da
+    competição e/ou nas páginas das fases marcadas."""
+
+    form = RankingForm
+    list_display = ("name", "season", "scope", "show_on_competition")
+    list_filter = ("scope", "season__competition")
+    search_fields = ("name", "season__competition__name")
+    list_select_related = ("season__competition",)
+    autocomplete_fields = ("season", "teams")
+    parent_params = (("season", Season),)
+    inlines = [RankingCriterionInline, RankingZoneInline]
+    fieldsets = (
+        (None, {"fields": ("season", "name", "scope", "position")}),
+        ("O que soma", {"fields": ("stages", "teams", "group_position", "skip_extra_teams"), "description": RANKING_HELP}),
+        ("Pontuação", {"fields": (("points_win", "points_draw", "points_loss"),)}),
+        ("Onde aparece", {"fields": ("show_on_competition", "show_on_stages")}),
+    )

@@ -57,7 +57,10 @@
       </div>
     </section>
     <aside class="split__aside stack" aria-label="Classificação e confrontos" data-hook="aside">
+      {# botões: tabela da fase × classificações gerais/personalizadas (competition.js) #}
+      <div id="standings-switch" class="cluster standings-switch" role="group" aria-label="Classificação exibida" data-hook="standings-switch" hidden></div>
       <div id="stage-standings" data-hook="standings"></div>
+      <div id="ranking-standings" data-hook="ranking-standings" aria-live="polite" hidden></div>
       <section id="stage-ties" class="ties" data-hook="ties" aria-labelledby="ties-title" hidden>
         <h2 id="ties-title" class="stage-block__title">Confrontos</h2>
         <div class="ties" data-hook="ties-list"></div>

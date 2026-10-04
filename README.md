@@ -273,6 +273,85 @@ python manage.py createsuperuser # ou use os usuários do seed
 No Compose, o equivalente é `docker compose down -v` (apaga o volume do banco) e
 `docker compose up -d`.
 
+**Cadastrar times em lote.** `import_teams` lê um JSON: uma lista de objetos, um por time, com
+`nome` e `sigla` (obrigatórias; sigla até 4 letras, vira maiúscula), `cidade`, `cor_principal`,
+`cor_secundaria` (#RRGGBB) e `escudo_url`. As chaves em inglês (`name`, `short_name`, `city`,
+`color_primary`, `color_secondary`, `crest_url`) também valem.
+
+```json
+[
+  {"nome": "Sport", "sigla": "SPT", "cidade": "Recife", "cor_principal": "#D71920",
+   "cor_secundaria": "#000000", "escudo_url": "https://exemplo.com/sport.png"},
+  {"nome": "Náutico", "sigla": "NAU", "cidade": "Recife", "cor_principal": "#C8102E"},
+  {"nome": "Retrô", "sigla": "RET"}
+]
+```
+
+```bash
+python manage.py import_teams times.json --dry-run  # mostra o que faria, sem gravar
+python manage.py import_teams times.json            # cria; quem já existe (pelo nome) é pulado
+python manage.py import_teams times.json --update   # cria e atualiza os que já existem
+```
+
+É tudo ou nada: com qualquer item inválido (sigla longa, cor fora do formato, nome repetido),
+nada é gravado e o comando aponta o item e o motivo. Um CSV com as mesmas colunas no cabeçalho
+(vírgula ou ponto e vírgula) também é aceito. O escudo em arquivo é enviado pelo admin.
+
+**Tabela de jogos em JSON (pontos corridos e grupos).** Na página da fase no admin (ao criar ou editar),
+a seção "Tabela de jogos (JSON)" recebe os participantes e as rodadas com os jogos da fase:
+
+```json
+{"times": ["SPT", "NAU", "SCZ", "RET"],
+ "rodadas": [
+  {"numero": 1, "nome": "1ª rodada", "jogos": [
+    {"mandante": "SPT", "visitante": "NAU", "data": "2027-01-15 19:00", "local": "Ilha do Retiro", "cidade": "Recife"},
+    {"mandante": "Santa Cruz", "visitante": {"id": 42}, "data": "2027-01-16 16:00"}
+  ]}
+]}
+```
+
+Na fase de grupos, os participantes vão em `"grupos": {"A": ["SPT", "NAU"], "B": ["SCZ", "RET"]}`
+(grupo novo é criado). `times`/`grupos` só precisam listar quem ainda não está na fase. O time vai
+pela sigla, pelo nome ou por `{"id": N}`; a sigla é procurada primeiro entre os times da fase e,
+se for de mais de um time, o import recusa e lista os candidatos. `data` é o horário de Brasília;
+`local` e `cidade` são opcionais.
+
+São recusados: time que não está no campeonato (nem na fase nem em `times`/`grupos`), time em
+dois jogos da mesma rodada e time em dois grupos. Times de grupos diferentes podem se enfrentar
+(como na Copa do Nordeste): o jogo fica no grupo do mandante e conta na classificação dos dois. Rodada que já existe (pelo número)
+recebe os jogos e jogo repetido (mesmos mandante e visitante na rodada) é pulado. Com qualquer
+erro, nada é gravado e o campo mostra onde e por quê. Mata-mata ainda não é aceito.
+
+**Classificação geral e personalizadas.** Na página da temporada no admin, "Classificações gerais
+e personalizadas" cria tabelas além das de cada fase:
+
+* **Geral do torneio** — soma todos os jogos (mata-mata inclusive) das fases marcadas, com todos os
+  times delas. Marque só as fases que contam: "a partir da 2ª fase" = desmarcar a 1ª.
+* **Personalizada** — os mesmos jogos, mas só os times escolhidos aparecem (ex.: vaga na Série D
+  entre os 7 dos 10 que não têm divisão nacional; jogo contra quem está fora conta para quem está).
+
+* **Posição nos grupos** — marque uma fase de grupos e uma posição (N): compara quem está, naquele
+  momento, na N-ª posição de cada grupo (ex.: melhores terceiros, melhores quartos). É a geral da
+  fase filtrada para esses times; o confronto direto só considera jogos entre eles. Com grupos de
+  tamanhos diferentes, a opção "desconsiderar jogos contra os últimos dos grupos maiores" tira, nos
+  grupos maiores, os jogos contra quem passa do tamanho do menor grupo.
+
+Cada uma tem pontuação, critérios de desempate e zonas próprios, e as punições das fases marcadas
+somam.
+
+**Zona condicional.** Na fase, uma zona pode apontar para uma classificação e uma faixa dela: ex.
+"3º colocado: verde só se estiver do 1º ao 4º em 'Melhores terceiros'". Quem está na posição mas
+fora da faixa fica sem a cor; a legenda explica a condição, e tudo se atualiza ao vivo. Onde aparece: "mostrar na página da competição" (botão ao lado da classificação, em qualquer
+fase) e/ou "mostrar na página destas fases" (botão só quando a página mostra essas fases). A tabela
+é calculada na hora (`GET /api/rankings/{id}`) e se atualiza ao vivo.
+
+Na fase de grupos, cada grupo soma os jogos dos seus times contra qualquer adversário da fase:
+jogo entre grupos diferentes conta para os dois.
+
+**Temporada que cruza o ano.** A temporada tem "ano" (início) e "ano final" (opcional): vazio, é
+de ano único (2026); preenchido, cruza o ano, como as europeias (2026/2027). As páginas e as APIs
+mostram o rótulo (`season.label`).
+
 O seed lança tudo pelos serviços de escrita, com origem `script` e horários reais:
 
 - **Pernambucano Raiz**: pontos corridos com as regras do primeiro campeonato (3/1/0;

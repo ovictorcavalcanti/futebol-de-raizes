@@ -261,9 +261,10 @@ def compute_standings(
     """Linhas da classificação, já ordenadas e com posições 1..n.
 
     `adjustments` = {team_id: pontos} somados aos pontos dos jogos (negativo = punição);
-    time fora de `teams` é ignorado. Todo time de `teams` ganha uma linha, mesmo sem jogos. Partidas com time fora de
-    `teams` (ou de um time contra ele mesmo) são ignoradas. Critério fora do catálogo
-    levanta ConfigError("criterion_unknown").
+    time fora de `teams` é ignorado. Todo time de `teams` ganha uma linha, mesmo sem jogos.
+    Partida contra time fora de `teams` (ex.: de outro grupo, como na Copa do Nordeste)
+    conta só para o time de `teams`; sem nenhum dos dois (ou de um time contra ele mesmo),
+    é ignorada. Critério fora do catálogo levanta ConfigError("criterion_unknown").
     """
     # Resolve os critérios antes de tudo: configuração inválida falha sempre, mesmo
     # num grupo sem times ou quando o empate já se desfez antes do critério ruim.
@@ -275,14 +276,15 @@ def compute_standings(
         for match in matches
         if match.status in counted
         and match.home_team_id != match.away_team_id
-        and match.home_team_id in team_map
-        and match.away_team_id in team_map
+        and (match.home_team_id in team_map or match.away_team_id in team_map)
     )
 
     totals = {team_id: _Totals() for team_id in team_map}
     for match in considered:
-        totals[match.home_team_id].add(match.home_score, match.away_score, match.home_yellow, match.home_red)
-        totals[match.away_team_id].add(match.away_score, match.home_score, match.away_yellow, match.away_red)
+        if match.home_team_id in totals:
+            totals[match.home_team_id].add(match.home_score, match.away_score, match.home_yellow, match.home_red)
+        if match.away_team_id in totals:
+            totals[match.away_team_id].add(match.away_score, match.home_score, match.away_yellow, match.away_red)
 
     rows = [
         Row(

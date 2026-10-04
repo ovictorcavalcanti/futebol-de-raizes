@@ -829,7 +829,7 @@ def competition_payload(slug: str, stage_id: int | None = None, round_id: int | 
             "short_name": competition.short_name,
             "position": competition.position,
         },
-        "season": {"id": season.id, "year": season.year} if season else None,
+        "season": {"id": season.id, "year": season.year, "end_year": season.end_year, "label": season.label} if season else None,
         "stages": [
             {
                 "id": item.id,
@@ -843,6 +843,8 @@ def competition_payload(slug: str, stage_id: int | None = None, round_id: int | 
         "current_stage_id": stage.id if stage else None,
         "current_round_id": None,
         "stage": None,
+        # classificações gerais/personalizadas com botão na página da competição
+        "rankings": _ranking_refs(season.rankings.filter(show_on_competition=True)) if season else [],
     }
     if stage is None:
         return data
@@ -878,8 +880,14 @@ def competition_payload(slug: str, stage_id: int | None = None, round_id: int | 
         "standings": stage_standings(stage, live=True) if stage.has_table else None,
         "matches": round_matches,
         "ties": [serialize_tie_detail(tie, tie_matches.get(tie.id, []), batch.legs.get(tie.id, [])) for tie in ties],
+        "rankings": _ranking_refs(stage.rankings_shown.all()),  # com botão quando a página mostra esta fase
     }
     return data
+
+
+def _ranking_refs(query) -> list[dict]:
+    """[{"id", "name", "scope"}] (RankingRef) na ordem da temporada."""
+    return [{"id": item.id, "name": item.name, "scope": item.scope} for item in query.order_by("position", "id")]
 
 
 def matches_list(round_id: int | None = None, date=None, status=None, stage_id: int | None = None) -> dict:

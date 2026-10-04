@@ -41,17 +41,35 @@ class Competition(models.Model):
 
 class Season(models.Model):
     competition = models.ForeignKey(Competition, on_delete=models.CASCADE, related_name="seasons", verbose_name="competição")
-    year = models.PositiveSmallIntegerField("ano")
+    year = models.PositiveSmallIntegerField("ano", help_text="Ano de início (ex.: 2026).")
+    end_year = models.PositiveSmallIntegerField(
+        "ano final",
+        null=True,
+        blank=True,
+        help_text="Só para temporada que cruza o ano, como as europeias: 2027 em 2026/2027. Vazio = ano único.",
+    )
 
     class Meta:
         db_table = "seasons"
         ordering = ["competition__position", "-year"]
-        constraints = [models.UniqueConstraint(fields=["competition", "year"], name="uniq_season_year")]
+        constraints = [
+            models.UniqueConstraint(fields=["competition", "year"], name="uniq_season_year"),
+            models.CheckConstraint(
+                condition=models.Q(end_year__isnull=True) | models.Q(end_year__gt=models.F("year")),
+                name="season_end_after_start",
+                violation_error_message="O ano final vem depois do ano de início (ex.: 2026/2027).",
+            ),
+        ]
         verbose_name = "temporada"
         verbose_name_plural = "temporadas"
 
     def __str__(self):
-        return f"{self.competition} {self.year}"
+        return f"{self.competition} {self.label}"
+
+    @property
+    def label(self) -> str:
+        """"2026" ou, na temporada que cruza o ano, "2026/2027"."""
+        return f"{self.year}/{self.end_year}" if self.end_year else str(self.year)
 
 
 class Stage(models.Model):
@@ -127,6 +145,16 @@ class StandingZone(models.Model):
     color = models.CharField("cor", max_length=7, validators=[HEX_COLOR])
     position_from = models.PositiveSmallIntegerField("da posição")
     position_to = models.PositiveSmallIntegerField("até a posição")
+    # Zona condicional: só vale para quem está, naquele momento, na faixa indicada de uma
+    # classificação "posição nos grupos" (ex.: 3º colocado só fica verde se estiver entre
+    # os 4 melhores terceiros). Sem classificação = zona de sempre.
+    ranking = models.ForeignKey(
+        "standings.Ranking", on_delete=models.SET_NULL, null=True, blank=True, related_name="conditional_zones",
+        verbose_name="só se estiver na classificação",
+        help_text="Opcional: ex. “Melhores terceiros”. Quem estiver fora da faixa abaixo fica sem a cor.",
+    )
+    ranking_position_from = models.PositiveSmallIntegerField("nela, da posição", null=True, blank=True)
+    ranking_position_to = models.PositiveSmallIntegerField("nela, até a posição", null=True, blank=True)
 
     class Meta:
         db_table = "standing_zones"

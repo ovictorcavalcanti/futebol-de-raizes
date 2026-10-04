@@ -434,6 +434,7 @@ def test_competitions_and_competition_detail(client, key, league, live_match):
     ko = make_knockout(league["season"], legs=1, extra_time=True)
     detail = ok(get(client, "/competitions/pernambucano", key))
     assert detail["competition"]["slug"] == "pernambucano" and detail["season"]["year"] == 2026
+    assert detail["season"]["end_year"] is None and detail["season"]["label"] == "2026"
     assert detail["timezone"] == "America/Sao_Paulo"
     league_stage, knockout_stage = detail["stages"]
     assert league_stage["id"] == league["stage"].id and league_stage["has_standings"] is True

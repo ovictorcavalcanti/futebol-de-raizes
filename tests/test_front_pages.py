@@ -408,8 +408,8 @@ class FakeApi:
                     "standings": self.fx["STANDINGS"],
                     "ties": [],
                     "matches": [
-                        _summary(self.fx["MATCHES"]["live"]),
-                        _summary(self.fx["MATCHES"]["finished"]),
+                        {**_summary(self.fx["MATCHES"]["live"]), "group": {"id": 62, "name": "Grupo B"}},
+                        {**_summary(self.fx["MATCHES"]["finished"]), "group": {"id": 61, "name": "Grupo A"}},
                     ],
                 }
                 data["current_stage_id"], data["current_round_id"] = 6, 26
@@ -772,6 +772,10 @@ def test_competicao_rodadas_fase_e_slug_inexistente(open_page):
         and groups["standings"]
         and groups["cards"] == 2
     )
+    # fase de grupos: os jogos separados por grupo, na ordem do nome
+    assert page.evaluate(
+        "[...document.querySelectorAll('#round-matches .match-group')].map((g) => [g.querySelector('.match-group__title').textContent, g.querySelectorAll('.match').length])"
+    ) == [["Grupo A", 1], ["Grupo B", 1]]
     page.click("#round-prev")
     page.wait_for_function(
         "() => document.getElementById('round-label').textContent === 'Rodada 1'"

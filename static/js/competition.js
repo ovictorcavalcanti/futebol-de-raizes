@@ -10,7 +10,7 @@
  */
 import { renderCompetitionNav, showToast } from './render.js';
 import { ServerClock, mountClock } from './clock.js';
-import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createTieCard, createTieGroup, tiesFromMatches, refreshMatchCards, sortMatchesForDisplay } from './match-card.js';
+import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createTieCard, createTieGroup, tiesFromMatches, refreshMatchCards, sortMatchesForDisplay, groupMatchesByGroup, createMatchGroup } from './match-card.js';
 import { createStandings, updateStandings } from './standings.js';
 import { getCompetitions, getCompetition, listMatches, getMatch, getRanking } from './api.js';
 import { createStream, liveStatusIndicator } from './stream.js';
@@ -109,6 +109,12 @@ function cardFor(match, next) {
   return card;
 }
 
+/** Cards da rodada na ordem da home; na fase de grupos, separados por grupo. */
+function matchBlocks(matches, card) {
+  if (state.stage?.format !== 'groups') return sortMatchesForDisplay(matches).map(card);
+  return groupMatchesByGroup(matches).map((g) => createMatchGroup(g.group, g.matches.map(card)));
+}
+
 function renderMatches(matches, ties = null) {
   const next = new Map();
   const knockout = state.stage?.format === 'knockout';
@@ -127,10 +133,11 @@ function renderMatches(matches, ties = null) {
   } else {
     state.ties = new Map();
     state.tieCards = new Map();
-    blocks = sortMatchesForDisplay(matches).map((match) => cardFor(match, next)); // mesma ordem da home
+    blocks = matchBlocks(matches, (match) => cardFor(match, next)); // mesma ordem da home
   }
   state.cards = next;
   els.matches.classList.toggle('tie-groups', knockout);
+  els.matches.classList.toggle('match-groups', state.stage?.format === 'groups');
   els.matches.replaceChildren(...blocks);
   els.matches.removeAttribute('aria-busy');
   els.matches.hidden = blocks.length === 0;
@@ -364,7 +371,7 @@ async function reload() {
 /** Status mudou ao vivo: reordena os cards da rodada (a ordem depende do status). */
 function reorderCards() {
   const matches = [...state.cards.values()].map(getCardMatch).filter(Boolean);
-  els.matches.replaceChildren(...sortMatchesForDisplay(matches).map((m) => state.cards.get(m.id)));
+  els.matches.replaceChildren(...matchBlocks(matches, (m) => state.cards.get(m.id)));
 }
 
 function onMatch(message) {

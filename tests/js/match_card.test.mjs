@@ -1,7 +1,7 @@
 // Partes puras do card de jogo (sem DOM): node --test tests/js/match_card.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { safeHref, annulledGoalNote, sortEventsByClock, sortMatchesForDisplay } from '../../static/js/match-card.js';
+import { safeHref, annulledGoalNote, sortEventsByClock, sortMatchesForDisplay, groupMatchesByGroup } from '../../static/js/match-card.js';
 
 test('links de transmissão: só http(s); javascript:, data: e lixo viram null', () => {
   assert.equal(safeHref('https://tv.example.com/ao-vivo'), 'https://tv.example.com/ao-vivo');
@@ -38,4 +38,16 @@ test('sortMatchesForDisplay: ao vivo > encerrados > agendados; sem ao vivo, agen
   const noLive = [m(1, 'scheduled', 20), m(2, 'finished', 16), m(4, 'finished', 14), m(6, 'scheduled', 19)];
   assert.deepEqual(sortMatchesForDisplay(noLive).map((x) => x.id), [6, 1, 4, 2]);
   assert.deepEqual(sortMatchesForDisplay([m(7, 'delayed', 21), m(2, 'finished', 16)]).map((x) => x.id), [7, 2]); // atrasado conta como ao vivo
+});
+
+test('groupMatchesByGroup: um bloco por grupo, pela ordem do nome, cada um na ordem da home', () => {
+  const m = (id, group, status, hour) => ({ id, group, status, kickoff_at: `2026-10-04T${String(hour).padStart(2, '0')}:00:00Z` });
+  const a = { id: 1, name: 'Grupo A' };
+  const b = { id: 2, name: 'Grupo B' };
+  const g10 = { id: 3, name: 'Grupo 10' };
+  const g2 = { id: 4, name: 'Grupo 2' };
+  const out = groupMatchesByGroup([m(1, b, 'scheduled', 20), m(2, a, 'finished', 16), m(3, b, 'live', 18), m(4, a, 'scheduled', 19)]);
+  assert.deepEqual(out.map((g) => g.group.name), ['Grupo A', 'Grupo B']);
+  assert.deepEqual(out.map((g) => g.matches.map((x) => x.id)), [[4, 2], [3, 1]]);
+  assert.deepEqual(groupMatchesByGroup([m(1, g10, 'scheduled', 20), m(2, g2, 'scheduled', 20)]).map((g) => g.group.name), ['Grupo 2', 'Grupo 10']);
 });

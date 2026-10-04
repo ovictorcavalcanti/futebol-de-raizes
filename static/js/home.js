@@ -130,8 +130,9 @@ function competitionSection(comp, nextCards, nextStandings) {
     if (stage.standings) {
       b.standings.append(standingsFor(stage, nextStandings));
     } else {
+      // Mata-mata não tem tabela: a coluna da direita fica reservada (vazia) para os
+      // cards terem a mesma largura dos jogos com classificação ao lado.
       b.standings.remove();
-      b['stage-grid'].classList.add('split--no-aside');
     }
     p.stages.append(block);
   }

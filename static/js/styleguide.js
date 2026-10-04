@@ -122,10 +122,7 @@ function renderCompetitionSection(comp) {
       return createMatchCard(m, { now, onExpand: () => new Promise((resolve) => setTimeout(() => { if (full?.events) updateMatchCard(cardOf(m.id), full); resolve(); }, 600)) });
     }));
     if (stage.standings) b.standings.append(createStandings(stage.standings));
-    else {
-      b.standings.remove();
-      b['stage-grid'].classList.add('split--no-aside');
-    }
+    else b.standings.remove(); // como na home: coluna da direita reservada
     parts.stages.append(block);
   }
   return section;

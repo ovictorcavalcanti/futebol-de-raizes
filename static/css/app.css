@@ -1622,9 +1622,6 @@
   .stage-block__title { margin-bottom: var(--s-3); font-family: var(--font-num); font-weight: 700; font-size: 1rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); }
   .stage-block__more { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; font-size: 0.9375rem; text-decoration: none; }
   .stage-block__more:hover { text-decoration: underline; }
-  @media (min-width: 1200px) {
-    .split--no-aside .matches { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  }
 
   /* --- Competição -------------------------------------------------------------------- */
   .comp-hero { display: grid; gap: var(--s-4); }

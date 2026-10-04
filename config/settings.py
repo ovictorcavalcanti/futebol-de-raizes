@@ -73,6 +73,7 @@ MIDDLEWARE = [
     "observability.middleware.RequestContextMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
+    "core.ratelimit.RateLimitMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -130,6 +131,19 @@ if env_bool("DB_POOL", False):
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts.User"
+# Backend com bloqueio progressivo de login (accounts/throttle.py): vale para a
+# API e para o Django Admin.
+AUTHENTICATION_BACKENDS = ["accounts.backends.ThrottledModelBackend"]
+LOGIN_THROTTLE = {
+    "ENABLED": env_bool("LOGIN_THROTTLE_ENABLED", True),
+    "USER_FAILURES": int(env("LOGIN_THROTTLE_USER_FAILURES", "5")),  # falhas seguidas por usuário + IP
+    "BASE_LOCK": int(env("LOGIN_THROTTLE_BASE_LOCK", "60")),  # 1º bloqueio (s); dobra a cada novo
+    "MAX_LOCK": int(env("LOGIN_THROTTLE_MAX_LOCK", "900")),  # teto do bloqueio (s)
+    "STRIKE_MEMORY": int(env("LOGIN_THROTTLE_STRIKE_MEMORY", "86400")),  # memória dos bloqueios (s)
+    "IP_FAILURES": int(env("LOGIN_THROTTLE_IP_FAILURES", "20")),  # falhas por IP, qualquer usuário...
+    "IP_WINDOW": int(env("LOGIN_THROTTLE_IP_WINDOW", "900")),  # ...nesta janela (s)
+    "IP_LOCK": int(env("LOGIN_THROTTLE_IP_LOCK", "900")),  # bloqueio do IP (s)
+}
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -185,6 +199,12 @@ SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", False)
 SECURE_REDIRECT_EXEMPT = [r"^health$"]
 LOGIN_URL = "/admin/login/"
 
+# --- Limites de acesso -------------------------------------------------------
+# Requisições por IP por minuto nas rotas /api/ (core/ratelimit.py); 0 desliga.
+API_RATE_LIMIT_PER_MINUTE = int(env("API_RATE_LIMIT_PER_MINUTE", "240"))
+# Corpo máximo de uma requisição (os JSON da API têm poucos KB).
+DATA_UPLOAD_MAX_MEMORY_SIZE = int(env("DATA_UPLOAD_MAX_MEMORY_SIZE", str(1024 * 1024)))
+
 # --- Cache --------------------------------------------------------------------
 # "default": limite de uso da API pública. "reads": micro-cache das leituras mais
 # quentes (GET /api/home e /api/competitions/{slug}), separado para que as chaves
@@ -231,6 +251,9 @@ REALTIME = {
     "OUTBOX_RETENTION_HOURS": int(env("OUTBOX_RETENTION_HOURS", "24")),
     "SUBSCRIBER_QUEUE_SIZE": int(env("REALTIME_QUEUE_SIZE", "1000")),
     "HUB_ENABLED": env_bool("REALTIME_HUB_ENABLED", True),
+    # Conexões SSE abertas: por IP (várias abas e NAT cabem) e no processo.
+    "MAX_STREAMS_PER_IP": int(env("REALTIME_MAX_STREAMS_PER_IP", "20")),
+    "MAX_STREAMS": int(env("REALTIME_MAX_STREAMS", "5000")),
 }
 
 # --- Observabilidade --------------------------------------------------------

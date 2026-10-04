@@ -17,6 +17,15 @@ def _read_cache_off(settings):
     caches["reads"].clear()
 
 
+@pytest.fixture(autouse=True)
+def _access_limits_off(settings):
+    """Limite por IP e bloqueio de login desligados por padrão: a suíte inteira roda
+    do mesmo IP. Os testes de segurança religam (tests/test_access_limits.py)."""
+    settings.API_RATE_LIMIT_PER_MINUTE = 0
+    settings.LOGIN_THROTTLE = {**settings.LOGIN_THROTTLE, "ENABLED": False}
+    yield
+
+
 @pytest.fixture
 def roles(db):
     sync_roles()

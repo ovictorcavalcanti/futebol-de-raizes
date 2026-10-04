@@ -2,6 +2,7 @@ from django.conf import settings
 from django.contrib import admin
 from django.urls import path
 
+from accounts.forms import ThrottledAdminAuthenticationForm
 from api.urls import urlpatterns as api_urlpatterns
 from core import views as core_views
 from observability import views as observability_views
@@ -11,6 +12,7 @@ from realtime.views import stream
 admin.site.site_header = f"{settings.BRAND['name']} · Administração"  # BRAND_NAME
 admin.site.site_title = settings.BRAND["name"]
 admin.site.index_title = "Cadastros e regras"
+admin.site.login_form = ThrottledAdminAuthenticationForm  # avisa o bloqueio de login
 
 urlpatterns = [
     path("", core_views.home_page, name="home"),

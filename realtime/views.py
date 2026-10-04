@@ -11,9 +11,15 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from contextlib import aclosing
 
+from collections import Counter
+
+from django.conf import settings
 from django.db import connections
 from django.http import JsonResponse, StreamingHttpResponse
 from django.views.decorators.http import require_GET
+
+from core.net import client_ip
+from observability.metrics import metrics
 
 from .hub import RETRY_FRAME, hub
 
@@ -69,14 +75,45 @@ def _release_request_thread() -> None:
         executor.shutdown(wait=False)
 
 
-async def _event_stream(after_id: int | None) -> AsyncGenerator[bytes, None]:
-    _release_request_thread()
-    yield RETRY_FRAME
-    # Ao desconectar, o Django cancela este gerador; `aclosing` garante que o
-    # assinante sai do hub também quando o fechamento vem pelo `yield`.
-    async with aclosing(hub.subscribe(after_id)) as frames:
-        async for chunk in frames:
-            yield chunk
+# Conexões SSE abertas por IP, neste processo (o único: uvicorn --workers 1).
+# Tudo roda no event loop, sem concorrência entre threads.
+_open_by_ip: Counter[str] = Counter()
+
+
+def open_streams(ip: str | None = None) -> int:
+    return _open_by_ip[ip] if ip is not None else sum(_open_by_ip.values())
+
+
+def _limit_error(ip: str) -> JsonResponse | None:
+    """429 se o IP já tem conexões demais; 503 se o processo está no teto."""
+    cfg = settings.REALTIME
+    per_ip, total = cfg.get("MAX_STREAMS_PER_IP", 0), cfg.get("MAX_STREAMS", 0)
+    if per_ip and _open_by_ip[ip] >= per_ip:
+        status, code, message = 429, "too_many_streams", "Conexões ao vivo demais a partir deste endereço."
+    elif total and open_streams() >= total:
+        status, code, message = 503, "stream_capacity", "Ao vivo lotado agora. Tente de novo em instantes."
+    else:
+        return None
+    metrics.inc("fdr_rate_limited_total", scope="stream")
+    response = JsonResponse({"code": code, "message": message, "details": {}}, status=status)
+    response["Retry-After"] = "30"
+    return response
+
+
+async def _event_stream(after_id: int | None, ip: str) -> AsyncGenerator[bytes, None]:
+    _open_by_ip[ip] += 1
+    try:
+        _release_request_thread()
+        yield RETRY_FRAME
+        # Ao desconectar, o Django cancela este gerador; `aclosing` garante que o
+        # assinante sai do hub também quando o fechamento vem pelo `yield`.
+        async with aclosing(hub.subscribe(after_id)) as frames:
+            async for chunk in frames:
+                yield chunk
+    finally:
+        _open_by_ip[ip] -= 1
+        if _open_by_ip[ip] <= 0:
+            del _open_by_ip[ip]
 
 
 @require_GET
@@ -88,7 +125,11 @@ async def stream(request):
             {"code": "invalid_input", "message": str(exc), "details": {"field": exc.field}},
             status=400,
         )
-    response = StreamingHttpResponse(_event_stream(after_id), content_type="text/event-stream; charset=utf-8")
+    ip = client_ip(request) or "desconhecido"
+    limited = _limit_error(ip)
+    if limited is not None:
+        return limited
+    response = StreamingHttpResponse(_event_stream(after_id, ip), content_type="text/event-stream; charset=utf-8")
     response["Cache-Control"] = "no-cache"
     response["X-Accel-Buffering"] = "no"  # proxies como o nginx não seguram o stream
     return response

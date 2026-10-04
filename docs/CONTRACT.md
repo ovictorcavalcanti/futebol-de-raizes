@@ -298,6 +298,8 @@ Sem vencedor: `winner_team_id`, `decided_by` e `decided_by_label` são `null` e 
 ## 4. Rotas
 
 Erros: `{"code": "...", "message": "...", "details": {...}}` (+ `"warnings": [{"code","message"}]` em `confirmation_required`).
+
+Limites de acesso (com `Retry-After`): `429 login_locked` (login bloqueado por força bruta; `details.retry_after`), `429 rate_limited` (requisições por IP em `/api/`), `429 too_many_streams` e `503 stream_capacity` (conexões do stream).
 `400 invalid_input` (formato), `401 not_authenticated`, `403 permission_denied`, `403 csrf_failed`, `404 not_found`, `422 <regra>`.
 API pública (`/public/v1/`, `public_api/urls.py`): caminho inexistente (inclusive a raiz) → `404
 not_found` em JSON (`details.path`, `details.docs`), sem exigir chave; método não aceito → `405

@@ -8,6 +8,8 @@
 * Auditoria: `auth.login`, `auth.logout` e `auth.login_failed` (com o usuário digitado)
   vêm dos sinais de autenticação do Django (`observability.signals`), os mesmos do
   login do admin: aqui nada é gravado à mão (senão sairia em dobro).
+* Força bruta: o backend (accounts/backends.py) bloqueia de forma progressiva por
+  usuário + IP e por IP; bloqueado, responde 429 `login_locked` com `Retry-After`.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from django.contrib import auth as django_auth
 from django.middleware.csrf import get_token
 from ninja import Router
 
+from accounts import throttle
 from core.timeutils import iso_utc, now
 
 from .errors import error_response
@@ -39,7 +42,7 @@ def me_user(user) -> dict:
 
 @router.post(
     "/login",
-    response={200: LoginOut, 400: ErrorOut, 401: ErrorOut, 403: ErrorOut},
+    response={200: LoginOut, 400: ErrorOut, 401: ErrorOut, 403: ErrorOut, 429: ErrorOut},
     summary="Abre a sessão do operador",
 )
 def login(request, data: LoginIn):
@@ -47,6 +50,11 @@ def login(request, data: LoginIn):
     require_csrf(request)
     # Falha → sinal `user_login_failed` (auditoria `auth.login_failed`).
     user = django_auth.authenticate(request, username=data.username, password=data.password)
+    lock = getattr(request, "login_lock", None)
+    if user is None and lock is not None:
+        response = error_response(429, "login_locked", throttle.lock_message(lock), {"retry_after": lock.retry_after})
+        response["Retry-After"] = str(lock.retry_after)
+        return response
     if user is None:  # senha errada, usuário inexistente ou inativo
         return error_response(401, "invalid_credentials", "Usuário ou senha incorretos.")
     django_auth.login(request, user)  # nova chave de sessão e novo token CSRF (+ `auth.login`)

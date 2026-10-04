@@ -42,6 +42,12 @@
 	# (.br/.gz gerados no build e servidos pelo WhiteNoise); o encode só atua no
 	# que vem sem Content-Encoding (páginas e JSON).
 	handle {
+		# Corpo grande é recusado aqui (413), antes de chegar ao processo ASGI.
+		# Limite de taxa por IP fica no app (core/ratelimit.py, login em
+		# accounts/throttle.py): o Caddy padrão não traz rate limit sem plugin.
+		request_body {
+			max_size 1MB
+		}
 		encode zstd gzip
 		reverse_proxy {$APP_UPSTREAM:app:8000}
 	}

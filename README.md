@@ -32,6 +32,7 @@ de apoio são estes:
 - [Marca e logo (configuração)](#marca-e-logo-configuração)
 - [Fluxo do operador](#fluxo-do-operador)
 - [APIs e documentação interativa](#apis-e-documentação-interativa)
+- [Controle de acesso e limites](#controle-de-acesso-e-limites)
 - [Métricas, logs e auditoria](#métricas-logs-e-auditoria)
 - [Testes](#testes)
 - [Do plano à implementação (fases 0 a 12)](#do-plano-à-implementação-fases-0-a-12)
@@ -366,6 +367,37 @@ O Administrador também cria chaves no admin (o texto aparece uma vez) e pode de
 Só o hash fica no banco.
 
 ---
+
+## Controle de acesso e limites
+
+| Porta | Quem acessa | Proteção |
+| --- | --- | --- |
+| Leitura (`/api/home`, `/api/competitions`, `/api/matches`, `/api/stream`) | qualquer visitante | só dados publicados; limite por IP |
+| Operação (`/api/ops/*`) | usuário logado com permissão | sessão + CSRF; 401 sem login, 403 sem a permissão da ação (lançar, cancelar, mudar status) |
+| Django Admin | perfis Operador e Administrador | o perfil decide o que aparece; usuários, grupos, chaves e auditoria só para o Administrador |
+| API pública (`/public/v1`) | quem tem chave | `X-API-Key` (só o hash é guardado) e limite por chave |
+
+Contra força bruta e enxurrada:
+
+- **Login** (API e `/admin/login/`): bloqueio progressivo por usuário + IP — 5 falhas
+  seguidas bloqueiam por 1 min, dobrando a cada novo bloqueio até 15 min — e por IP
+  (20 falhas em 15 min, com qualquer usuário, bloqueiam o IP por 15 min). Bloqueado,
+  a senha nem é conferida; a API responde `429 login_locked` com `Retry-After` e o admin
+  mostra o aviso. Não há bloqueio só por usuário, para um atacante não trancar fora o
+  operador de verdade. Toda tentativa vai para a auditoria (`accounts/throttle.py`).
+- **Requisições por IP** nas rotas `/api/`: 240 por minuto; passou, `429 rate_limited`
+  com `Retry-After`, antes de chegar à view ou ao banco (`core/ratelimit.py`).
+- **Stream**: até 20 conexões abertas por IP (`429 too_many_streams`) e 5000 no processo
+  (`503 stream_capacity`); o front espera com recuo exponencial antes de tentar de novo.
+- **Corpo da requisição**: até 1 MB (Django e Caddy).
+- **IP confiável**: os limites usam só `REMOTE_ADDR`. Atrás do Caddy, o uvicorn
+  (`--proxy-headers`) o preenche com o IP real; o Caddy não repassa `X-Forwarded-For`
+  vindo de fora, então o cliente não consegue trocar de IP pelo header.
+
+Todos os números são configuráveis no `.env` (`LOGIN_THROTTLE_*`,
+`API_RATE_LIMIT_PER_MINUTE`, `REALTIME_MAX_STREAMS*`). Os contadores ficam na memória do
+processo — certo com um processo ASGI só; com mais processos, troque o cache `default`
+por Redis ou Memcached. Métricas: `fdr_login_lockouts_total`, `fdr_rate_limited_total`.
 
 ## Métricas, logs e auditoria
 

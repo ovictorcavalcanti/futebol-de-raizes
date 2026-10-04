@@ -23,6 +23,8 @@ _HELP = {
     "fdr_public_api_requests_total": ("counter", "Requisições à API pública"),
     "fdr_public_api_throttled_total": ("counter", "Requisições barradas pelo limite de uso"),
     "fdr_audit_records_total": ("counter", "Registros de auditoria por ação"),
+    "fdr_login_lockouts_total": ("counter", "Bloqueios de login por força bruta (usuário+IP ou IP)"),
+    "fdr_rate_limited_total": ("counter", "Requisições recusadas por limite de acesso por IP"),
 }
 
 

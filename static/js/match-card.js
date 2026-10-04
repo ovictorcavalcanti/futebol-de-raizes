@@ -550,14 +550,18 @@ function timelineItem(e, side, { title, sub = [], score = null, extraClass = '',
       h('span', { class: 'tl-item__title', text: title }),
       ...sub.filter(Boolean).map((sline) => (typeof sline === 'string' ? h('span', { class: 'tl-item__sub', text: sline }) : sline)),
     ),
-    score ? h('span', { class: 'tl-item__score', text: score }) : null,
   );
-  const min = h('span', { class: ['tl-item__min', !minute && 'tl-item__min--dot'], text: minute });
-  if (!minute) min.setAttribute('aria-hidden', 'true');
+  // O placar do gol fica junto do minuto: "11' — 0 × 1" (empilhado em cards estreitos).
+  const min = h('span', { class: ['tl-item__min', !minute && !score && 'tl-item__min--dot', score && 'tl-item__min--score'] },
+    minute ? h('span', { text: minute }) : null,
+    score && minute ? h('span', { class: 'tl-item__min-sep', 'aria-hidden': 'true', text: '—' }) : null,
+    score ? h('span', { class: 'tl-item__min-score', text: score }) : null,
+  );
+  if (!minute && !score) min.setAttribute('aria-hidden', 'true');
   return h('li', {
     class: ['tl-item', side ? `tl-item--${side}` : 'tl-item--neutral', extraClass, isNew && 'is-new'],
     'data-event-id': e.id,
-  }, min, body, score && side ? h('span', { class: 'tl-item__score tl-item__score--rail', 'aria-hidden': 'true', text: score }) : null);
+  }, min, body);
 }
 
 function separator(def, e, score) {

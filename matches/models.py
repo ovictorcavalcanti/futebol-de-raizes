@@ -61,6 +61,7 @@ class Tie(models.Model):
 class Match(models.Model):
     class Status(models.TextChoices):
         SCHEDULED = "scheduled", "Agendado"
+        DELAYED = "delayed", "Atrasado"
         LIVE = "live", "Ao vivo"
         FINISHED = "finished", "Encerrado"
         POSTPONED = "postponed", "Adiado"

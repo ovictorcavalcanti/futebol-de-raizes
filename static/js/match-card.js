@@ -30,7 +30,7 @@ const SEPARATORS = {
   penalties_start: { label: 'Disputa de pênaltis', icon: 'ball-penalty', score: true },
   match_end: { label: 'Fim de jogo', icon: 'flag', score: true, end: true },
 };
-const STATUS_EVENTS = new Set(['postponed', 'suspended', 'resumed', 'rescheduled', 'cancelled']);
+const STATUS_EVENTS = new Set(['delayed', 'postponed', 'suspended', 'resumed', 'rescheduled', 'cancelled']);
 const TABS = [
   { key: 'events', label: 'Lances', icon: 'list' },
   { key: 'lineups', label: 'Escalações', icon: 'shirt' },
@@ -220,6 +220,9 @@ function statusPill(match) {
     if (match.period === 'half_time') return h('span', { class: 'pill pill--interval', text: 'Intervalo' });
     return h('span', { class: 'pill pill--live', text: match.period === 'penalties' ? 'Pênaltis' : 'Ao vivo' });
   }
+  if (status === 'delayed') {
+    return h('span', { class: 'pill pill--delayed', title: match.status_note || '' }, icon('clock'), 'Atrasado');
+  }
   const cls = { finished: 'finished', postponed: 'postponed', suspended: 'suspended', cancelled: 'cancelled' }[status] || 'scheduled';
   return h('span', { class: `pill pill--${cls}`, text: match.status_label || status });
 }
@@ -289,7 +292,8 @@ function boardLabel(match, now) {
   const away = displayName(match.away);
   if (!hasScore(match)) {
     const when = match.kickoff_at ? `, ${formatWhen(match.kickoff_at, now).replace(' · ', ' às ').toLowerCase()}` : '';
-    return `${home} contra ${away}${when}. ${match.status_label || ''}`.trim();
+    const note = match.status === 'delayed' && match.status_note ? `: ${match.status_note}` : '';
+    return `${home} contra ${away}${when}. ${match.status_label || ''}${note}`.trim();
   }
   let label = `${home} ${match.home_score ?? 0} a ${match.away_score ?? 0} ${away}`;
   if (match.home_penalties != null && match.away_penalties != null) label += `, pênaltis ${match.home_penalties} a ${match.away_penalties}`;
@@ -310,6 +314,9 @@ function renderBoard(board, match, now) {
     }
   } else {
     center.append(h('span', { class: 'score__vs', 'aria-hidden': 'true', text: '×' }));
+    if (match.status === 'delayed' && match.status_note) {
+      center.append(h('span', { class: 'score__delay', 'aria-hidden': 'true', text: match.status_note }));
+    }
   }
   board.replaceChildren(teamBlock(match.home, 'home'), center, teamBlock(match.away, 'away'));
   board.setAttribute('aria-label', boardLabel(match, now));

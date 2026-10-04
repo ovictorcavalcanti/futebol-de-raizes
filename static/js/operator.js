@@ -363,7 +363,7 @@ function pickPill(match) {
   if (match.status === 'live') {
     cls = match.period === 'half_time' ? 'interval' : 'live';
     if (match.period === 'half_time') text = 'Intervalo';
-  } else if (['finished', 'postponed', 'suspended', 'cancelled'].includes(match.status)) {
+  } else if (['finished', 'postponed', 'suspended', 'cancelled', 'delayed'].includes(match.status)) {
     cls = match.status;
   }
   return h('span', { class: `pill pill--sm pill--${cls}`, text });
@@ -1079,13 +1079,16 @@ async function openStatusDialog(item) {
   if (!match) return;
   const p = hooks(els.statusDialog);
   const reschedule = item.action === 'reschedule';
-  p['status-title'].textContent = `${item.label} a partida?`;
+  const delay = item.action === 'delay';
+  p['status-title'].textContent = delay ? 'Marcar a partida como atrasada?' : `${item.label} a partida?`;
   p['status-text'].textContent = `${teamName(match.home)} × ${teamName(match.away)} · ${formatWhen(match.kickoff_at, now())} · ${match.status_label || ''}`;
   p['status-kickoff-field'].hidden = !reschedule;
   p['status-kickoff'].required = reschedule;
   p['status-kickoff'].disabled = !reschedule;
   p['status-kickoff'].value = reschedule ? toBrasiliaInput(match.kickoff_at) : '';
-  p['status-reason'].value = '';
+  p['status-reason'].value = delay ? match.status_note || '' : '';
+  p['status-reason'].required = delay;
+  p['status-reason-label'].textContent = delay ? 'Observação: razão do atraso (obrigatória)' : 'Motivo (opcional)';
   p['status-ok'].textContent = item.label;
   p['status-ok'].classList.toggle('btn--danger', item.action === 'cancel');
   p['status-ok'].classList.toggle('btn--primary', item.action !== 'cancel');

@@ -10,8 +10,8 @@
       <td>{{ m.round.label|default:"—" }}</td>
       <td>{{ m.kickoff_at|date:"d/m/Y H:i" }}</td>
       <td><a href="{% url 'admin:matches_match_change' m.pk %}">{{ m.home_team.name }} × {{ m.away_team.name }}</a></td>
-      <td>{% if m.status == "scheduled" or m.status == "postponed" %}—{% else %}{{ m.home_score }} × {{ m.away_score }}{% endif %}</td>
-      <td>{{ m.get_status_display }}</td>
+      <td>{% if m.status == "scheduled" or m.status == "postponed" or m.status == "delayed" %}—{% else %}{{ m.home_score }} × {{ m.away_score }}{% endif %}</td>
+      <td>{% if m.status == "live" %}<strong>{{ m.get_status_display }}</strong>{% else %}{{ m.get_status_display }}{% endif %}</td>
       <td><a href="{% url 'operator' %}?date={{ m.kickoff_at|date:'Y-m-d' }}&amp;match={{ m.pk }}">Operador</a></td>
     </tr>
   {% empty %}

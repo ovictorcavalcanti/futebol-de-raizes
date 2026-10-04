@@ -5,7 +5,9 @@ pela API e pelos testes. As assinaturas são estáveis; campos novos só entram 
 
 Convenções
 ----------
-* Status (6): scheduled, live, finished, postponed, suspended, cancelled.
+* Status (7): scheduled, delayed, live, finished, postponed, suspended, cancelled.
+  `delayed` = início atrasado (com observação obrigatória); dele o jogo começa,
+  é adiado, reagendado ou cancelado.
 * Período (5): first_half, half_time, second_half, extra_time, penalties.
   `period` só existe com status live ou suspended (em suspenso, guarda onde parou).
 * Minuto é ABSOLUTO no jogo (45+2 = minute 45, stoppage 2; 90+3; 105+1; 120+2).
@@ -70,6 +72,7 @@ from functools import lru_cache
 
 class Status(StrEnum):
     SCHEDULED = "scheduled"
+    DELAYED = "delayed"
     LIVE = "live"
     FINISHED = "finished"
     POSTPONED = "postponed"
@@ -105,6 +108,7 @@ class EventType(StrEnum):
     STOPPAGE_TIME = "stoppage_time"
     SHOOTOUT_KICK = "shootout_kick"
     # status (ações do operador, também registradas como fatos)
+    DELAYED = "delayed"
     POSTPONED = "postponed"
     SUSPENDED = "suspended"
     RESUMED = "resumed"
@@ -113,6 +117,7 @@ class EventType(StrEnum):
 
 
 class StatusAction(StrEnum):
+    DELAY = "delay"
     POSTPONE = "postpone"
     SUSPEND = "suspend"
     RESUME = "resume"
@@ -121,6 +126,7 @@ class StatusAction(StrEnum):
 
 
 STATUS_ACTION_EVENT: dict[str, str] = {
+    StatusAction.DELAY: EventType.DELAYED,
     StatusAction.POSTPONE: EventType.POSTPONED,
     StatusAction.SUSPEND: EventType.SUSPENDED,
     StatusAction.RESUME: EventType.RESUMED,
@@ -143,6 +149,7 @@ class DecidedBy(StrEnum):
 
 STATUS_LABELS = {
     Status.SCHEDULED: "Agendado",
+    Status.DELAYED: "Atrasado",
     Status.LIVE: "Ao vivo",
     Status.FINISHED: "Encerrado",
     Status.POSTPONED: "Adiado",
@@ -174,6 +181,7 @@ DECIDED_BY_LABELS = {
 
 # Rótulos dos botões de status (GET /api/ops/catalog → status_actions).
 STATUS_ACTION_LABELS = {
+    StatusAction.DELAY: "Marcar atraso",
     StatusAction.POSTPONE: "Adiar",
     StatusAction.SUSPEND: "Suspender",
     StatusAction.RESUME: "Retomar",
@@ -330,6 +338,7 @@ CATALOG: dict[str, EventSpec] = {
             FieldSpec("payload.scored", "bool", "Convertida"),
             minute="optional",
         ),
+        _status(EventType.DELAYED, "Atrasado", "clock", FieldSpec("payload.reason", "text", "Observação")),
         _status(EventType.POSTPONED, "Adiado", "calendar", _F_REASON_OPTIONAL),
         _status(EventType.SUSPENDED, "Suspenso", "pause", _F_REASON_OPTIONAL),
         _status(EventType.RESUMED, "Retomado", "play"),
@@ -732,7 +741,7 @@ def available_actions(state: MatchState, ctx: MatchContext, events: Sequence[Eve
     reservado (as regras atuais dependem só do estado e do contexto).
     """
     allowed: list[str] = []
-    if state.status in (Status.SCHEDULED, Status.LIVE):
+    if state.status in (Status.SCHEDULED, Status.DELAYED, Status.LIVE):
         allowed.extend(
             event_type.value
             for event_type in _STRUCTURAL_ORDER
@@ -763,7 +772,7 @@ def status_action_event(action: str, *, kickoff_at: str | None = None, reason: s
         if kickoff_at is None or kickoff_at == "":
             raise DomainError("invalid_payload", "Informe a nova data e hora do jogo.", {"field": "kickoff_at"})
         payload["kickoff_at"] = _iso_datetime(kickoff_at, "kickoff_at")
-    text = _text({"reason": reason}, "reason", "payload.reason", required=False)
+    text = _text({"reason": reason}, "reason", "payload.reason", required=event_type == EventType.DELAYED, missing=_DELAY_MISSING)
     if text:
         payload["reason"] = text
     return NewEvent(type=event_type, payload=payload)
@@ -868,13 +877,16 @@ _GAME_ORDER = (
     EventType.GOAL_ANNULLED,
 )
 _STATUS_ORDER = (
+    StatusAction.DELAY,
     StatusAction.RESUME,
     StatusAction.SUSPEND,
     StatusAction.POSTPONE,
     StatusAction.RESCHEDULE,
     StatusAction.CANCEL,
 )
+_DELAY_MISSING = "Escreva a razão do atraso."
 _STATUS_VERBS = {
+    EventType.DELAYED: "marcar atraso em",
     EventType.POSTPONED: "adiar",
     EventType.SUSPENDED: "suspender",
     EventType.RESUMED: "retomar",
@@ -1059,7 +1071,7 @@ def _plan_structural(state: MatchState, event_type: str, ctx: MatchContext) -> _
     live = state.status == Status.LIVE
     period = state.period
     if event_type == EventType.MATCH_START:
-        if state.status != Status.SCHEDULED:
+        if state.status not in (Status.SCHEDULED, Status.DELAYED):
             return _transition_error(state, event_type)
         return _Transition(Status.LIVE, Period.FIRST_HALF, Period.FIRST_HALF, 0)
     if event_type == EventType.HALF_TIME:
@@ -1119,15 +1131,17 @@ def _plan_structural(state: MatchState, event_type: str, ctx: MatchContext) -> _
 
 def _plan_status(state: MatchState, event_type: str) -> _Transition | DomainError:
     current = state.status
-    if event_type == EventType.POSTPONED and current == Status.SCHEDULED:
+    if event_type == EventType.DELAYED and current in (Status.SCHEDULED, Status.DELAYED):
+        return _Transition(Status.DELAYED, None, None)  # de novo em atrasado: atualiza a observação
+    if event_type == EventType.POSTPONED and current in (Status.SCHEDULED, Status.DELAYED):
         return _Transition(Status.POSTPONED, None, None)
     if event_type == EventType.SUSPENDED and current == Status.LIVE:
         return _Transition(Status.SUSPENDED, state.period, state.period)
     if event_type == EventType.RESUMED and current == Status.SUSPENDED:
         return _Transition(Status.LIVE, state.period, state.period)
-    if event_type == EventType.RESCHEDULED and current in (Status.SCHEDULED, Status.POSTPONED):
+    if event_type == EventType.RESCHEDULED and current in (Status.SCHEDULED, Status.DELAYED, Status.POSTPONED):
         return _Transition(Status.SCHEDULED, None, None)
-    if event_type == EventType.CANCELLED and current in (Status.SCHEDULED, Status.POSTPONED, Status.SUSPENDED):
+    if event_type == EventType.CANCELLED and current in (Status.SCHEDULED, Status.DELAYED, Status.POSTPONED, Status.SUSPENDED):
         return _Transition(Status.CANCELLED, None, state.period)
     message = f"Não é possível {_STATUS_VERBS[event_type]} um jogo {STATUS_LABELS.get(current, current).lower()}."
     if event_type == EventType.CANCELLED and current == Status.LIVE:
@@ -1233,7 +1247,7 @@ def _step_status(state: MatchState, new: NewEvent, spec: EventSpec, sequence: in
             raise _error("invalid_payload", "Informe a nova data e hora do jogo.", field="payload.kickoff_at")
         payload["kickoff_at"] = changes["rescheduled_to"] = _iso_datetime(value, "payload.kickoff_at")
     if spec.type != EventType.RESUMED:
-        reason = _text(raw, "reason", "payload.reason", required=False)
+        reason = _text(raw, "reason", "payload.reason", required=spec.type == EventType.DELAYED, missing=_DELAY_MISSING)
         if reason:
             payload["reason"] = reason
     event = Event(sequence, spec.type, plan.event_period, payload=payload)

@@ -619,6 +619,7 @@
     animation: pulse 1.4s var(--ease) infinite;
   }
   .pill--interval { background: var(--amarelo); color: var(--on-amarelo); }
+  .pill--delayed { background: var(--surface); color: var(--ink); border: 2px solid var(--amarelo); }
   .pill--finished { background: var(--ink); color: var(--on-ink); }
   .pill--scheduled {
     background: var(--azul-tint);
@@ -851,6 +852,7 @@
   }
   .score__vs { font-family: var(--font-num); font-weight: 500; font-size: 1.75rem; color: var(--ink-3); line-height: 1; }
   .score__kickoff { font-family: var(--font-num); font-weight: 700; font-size: 1.5rem; color: var(--azul); line-height: 1; }
+  .score__delay { max-width: 16ch; font-size: 0.75rem; line-height: 1.3; text-align: center; color: var(--ink-2); }
   .score__note { font-family: var(--font-num); font-weight: 600; font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); }
 
   /* vencedor em destaque, perdedor esmaecido (ao fim) */

@@ -195,12 +195,12 @@ def test_catalog_labels_kinds_and_public_flag():
         "goal": "Gol", "goal_annulled": "Gol anulado", "penalty_awarded": "Pênalti marcado",
         "penalty_missed": "Pênalti perdido", "var_review": "Revisão do VAR", "substitution": "Substituição",
         "yellow_card": "Cartão amarelo", "red_card": "Cartão vermelho", "stoppage_time": "Acréscimos",
-        "shootout_kick": "Cobrança de pênalti", "postponed": "Adiado", "suspended": "Suspenso",
+        "shootout_kick": "Cobrança de pênalti", "delayed": "Atrasado", "postponed": "Adiado", "suspended": "Suspenso",
         "resumed": "Retomado", "rescheduled": "Reagendado", "cancelled": "Cancelado",
     }
     assert {key: spec.label for key, spec in CATALOG.items()} == labels
     hidden = {key for key, spec in CATALOG.items() if not spec.public}
-    assert hidden == {"goal_annulled", "postponed", "suspended", "resumed", "rescheduled", "cancelled"}
+    assert hidden == {"goal_annulled", "delayed", "postponed", "suspended", "resumed", "rescheduled", "cancelled"}
     assert {key for key, spec in CATALOG.items() if spec.kind == "status"} == hidden - {"goal_annulled"}
     assert CATALOG["match_start"].minute == "optional" and CATALOG["goal"].minute == "required"
     assert CATALOG["postponed"].minute == "none"
@@ -773,6 +773,38 @@ def test_postpone_reschedule_then_start():
     assert sim.state.status == Status.LIVE
 
 
+def test_delay_needs_reason_then_start():
+    sim = Sim()
+    with pytest.raises(DomainError) as exc:
+        status_action_event("delay")
+    assert exc.value.code == "invalid_payload"
+    delayed = sim.status("delay", reason=" Chuva forte ")
+    assert delayed.payload == {"reason": "Chuva forte"} and delayed.period is None
+    assert sim.state.status == Status.DELAYED
+    assert available_actions(sim.state, CTX) == {
+        "events": ["match_start"],
+        "status": ["delay", "postpone", "reschedule", "cancel"],
+    }
+    sim.status("delay", reason="Ambulância a caminho")  # atualiza a observação
+    assert sim.state.status == Status.DELAYED
+    sim.post(EventType.MATCH_START)
+    assert sim.state.status == Status.LIVE and sim.state.period == Period.FIRST_HALF
+    with pytest.raises(DomainError) as exc:
+        sim.status("delay", reason="tarde demais")
+    assert exc.value.code == "invalid_status_action"
+
+
+def test_delayed_match_can_be_postponed_or_cancelled():
+    sim = Sim()
+    sim.status("delay", reason="Gramado alagado")
+    sim.status("postpone", reason="Sem condições")
+    assert sim.state.status == Status.POSTPONED
+    other = Sim()
+    other.status("delay", reason="Gramado alagado")
+    other.status("cancel")
+    assert other.state.status == Status.CANCELLED
+
+
 def test_suspend_keeps_period_and_resume():
     sim = Sim().to_second_half()
     sim.goal(NAUTICO, "Kieza", 60)
@@ -902,7 +934,7 @@ FIRST_HALF_EVENTS = [
 
 def test_available_actions_by_phase():
     sim = Sim()
-    assert available_actions(sim.state, CTX) == {"events": ["match_start"], "status": ["postpone", "reschedule", "cancel"]}
+    assert available_actions(sim.state, CTX) == {"events": ["match_start"], "status": ["delay", "postpone", "reschedule", "cancel"]}
     sim.post(EventType.MATCH_START)
     assert available_actions(sim.state, CTX) == {"events": FIRST_HALF_EVENTS, "status": ["suspend"]}
     sim.post(EventType.HALF_TIME)

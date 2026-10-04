@@ -31,6 +31,7 @@ export const EVENT_ICONS = Object.freeze({
   red_card: 'card-red',
   stoppage_time: 'clock',
   shootout_kick: 'target',
+  delayed: 'clock',
   postponed: 'calendar',
   suspended: 'pause',
   resumed: 'play',

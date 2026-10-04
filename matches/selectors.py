@@ -42,6 +42,7 @@ SUMMARY_EVENT_TYPES = (
     EventType.RED_CARD,
     EventType.STOPPAGE_TIME,
     EventType.SUSPENDED,
+    EventType.DELAYED,
 )
 DETAIL_PREFETCH = (
     Prefetch(
@@ -325,6 +326,17 @@ def _clock(match, timeline: Timeline) -> dict | None:
     }
 
 
+def _status_note(match, timeline: Timeline) -> str | None:
+    """Observação do atraso (texto do operador), só com o jogo atrasado."""
+    if match.status != Status.DELAYED:
+        return None
+    note = None
+    for row in timeline.rows:
+        if row.type == EventType.DELAYED:
+            note = _payload(row).get("reason") or note
+    return note
+
+
 def match_winner(match) -> str | None:
     """"home" | "away" | "draw" (só encerrado; considera os pênaltis)."""
     if match.status != Status.FINISHED:
@@ -429,6 +441,7 @@ def serialize_match(match, detail: bool = False, events: Iterable[MatchEvent] | 
         "city": match.city,
         "status": match.status,
         "status_label": domain.STATUS_LABELS.get(match.status, match.status),
+        "status_note": _status_note(match, timeline),
         "period": period,
         "period_label": domain.PERIOD_LABELS.get(period) if period else None,
         "period_short": domain.PERIOD_SHORT.get(period) if period else None,

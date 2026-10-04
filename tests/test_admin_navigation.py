@@ -433,3 +433,22 @@ def test_games_lists_only_matches_of_the_chosen_competition(operator_client):
 def test_games_pages_require_permission(client, plain_user):
     client.force_login(plain_user)
     assert client.get(reverse("admin_games")).status_code in {302, 403}
+
+
+def test_games_sorted_live_then_scheduled_then_finished(operator_client):
+    from datetime import timedelta
+
+    from core import timeutils
+
+    league = make_league(4, name="Ordem", slug="ordem")
+    a, b, c, d = league["teams"]
+    now = timeutils.now()
+    finished = make_match(league["stage"], a, b, kickoff_at=now - timedelta(hours=3), round=league["rounds"][0])
+    scheduled = make_match(league["stage"], c, d, kickoff_at=now + timedelta(hours=2), round=league["rounds"][0])
+    live = make_match(league["stage"], a, c, kickoff_at=now + timedelta(days=1), round=league["rounds"][1])
+    Match.objects.filter(pk=finished.pk).update(status="finished")
+    Match.objects.filter(pk=live.pk).update(status="live", period="first_half")
+
+    html = operator_client.get(reverse("admin_games_competition", args=["ordem"])).content.decode()
+    positions = [html.index(reverse("admin:matches_match_change", args=[m.pk])) for m in (live, scheduled, finished)]
+    assert positions == sorted(positions)

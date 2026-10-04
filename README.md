@@ -273,25 +273,29 @@ python manage.py createsuperuser # ou use os usuários do seed
 No Compose, o equivalente é `docker compose down -v` (apaga o volume do banco) e
 `docker compose up -d`.
 
-**Cadastrar times em lote.** `import_teams` lê um CSV (vírgula ou ponto e vírgula, UTF-8) ou um
-JSON (lista de objetos) com as colunas `nome`, `sigla` (obrigatórias; sigla até 4 letras),
-`cidade`, `cor_principal`, `cor_secundaria` (#RRGGBB) e `escudo_url` — os nomes em inglês
-(`name`, `short_name`, `city`, `color_primary`, `color_secondary`, `crest_url`) também valem:
+**Cadastrar times em lote.** `import_teams` lê um JSON: uma lista de objetos, um por time, com
+`nome` e `sigla` (obrigatórias; sigla até 4 letras, vira maiúscula), `cidade`, `cor_principal`,
+`cor_secundaria` (#RRGGBB) e `escudo_url`. As chaves em inglês (`name`, `short_name`, `city`,
+`color_primary`, `color_secondary`, `crest_url`) também valem.
 
-```csv
-nome;sigla;cidade;cor_principal;cor_secundaria;escudo_url
-Sport;SPT;Recife;#D71920;#000000;https://exemplo.com/sport.png
-Náutico;NAU;Recife;#C8102E;#FFFFFF;
+```json
+[
+  {"nome": "Sport", "sigla": "SPT", "cidade": "Recife", "cor_principal": "#D71920",
+   "cor_secundaria": "#000000", "escudo_url": "https://exemplo.com/sport.png"},
+  {"nome": "Náutico", "sigla": "NAU", "cidade": "Recife", "cor_principal": "#C8102E"},
+  {"nome": "Retrô", "sigla": "RET"}
+]
 ```
 
 ```bash
-python manage.py import_teams times.csv --dry-run  # mostra o que faria, sem gravar
-python manage.py import_teams times.csv            # cria; quem já existe (pelo nome) é pulado
-python manage.py import_teams times.csv --update   # cria e atualiza os que já existem
+python manage.py import_teams times.json --dry-run  # mostra o que faria, sem gravar
+python manage.py import_teams times.json            # cria; quem já existe (pelo nome) é pulado
+python manage.py import_teams times.json --update   # cria e atualiza os que já existem
 ```
 
-É tudo ou nada: com qualquer linha inválida (sigla longa, cor fora do formato, nome repetido),
-nada é gravado e o comando aponta a linha e o motivo. O escudo em arquivo é enviado pelo admin.
+É tudo ou nada: com qualquer item inválido (sigla longa, cor fora do formato, nome repetido),
+nada é gravado e o comando aponta o item e o motivo. Um CSV com as mesmas colunas no cabeçalho
+(vírgula ou ponto e vírgula) também é aceito. O escudo em arquivo é enviado pelo admin.
 
 O seed lança tudo pelos serviços de escrita, com origem `script` e horários reais:
 

@@ -66,7 +66,23 @@ def test_any_invalid_row_saves_nothing(tmp_path):
         run(file)
     message = str(info.value)
     assert "Nada foi gravado" in message and "Linha 3 (Afogados): sigla" in message
-    assert "Linha 4 (Salgueiro): cor principal" in message and "Linha 5: Central repetido (já na linha 2)" in message
+    assert "Linha 4 (Salgueiro): cor principal" in message and "Linha 5: Central repetido (já em linha 2)" in message
+    assert not Team.objects.exists()
+
+
+def test_json_errors_point_to_the_item(tmp_path):
+    file = tmp_path / "times.json"
+    file.write_text(json.dumps([{"nome": "Central", "sigla": "CEN"}, {"nome": "Afogados", "sigla": "AFOGADOS"},
+                                {"nome": "central", "sigla": "CE2"}]), encoding="utf-8")
+    with pytest.raises(CommandError) as info:
+        run(file)
+    assert "Item 2 (Afogados): sigla" in str(info.value) and "Item 3: central repetido (já em item 1)" in str(info.value)
+    file.write_text(json.dumps([{"nome": "Sport", "apelido": "Leão"}]), encoding="utf-8")
+    with pytest.raises(CommandError, match="Item 1: chave desconhecida apelido"):
+        run(file)
+    file.write_text(json.dumps({"nome": "Sport"}), encoding="utf-8")
+    with pytest.raises(CommandError, match="lista de objetos"):
+        run(file)
     assert not Team.objects.exists()
 
 

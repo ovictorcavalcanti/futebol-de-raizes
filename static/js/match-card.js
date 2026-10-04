@@ -18,7 +18,7 @@ import { liveMinuteLabel } from './clock.js';
 const STATE = new WeakMap();
 let seq = 0;
 
-const POSITION_SHORT = { GK: 'GOL', DF: 'DEF', MF: 'MEI', FW: 'ATA' };
+const POSITION_SHORT = { GK: 'GOL', LAD: 'LAD', DF: 'ZAG', LAE: 'LAE', VOL: 'VOL', MF: 'MEI', FW: 'ATA' };
 const ORIGIN_TAG = { penalty: 'pên.', own_goal: 'contra' };
 const ORIGIN_LABEL = { open_play: 'Jogada', penalty: 'De pênalti', own_goal: 'Gol contra' };
 const MISS_LABEL = { saved: 'Defendido', off_target: 'Para fora', woodwork: 'Na trave' };

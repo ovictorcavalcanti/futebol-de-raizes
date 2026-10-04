@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   effectiveMinuteMode, suggestMinute, buildEventBody, toBrasiliaInput, groupByCompetition, lineupPlayers,
-  splitActions, structuralConfirm,
+  splitActions, structuralConfirm, sortByStatus,
 } from '../../static/js/operator.js';
 import {
   ApiError, apiFetch, getCookie, queryString, toApiError, newIdempotencyKey, setCsrfToken,
@@ -98,6 +98,19 @@ test('partidas agrupadas por competição na ordem da API', () => {
   const copa = { id: 2, name: 'Copa Pernambuco' };
   const groups = groupByCompetition([{ id: 1, competition: pe }, { id: 2, competition: copa }, { id: 3, competition: pe }]);
   assert.deepEqual(groups.map((g) => [g.competition.name, g.matches.map((m) => m.id)]), [['Pernambucano Raiz', [1, 3]], ['Copa Pernambuco', [2]]]);
+});
+
+test('ordem por status: ao vivo > agendado > encerrado (encerrados do mais recente)', () => {
+  const at = (h) => `2026-10-04T${String(h).padStart(2, '0')}:00:00Z`;
+  const ids = sortByStatus([
+    { id: 1, status: 'finished', kickoff_at: at(10) },
+    { id: 2, status: 'scheduled', kickoff_at: at(22) },
+    { id: 3, status: 'live', kickoff_at: at(19) },
+    { id: 4, status: 'finished', kickoff_at: at(15) },
+    { id: 5, status: 'scheduled', kickoff_at: at(20) },
+    { id: 6, status: 'delayed', kickoff_at: at(18) },
+  ]).map((m) => m.id);
+  assert.deepEqual(ids, [6, 3, 5, 2, 4, 1]);
 });
 
 test('botões: lances de jogo primeiro, andamento do jogo (estruturais) à parte, ordem da API em cada grupo', () => {

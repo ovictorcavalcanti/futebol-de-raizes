@@ -215,5 +215,6 @@ export const getMatch = (matchId, opts) => get(`/api/matches/${encodeURIComponen
 
 export const getCatalog = (opts) => get('/api/ops/catalog', null, opts);
 export const postEvent = (matchId, body, idempotencyKey, opts) => post(`/api/ops/matches/${encodeURIComponent(matchId)}/events`, body, { ...opts, idempotencyKey });
+export const editEvent = (matchId, eventId, body, opts) => post(`/api/ops/matches/${encodeURIComponent(matchId)}/events/${encodeURIComponent(eventId)}/edit`, body, opts);
 export const voidEvent = (matchId, eventId, reason = '', opts) => post(`/api/ops/matches/${encodeURIComponent(matchId)}/events/${encodeURIComponent(eventId)}/void`, { reason }, opts);
 export const changeStatus = (matchId, body, idempotencyKey, opts) => post(`/api/ops/matches/${encodeURIComponent(matchId)}/status`, body, { ...opts, idempotencyKey });

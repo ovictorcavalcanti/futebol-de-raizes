@@ -90,6 +90,38 @@ def post_event(
 
 
 @router.post(
+    "/matches/{match_id}/events/{event_id}/edit",
+    auth=OperatorAuth(POST_EVENT),
+    response={200: PostEventOut, codes_4xx: ErrorOut},
+    summary="Corrige os dados de um lance",
+)
+def edit_event(request, match_id: int, event_id: int, data: EventIn):
+    """Corrige minuto, time, jogador e detalhes de um lance, no mesmo lugar da sequência.
+    Exige também `matches.void_event` (é uma correção). Regra violada → 422; tipo
+    diferente do lance, andamento ou status → 422 `event_not_editable`."""
+    if not request.user.has_perm(VOID_EVENT):
+        raise ApiError(403, "permission_denied", "Seu perfil não pode corrigir lançamentos.", {"required": [VOID_EVENT]})
+    new = NewEvent(
+        type=data.type,
+        minute=data.minute,
+        stoppage=data.stoppage,
+        team_id=data.team_id,
+        player_id=data.player_id,
+        payload=data.payload or {},
+        annuls_event_id=data.annuls_event_id,
+    )
+    try:
+        result = services.edit_event(match_id, event_id, request.user, new, confirm=data.confirm, request=request)
+    except DomainError as exc:
+        if exc.code != "event_not_found":
+            raise
+        raise ApiError(404, "not_found", exc.message, {"event_id": event_id, "match_id": match_id}) from exc
+    payload = selectors.post_payload(result)
+    payload["replayed"] = False
+    return respond(payload)
+
+
+@router.post(
     "/matches/{match_id}/events/{event_id}/void",
     auth=OperatorAuth(VOID_EVENT),
     response={200: VoidOut, codes_4xx: ErrorOut},

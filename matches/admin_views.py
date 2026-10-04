@@ -2,11 +2,12 @@
 
 from django.contrib import admin
 from django.core.exceptions import PermissionDenied
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 
 from competitions.models import Competition, Stage
 
-from .models import Match
+from .models import Match, MatchLineup
 
 
 LIVE_GROUP = {Match.Status.LIVE, Match.Status.DELAYED, Match.Status.SUSPENDED}
@@ -58,3 +59,19 @@ def games_competition(request, slug):
         "matches": matches,
     }
     return render(request, "admin/fdr/games_competition.html", context)
+
+
+def lineup_for_side(request, match_id, side):
+    """Atalho da tela do operador: abre (ou cria) a escalação do mandante/visitante."""
+    if side not in ("home", "away"):
+        raise PermissionDenied
+    match = get_object_or_404(Match, pk=match_id)
+    team_id = match.home_team_id if side == "home" else match.away_team_id
+    lineup = MatchLineup.objects.filter(match=match, team_id=team_id).first()
+    if lineup is not None:
+        if not request.user.has_perm("matches.view_matchlineup"):
+            raise PermissionDenied
+        return redirect(reverse("admin:matches_matchlineup_change", args=[lineup.pk]))
+    if not request.user.has_perm("matches.add_matchlineup"):
+        raise PermissionDenied
+    return redirect(f"{reverse('admin:matches_matchlineup_add')}?match={match.pk}&team={team_id}")

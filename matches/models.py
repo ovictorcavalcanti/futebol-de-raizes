@@ -261,14 +261,17 @@ class MatchLineupPlayer(models.Model):
 
     class Position(models.TextChoices):
         GOALKEEPER = "GK", "Goleiro"
-        DEFENDER = "DF", "Defensor"
+        RIGHT_BACK = "LAD", "Lateral-direito"
+        DEFENDER = "DF", "Zagueiro"
+        LEFT_BACK = "LAE", "Lateral-esquerdo"
+        DEFENSIVE_MID = "VOL", "Volante"
         MIDFIELDER = "MF", "Meio-campista"
         FORWARD = "FW", "Atacante"
 
     lineup = models.ForeignKey(MatchLineup, on_delete=models.CASCADE, related_name="entries", verbose_name="escalação")
     name = models.CharField("nome", max_length=80)
     number = models.PositiveSmallIntegerField("número", null=True, blank=True)
-    position = models.CharField("posição", max_length=2, choices=Position.choices, blank=True)
+    position = models.CharField("posição", max_length=3, choices=Position.choices, blank=True)
     starter = models.BooleanField("titular", default=True)
     order = models.PositiveSmallIntegerField("ordem", default=0)
 

@@ -1748,7 +1748,7 @@
   }
 
   .op-timeline { display: grid; margin: 0; padding: 0; list-style: none; }
-  .op-event { display: grid; grid-template-columns: 44px 22px minmax(0, 1fr) auto; align-items: center; gap: var(--s-2); padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--line); }
+  .op-event { display: grid; grid-template-columns: 44px 22px minmax(0, 1fr) auto auto; align-items: center; gap: var(--s-2); padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--line); }
   .op-event:last-child { border-bottom: 0; }
   .op-event__min { font-family: var(--font-num); font-weight: 700; color: var(--ink-2); text-align: right; }
   .op-event__icon { width: 20px; height: 20px; color: var(--ink-2); }
@@ -1759,6 +1759,7 @@
   .op-event--annulled .op-event__title { text-decoration: line-through; color: var(--ink-3); }
   .op-event--structural { background: color-mix(in srgb, var(--surface-2) 50%, transparent); }
   .op-event__void { color: var(--vermelho-ink); }
+  .op-tools { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-3); }
 
   /* --- Guia de estilo (QA visual) ------------------------------------------------------- */
   .sg-section { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-4); padding-top: var(--s-6); }

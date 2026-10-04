@@ -460,3 +460,58 @@ def test_competition_games_page_has_add_button_for_current_stage(operator_client
     html = operator_client.get(reverse("admin_games_competition", args=["com-botao"])).content.decode()
     assert f'{reverse("admin:matches_match_add")}?stage={league["stage"].pk}' in html
     assert "Adicionar jogo" in html
+
+
+# --- Escalação: times do jogo, JSON e atalho do operador ------------------------
+
+
+def test_lineup_team_choices_limited_to_match(admin_client_fdr):
+    league = make_league(4, name="Esc", slug="esc")
+    a, b, c, _ = league["teams"]
+    match = make_match(league["stage"], a, b, round=league["rounds"][0])
+    html = admin_client_fdr.get(reverse("admin:matches_matchlineup_add") + f"?match={match.pk}").content.decode()
+    assert f'value="{a.pk}"' in html and f'value="{b.pk}"' in html and f'value="{c.pk}"' not in html
+
+
+def test_lineup_json_import_replaces_players(admin_client_fdr):
+    import json
+
+    league = make_league(2, name="Json", slug="json")
+    a, b = league["teams"]
+    match = make_match(league["stage"], a, b, round=league["rounds"][0])
+    lineup = MatchLineup.objects.create(match=match, team=a)
+    lineup.entries.create(name="Velho", starter=True)
+    data = {
+        "esquema": "4-3-3", "tecnico": "Fulano",
+        "jogadores": [
+            {"nome": "Ivan", "posicao": "GOL", "numero": 1, "titular": True},
+            {"nome": "Biel", "posicao": "VOL", "numero": 5},
+            {"nome": "Kayo", "posicao": "LAE", "numero": 6, "titular": False},
+        ],
+    }
+    url = reverse("admin:matches_matchlineup_change", args=[lineup.pk])
+    form = {
+        "match": match.pk, "team": a.pk, "formation": "", "coach": "", "lineup_json": json.dumps(data),
+        "entries-TOTAL_FORMS": "0", "entries-INITIAL_FORMS": "0", "entries-MIN_NUM_FORMS": "0", "entries-MAX_NUM_FORMS": "1000",
+    }
+    response = admin_client_fdr.post(url, form)
+    assert response.status_code == 302, response.content.decode()[:2000]
+    lineup.refresh_from_db()
+    assert (lineup.formation, lineup.coach) == ("4-3-3", "Fulano")
+    rows = list(lineup.entries.order_by("order").values_list("name", "position", "number", "starter"))
+    assert rows == [("Ivan", "GK", 1, True), ("Biel", "VOL", 5, True), ("Kayo", "LAE", 6, False)]
+
+    form["lineup_json"] = '[{"nome": "X", "posicao": "PIVÔ"}]'
+    bad = admin_client_fdr.post(url, form)
+    assert bad.status_code == 200 and "desconhecida" in bad.content.decode()
+
+
+def test_operator_lineup_shortcut_opens_or_creates(admin_client_fdr):
+    league = make_league(2, name="Atalho", slug="atalho")
+    a, b = league["teams"]
+    match = make_match(league["stage"], a, b, round=league["rounds"][0])
+    first = admin_client_fdr.get(reverse("admin_lineup_side", args=[match.pk, "away"]))
+    assert first.status_code == 302 and f"match={match.pk}&team={b.pk}" in first["Location"]
+    lineup = MatchLineup.objects.create(match=match, team=a)
+    second = admin_client_fdr.get(reverse("admin_lineup_side", args=[match.pk, "home"]))
+    assert second["Location"] == reverse("admin:matches_matchlineup_change", args=[lineup.pk])

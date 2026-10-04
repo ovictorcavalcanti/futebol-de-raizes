@@ -515,3 +515,47 @@ def test_operator_lineup_shortcut_opens_or_creates(admin_client_fdr):
     lineup = MatchLineup.objects.create(match=match, team=a)
     second = admin_client_fdr.get(reverse("admin_lineup_side", args=[match.pk, "home"]))
     assert second["Location"] == reverse("admin:matches_matchlineup_change", args=[lineup.pk])
+
+
+# --- Escudo por upload ------------------------------------------------------------
+
+
+def _team_form(team, **extra):
+    data = {
+        "name": team.name, "short_name": team.short_name, "city": "", "color_primary": "#12306B",
+        "color_secondary": "#FFFFFF", "crest_url": "",
+    }
+    data.update(extra)
+    return data
+
+
+def test_team_crest_upload_used_by_pages(admin_client_fdr, settings, tmp_path):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    from matches import selectors
+
+    settings.MEDIA_ROOT = tmp_path
+    league = make_league(2, name="Escudo", slug="escudo")
+    team = league["teams"][0]
+    url = reverse("admin:competitions_team_change", args=[team.pk])
+    png = SimpleUploadedFile("sport.png", b"\x89PNG\r\n\x1a\nfake", content_type="image/png")
+    response = admin_client_fdr.post(url, {**_team_form(team, crest_url="https://exemplo.com/x.png"), "crest_file": png})
+    assert response.status_code == 302, response.content.decode()[:1500]
+    team.refresh_from_db()
+    assert team.crest_file.name.startswith("escudos/")
+    assert selectors.serialize_team(team)["crest_url"] == team.crest_file.url  # arquivo vale no lugar da URL
+    served = admin_client_fdr.get(team.crest_file.url)
+    assert served.status_code == 200
+
+
+def test_team_crest_upload_rejects_svg_and_big_files(admin_client_fdr, settings, tmp_path):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    settings.MEDIA_ROOT = tmp_path
+    team = make_league(2, name="Escudo2", slug="escudo2")["teams"][0]
+    url = reverse("admin:competitions_team_change", args=[team.pk])
+    svg = SimpleUploadedFile("x.svg", b"<svg/>", content_type="image/svg+xml")
+    assert admin_client_fdr.post(url, {**_team_form(team), "crest_file": svg}).status_code == 200
+    big = SimpleUploadedFile("x.png", b"0" * (512 * 1024 + 1), content_type="image/png")
+    page = admin_client_fdr.post(url, {**_team_form(team), "crest_file": big})
+    assert page.status_code == 200 and "512 KB" in page.content.decode()

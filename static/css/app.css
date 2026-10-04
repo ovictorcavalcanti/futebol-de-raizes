@@ -1276,7 +1276,6 @@
   .team-cell__text { display: grid; min-width: 0; }
   .team-cell__name { overflow: hidden; text-overflow: ellipsis; font-family: var(--font-ui); font-weight: 600; font-size: 0.875rem; color: var(--ink); }
   .team-cell__short { display: none; font-family: var(--font-num); font-weight: 700; letter-spacing: 0.04em; color: var(--ink); }
-  .team-cell__zone { font-family: var(--font-num); font-weight: 600; font-size: 0.6875rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); line-height: 1.1; }
   .team-cell .live-dot { margin-left: 2px; }
   .table .col-pts { font-weight: 700; color: var(--ink); background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
   .table th.col-pts { color: var(--ink); }

@@ -1,6 +1,6 @@
 from django.conf import settings
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, re_path
 
 from accounts.forms import ThrottledAdminAuthenticationForm
 from api.urls import urlpatterns as api_urlpatterns
@@ -43,4 +43,5 @@ urlpatterns = [
     path("admin/jogos/<slug:slug>/", admin.site.admin_view(games_views.games_competition), name="admin_games_competition"),
     path("admin/escalacao/<int:match_id>/<str:side>/", admin.site.admin_view(games_views.lineup_for_side), name="admin_lineup_side"),
     path("admin/", admin.site.urls),
+    re_path(r"^media/(?P<path>.*)$", core_views.media, name="media"),
 ]

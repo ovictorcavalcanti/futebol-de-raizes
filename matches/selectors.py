@@ -84,7 +84,7 @@ def serialize_team(team) -> dict:
         "city": team.city,
         "color_primary": team.color_primary,
         "color_secondary": team.color_secondary,
-        "crest_url": team.crest_url,
+        "crest_url": team.crest_src,
     }
 
 

@@ -297,7 +297,7 @@ python manage.py import_teams times.json --update   # cria e atualiza os que já
 nada é gravado e o comando aponta o item e o motivo. Um CSV com as mesmas colunas no cabeçalho
 (vírgula ou ponto e vírgula) também é aceito. O escudo em arquivo é enviado pelo admin.
 
-**Tabela de jogos em JSON (pontos corridos).** Na página da fase no admin (ao criar ou editar),
+**Tabela de jogos em JSON (pontos corridos e grupos).** Na página da fase no admin (ao criar ou editar),
 a seção "Tabela de jogos (JSON)" recebe as rodadas e os jogos da fase:
 
 ```json
@@ -314,7 +314,12 @@ times da fase e, se for de mais de um time, o import recusa e lista os candidato
 horário de Brasília; `local` e `cidade` são opcionais. Rodada que já existe (pelo número)
 recebe os jogos, jogo repetido (mesmos mandante e visitante na rodada) é pulado e o time que
 joga e ainda não está na tabela da fase entra nela. Com qualquer erro, nada é gravado e o
-campo mostra rodada, jogo e motivo. Só para fase de pontos corridos (por enquanto).
+campo mostra rodada, jogo e motivo.
+
+Na fase de grupos, o jogo vai para o grupo em que os dois times já estão. Se os times ainda não
+estão em grupo, o jogo diz qual com `"grupo": "A"` (o grupo é criado se não existir e os times
+entram nele; nas rodadas seguintes, basta mandante e visitante). Times de grupos diferentes, ou
+um time em dois grupos, são recusados. Mata-mata ainda não é aceito.
 
 O seed lança tudo pelos serviços de escrita, com origem `script` e horários reais:
 

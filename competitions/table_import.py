@@ -1,4 +1,4 @@
-"""Tabela de jogos em JSON para uma fase de pontos corridos (admin da fase).
+"""Tabela de jogos em JSON para uma fase com tabela: pontos corridos ou grupos (admin da fase).
 
 Formato — as rodadas da fase, cada uma com os seus jogos:
 
@@ -19,6 +19,10 @@ times da fase (grupo "Tabela"), depois no cadastro; sigla ou nome com mais de um
 é recusado, com os candidatos. Rodada que já existe (pelo número) recebe os jogos;
 jogo que já existe na rodada (mesmos mandante e visitante) é pulado. Time que joga e
 ainda não está na tabela da fase entra nela.
+
+Fase de grupos: o jogo vai para o grupo em que os dois times já estão; se ainda não
+estão em grupo, o jogo diz qual com `"grupo": "A"` (o grupo é criado se não existir e
+os times entram nele). Times de grupos diferentes, ou um time em dois grupos, é recusado.
 
 `parse_table` só lê e confere (nada gravado: dá para usar no clean do formulário);
 `apply_table` grava o plano. Erros: `TableImportError` com uma mensagem por problema.
@@ -46,9 +50,10 @@ KEYS = {
     "data": "kickoff", "kickoff": "kickoff",
     "local": "venue", "estadio": "venue", "estádio": "venue", "venue": "venue",
     "cidade": "city", "city": "city",
+    "grupo": "group", "group": "group",
 }
 ROUND_KEYS = {"number", "name", "matches"}
-MATCH_KEYS = {"home", "away", "kickoff", "venue", "city"}
+MATCH_KEYS = {"home", "away", "kickoff", "venue", "city", "group"}
 DATE_FORMATS = ("%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S")
 
 
@@ -65,6 +70,7 @@ class MatchPlan:
     kickoff: datetime
     venue: str = ""
     city: str = ""
+    group: str = ""  # fase de grupos: nome do grupo (como gravado, ou o novo)
 
 
 @dataclass
@@ -89,6 +95,7 @@ class TableResult:
     matches_created: int = 0
     matches_skipped: int = 0
     teams_added: list[str] = field(default_factory=list)
+    groups_created: list[str] = field(default_factory=list)
 
 
 def _normalize(obj: dict, allowed: set[str], where: str, errors: list[str]) -> dict:
@@ -169,8 +176,50 @@ def _text(value, limit: int, label: str, where: str, errors: list[str]) -> str:
     return value.strip()
 
 
-def parse_table(text: str, stage: Stage | None) -> TablePlan:
-    """Lê e confere o JSON (sem gravar). `stage` pode ser None (fase ainda não salva)."""
+class _Groups:
+    """Fase de grupos: em que grupo cada time está (gravado ou já decidido no arquivo)."""
+
+    def __init__(self, stage: Stage | None):
+        self.names: dict[str, str] = {}  # nome normalizado → nome como gravado
+        self.of_team: dict[int, str] = {}  # time → grupo (normalizado)
+        if stage and stage.pk:
+            for group in Group.objects.filter(stage=stage):
+                self.names[group.name.casefold()] = group.name
+            for team_id, name in GroupTeam.objects.filter(group__stage=stage).values_list("team_id", "group__name"):
+                self.of_team[team_id] = name.casefold()
+
+    def label(self, key: str) -> str:
+        return self.names.get(key, key)
+
+    def place(self, home: Team, away: Team, raw, where: str, errors: list[str]) -> str | None:
+        """Grupo do jogo; decide também o grupo dos times que ainda não têm."""
+        if raw is not None and (not isinstance(raw, str) or not raw.strip()):
+            errors.append(f"{where}: grupo precisa ser o nome do grupo (ex.: \"A\").")
+            return None
+        wanted = raw.strip().casefold() if raw else None
+        home_group, away_group = self.of_team.get(home.id), self.of_team.get(away.id)
+        if wanted is None:
+            if home_group and home_group == away_group:
+                return self.label(home_group)
+            if home_group and away_group:
+                errors.append(f"{where}: {home.name} ({self.label(home_group)}) e {away.name} ({self.label(away_group)}) são de grupos diferentes.")
+            else:
+                errors.append(f'{where}: informe o grupo do jogo (ex.: "grupo": "A"); {home.name if not home_group else away.name} ainda não está em grupo.')
+            return None
+        for team, current in ((home, home_group), (away, away_group)):
+            if current and current != wanted:
+                errors.append(f"{where}: {team.name} está no grupo {self.label(current)}, não no {raw.strip()}.")
+                return None
+        self.names.setdefault(wanted, raw.strip())
+        self.of_team[home.id] = self.of_team[away.id] = wanted
+        return self.label(wanted)
+
+
+def parse_table(text: str, stage: Stage | None, fmt: str | None = None) -> TablePlan:
+    """Lê e confere o JSON (sem gravar). `stage` pode ser None (fase ainda não salva);
+    `fmt` = formato da fase (padrão: o da fase; sem fase, pontos corridos)."""
+    fmt = fmt or (stage.format if stage else Stage.Format.LEAGUE)
+    groups = _Groups(stage) if fmt == Stage.Format.GROUPS else None
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
@@ -218,6 +267,14 @@ def parse_table(text: str, stage: Stage | None) -> TablePlan:
             city = _text(entry.get("city"), 80, "cidade", m_where, errors)
             if not (home and away and kickoff):
                 continue
+            group_name = ""
+            if groups is not None and home.id != away.id:
+                group_name = groups.place(home, away, entry.get("group"), m_where, errors)
+                if group_name is None:
+                    continue
+            elif groups is None and entry.get("group") not in (None, ""):
+                errors.append(f"{m_where}: pontos corridos não tem grupos (tire a chave grupo).")
+                continue
             if home.id == away.id:
                 errors.append(f"{m_where}: mandante e visitante são o mesmo time ({home.name}).")
                 continue
@@ -231,7 +288,7 @@ def parse_table(text: str, stage: Stage | None) -> TablePlan:
                 continue
             pairs.add((home.id, away.id))
             playing.update((home.id, away.id))
-            plan.matches.append(MatchPlan(home, away, kickoff, venue, city))
+            plan.matches.append(MatchPlan(home, away, kickoff, venue, city, group_name))
         rounds.append(plan)
     if errors:
         raise TableImportError(errors)
@@ -239,14 +296,17 @@ def parse_table(text: str, stage: Stage | None) -> TablePlan:
 
 
 def apply_table(stage: Stage, plan: TablePlan) -> TableResult:
-    """Grava o plano na fase (pontos corridos): rodadas, times na tabela e jogos."""
+    """Grava o plano na fase: rodadas, grupos (fase de grupos), times na tabela e jogos."""
     from matches.models import Match
 
-    if stage.format != Stage.Format.LEAGUE:
-        raise TableImportError(["A tabela em JSON é só para fase de pontos corridos."])
+    if not stage.has_table:
+        raise TableImportError(["A tabela em JSON é só para fase de pontos corridos ou de grupos."])
     result = TableResult()
     with transaction.atomic():
-        group = Group.objects.filter(stage=stage).order_by("id").first() or Group.objects.create(stage=stage, name="Tabela")
+        groups = {group.name.casefold(): group for group in Group.objects.filter(stage=stage)}
+        single = None
+        if stage.format == Stage.Format.LEAGUE:
+            single = Group.objects.filter(stage=stage).order_by("id").first() or Group.objects.create(stage=stage, name="Tabela")
         in_table = set(GroupTeam.objects.filter(group__stage=stage).values_list("team_id", flat=True))
         rounds = {rnd.number: rnd for rnd in Round.objects.filter(stage=stage)}
         for round_plan in plan.rounds:
@@ -263,6 +323,12 @@ def apply_table(stage: Stage, plan: TablePlan) -> TableResult:
                 if (item.home.id, item.away.id) in existing:
                     result.matches_skipped += 1
                     continue
+                group = single
+                if group is None:
+                    group = groups.get(item.group.casefold())
+                    if group is None:
+                        group = groups[item.group.casefold()] = Group.objects.create(stage=stage, name=item.group)
+                        result.groups_created.append(item.group)
                 for team in (item.home, item.away):
                     if team.id not in in_table:
                         GroupTeam.objects.create(group=group, team=team)

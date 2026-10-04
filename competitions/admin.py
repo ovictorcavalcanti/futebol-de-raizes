@@ -730,10 +730,11 @@ class StageFormatMixin:
 
 
 TABLE_JSON_HELP = (
-    'Opcional, só em pontos corridos: as rodadas e os jogos da fase. Ex.: {"rodadas": [{"numero": 1, '
+    'Opcional (pontos corridos ou grupos): as rodadas e os jogos da fase. Ex.: {"rodadas": [{"numero": 1, '
     '"jogos": [{"mandante": "SPT", "visitante": "NAU", "data": "2027-01-15 19:00", "local": "Ilha do Retiro", '
     '"cidade": "Recife"}]}]}. Time pela sigla, pelo nome ou {"id": N}; data no horário de Brasília. '
     "Rodada existente recebe os jogos; jogo repetido é pulado; quem joga e não está na tabela entra nela. "
+    'Fase de grupos: o jogo vai para o grupo dos dois times; times ainda sem grupo pedem "grupo": "A" no jogo. '
     "Com qualquer erro, nada é gravado."
 )
 
@@ -754,11 +755,12 @@ class StageForm(StageFormatMixin, forms.ModelForm):
         self.table_plan = None
         if not text:
             return cleaned
-        if cleaned.get("format") != Stage.Format.LEAGUE:
-            self.add_error("table_json", "A tabela em JSON é só para fase de pontos corridos.")
+        fmt = cleaned.get("format")
+        if fmt not in (Stage.Format.LEAGUE, Stage.Format.GROUPS):
+            self.add_error("table_json", "A tabela em JSON é só para fase de pontos corridos ou de grupos.")
             return cleaned
         try:
-            self.table_plan = parse_table(text, self.instance if self.instance.pk else None)
+            self.table_plan = parse_table(text, self.instance if self.instance.pk else None, fmt)
         except TableImportError as exc:
             self.add_error("table_json", forms.ValidationError(exc.messages))
         return cleaned
@@ -869,7 +871,7 @@ class StageAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, WriteLockedPostMixin
 
     def get_fieldsets(self, request, obj=None):
         fieldsets = super().get_fieldsets(request, obj)
-        if obj is not None and obj.format != Stage.Format.LEAGUE:
+        if obj is not None and not obj.has_table:
             fieldsets = tuple(item for item in fieldsets if item[0] != "Tabela de jogos (JSON)")
         if obj is None or not obj.has_table:
             return fieldsets[:3] if obj is None else fieldsets[:2]
@@ -917,6 +919,8 @@ class StageAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, WriteLockedPostMixin
             summary = f"Tabela em JSON: {result.rounds_created} rodada(s) e {result.matches_created} jogo(s) criados"
             if result.matches_skipped:
                 summary += f", {result.matches_skipped} jogo(s) que já existiam pulados"
+            if result.groups_created:
+                summary += f"; grupos criados: {', '.join(result.groups_created)}"
             if result.teams_added:
                 summary += f"; entraram na tabela: {', '.join(result.teams_added)}"
             self.message_user(request, summary + ".", messages.SUCCESS)

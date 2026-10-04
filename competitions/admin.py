@@ -37,6 +37,7 @@ import re
 from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin.widgets import AutocompleteSelect
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Count, Q
 from django.forms.models import BaseInlineFormSet
@@ -62,6 +63,7 @@ from .models import (
     StandingZone,
     Team,
 )
+from .table_import import TableImportError, apply_table, parse_table
 
 HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 COLOR_FIELD_NAMES = frozenset({"color", "color_primary", "color_secondary"})
@@ -727,10 +729,39 @@ class StageFormatMixin:
         return new_format
 
 
+TABLE_JSON_HELP = (
+    'Opcional, só em pontos corridos: as rodadas e os jogos da fase. Ex.: {"rodadas": [{"numero": 1, '
+    '"jogos": [{"mandante": "SPT", "visitante": "NAU", "data": "2027-01-15 19:00", "local": "Ilha do Retiro", '
+    '"cidade": "Recife"}]}]}. Time pela sigla, pelo nome ou {"id": N}; data no horário de Brasília. '
+    "Rodada existente recebe os jogos; jogo repetido é pulado; quem joga e não está na tabela entra nela. "
+    "Com qualquer erro, nada é gravado."
+)
+
+
 class StageForm(StageFormatMixin, forms.ModelForm):
+    table_json = forms.CharField(
+        label="Tabela em JSON", required=False, help_text=TABLE_JSON_HELP,
+        widget=forms.Textarea(attrs={"rows": 8, "class": "vLargeTextField", "spellcheck": "false"}),
+    )
+
     class Meta:
         model = Stage
         fields = ("season", "name", "position", "format", "points_win", "points_draw", "points_loss")
+
+    def clean(self):
+        cleaned = super().clean()
+        text = (cleaned.get("table_json") or "").strip()
+        self.table_plan = None
+        if not text:
+            return cleaned
+        if cleaned.get("format") != Stage.Format.LEAGUE:
+            self.add_error("table_json", "A tabela em JSON é só para fase de pontos corridos.")
+            return cleaned
+        try:
+            self.table_plan = parse_table(text, self.instance if self.instance.pk else None)
+        except TableImportError as exc:
+            self.add_error("table_json", forms.ValidationError(exc.messages))
+        return cleaned
 
 
 class StageInlineForm(StageFormatMixin, forms.ModelForm):
@@ -818,6 +849,7 @@ class StageAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, WriteLockedPostMixin
     parent_params = (("season", Season),)
     fieldsets = (
         (None, {"fields": ("season", "name", "position", "format")}),
+        ("Tabela de jogos (JSON)", {"fields": ("table_json",), "classes": ("collapse",)}),
         (
             "Pontuação",
             {
@@ -837,8 +869,10 @@ class StageAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, WriteLockedPostMixin
 
     def get_fieldsets(self, request, obj=None):
         fieldsets = super().get_fieldsets(request, obj)
+        if obj is not None and obj.format != Stage.Format.LEAGUE:
+            fieldsets = tuple(item for item in fieldsets if item[0] != "Tabela de jogos (JSON)")
         if obj is None or not obj.has_table:
-            return fieldsets[:2]
+            return fieldsets[:3] if obj is None else fieldsets[:2]
         return fieldsets
 
     def get_inlines(self, request, obj):
@@ -870,6 +904,22 @@ class StageAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, WriteLockedPostMixin
             for formset in formsets
         )
         recalc = not change or table_changed or bool(POINTS_FIELDS & set(form.changed_data))
+        plan = getattr(form, "table_plan", None)
+        if plan is not None:
+            try:
+                result = apply_table(stage, plan)
+            except (TableImportError, ValidationError) as exc:
+                transaction.set_rollback(True)
+                detail = "; ".join(getattr(exc, "messages", [str(exc)]))
+                self.message_user(request, f"Tabela em JSON recusada, nada foi gravado: {detail}", messages.ERROR)
+                return
+            recalc = recalc or bool(result.teams_added)
+            summary = f"Tabela em JSON: {result.rounds_created} rodada(s) e {result.matches_created} jogo(s) criados"
+            if result.matches_skipped:
+                summary += f", {result.matches_skipped} jogo(s) que já existiam pulados"
+            if result.teams_added:
+                summary += f"; entraram na tabela: {', '.join(result.teams_added)}"
+            self.message_user(request, summary + ".", messages.SUCCESS)
         try:
             standings_services.on_stage_rules_changed(stage, recalc=recalc)
         except ConfigError as exc:  # pragma: no cover - os formulários já validaram

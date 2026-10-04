@@ -297,6 +297,25 @@ python manage.py import_teams times.json --update   # cria e atualiza os que já
 nada é gravado e o comando aponta o item e o motivo. Um CSV com as mesmas colunas no cabeçalho
 (vírgula ou ponto e vírgula) também é aceito. O escudo em arquivo é enviado pelo admin.
 
+**Tabela de jogos em JSON (pontos corridos).** Na página da fase no admin (ao criar ou editar),
+a seção "Tabela de jogos (JSON)" recebe as rodadas e os jogos da fase:
+
+```json
+{"rodadas": [
+  {"numero": 1, "nome": "1ª rodada", "jogos": [
+    {"mandante": "SPT", "visitante": "NAU", "data": "2027-01-15 19:00", "local": "Ilha do Retiro", "cidade": "Recife"},
+    {"mandante": "Santa Cruz", "visitante": {"id": 42}, "data": "2027-01-16 16:00"}
+  ]}
+]}
+```
+
+O time vai pela sigla, pelo nome ou por `{"id": N}`; a sigla é procurada primeiro entre os
+times da fase e, se for de mais de um time, o import recusa e lista os candidatos. `data` é o
+horário de Brasília; `local` e `cidade` são opcionais. Rodada que já existe (pelo número)
+recebe os jogos, jogo repetido (mesmos mandante e visitante na rodada) é pulado e o time que
+joga e ainda não está na tabela da fase entra nela. Com qualquer erro, nada é gravado e o
+campo mostra rodada, jogo e motivo. Só para fase de pontos corridos (por enquanto).
+
 O seed lança tudo pelos serviços de escrita, com origem `script` e horários reais:
 
 - **Pernambucano Raiz**: pontos corridos com as regras do primeiro campeonato (3/1/0;

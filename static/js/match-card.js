@@ -13,6 +13,7 @@ import { icon, eventIconName } from './icons.js';
 import { createCrest } from './crest.js';
 import { formatTime, formatWhen, formatDay, formatInt, formatMoney, formatScore, toDate } from './format.js';
 import { liveMinuteLabel } from './clock.js';
+import { getMinuteFormat, minuteLabel } from './minute-format.js';
 
 /** Estado por card: {match, opts, eventIds, requested, activeTab, failed}. */
 const STATE = new WeakMap();
@@ -59,7 +60,7 @@ export function safeHref(url) {
  * @returns {string} "Gol anulado aos 60' — Impedimento (VAR)"
  */
 export function annulledGoalNote(annulment) {
-  const when = annulment?.minute_label ? ` aos ${annulment.minute_label}` : '';
+  const when = annulment && minuteLabel(annulment) ? ` aos ${minuteLabel(annulment)}` : '';
   const reason = annulment?.payload?.reason;
   return `Gol anulado${when}${reason ? ` — ${reason}` : ''}`;
 }
@@ -191,6 +192,20 @@ export function tickMatchCards(root, nowMs) {
   }
 }
 
+/**
+ * Redesenha os cards dentro de root com o MatchOut que já têm (ex.: troca do formato
+ * do minuto), linha do tempo inclusive.
+ * @param {ParentNode} root
+ */
+export function refreshMatchCards(root) {
+  for (const el of root.querySelectorAll('.match')) {
+    const st = STATE.get(el);
+    if (!st?.match) continue;
+    st.eventIds = null;
+    updateMatchCard(el, st.match);
+  }
+}
+
 /** Último MatchOut desenhado no card (ou null). */
 export function getCardMatch(el) {
   return STATE.get(el)?.match ?? null;
@@ -245,7 +260,8 @@ function renderMeta(meta, match, now, opts) {
   const status = h('span', { class: 'match__status' }, statusPill(match));
   if (match.status === 'live' && !match.partial_info && !INTERVALS.has(match.period) && match.period !== 'penalties') {
     status.append(h('span', { class: 'match__minute' },
-      match.period_short ? h('span', { class: 'match__minute-period', text: match.period_short }) : null,
+      // no formato por tempo o período já vai no rótulo ("27' 2T")
+      match.period_short && getMinuteFormat() !== 'half' ? h('span', { class: 'match__minute-period', text: match.period_short }) : null,
       h('span', { 'data-hook': 'minute', text: liveMinuteLabel(match, now) }),
     ));
   } else if (match.status === 'suspended' && match.period_label) {
@@ -367,7 +383,7 @@ function renderSummary(summary, match) {
       return h('li', { class: 'facts-line__item' },
         icon(g.origin === 'own_goal' ? 'ball-own' : 'ball', { label: 'Gol' }),
         g.player || 'Gol',
-        h('span', { class: 'facts-line__min', text: g.minute_label || '' }),
+        h('span', { class: 'facts-line__min', text: minuteLabel(g) }),
         tag ? h('span', { class: 'facts-line__tag', text: `(${tag})` }) : null,
       );
     });
@@ -548,7 +564,7 @@ function eventPlayer(e) {
 }
 
 function timelineItem(e, side, { title, sub = [], score = null, extraClass = '', isNew = false, minuteText }) {
-  const minute = minuteText ?? e.minute_label ?? '';
+  const minute = minuteText ?? minuteLabel(e);
   const body = h('div', { class: 'tl-item__body' },
     // lance sem time (ex.: VAR) ocupa o centro e esconde o trilho: o minuto vai junto do texto
     !side && minute ? h('span', { class: 'tl-item__min-inline', text: minute }) : null,
@@ -926,9 +942,9 @@ export function createLatestGoal(goal, { isNew = false } = {}) {
   const m = goal.match || {};
   const s = goal.score_after || { home: 0, away: 0 };
   const tag = ORIGIN_TAG[goal.origin];
-  const label = `${goal.minute_label || ''} — ${goal.player || 'Gol'} (${displayName(goal.team)}). ${displayName(m.home)} ${s.home} a ${s.away} ${displayName(m.away)}`;
+  const label = `${minuteLabel(goal)} — ${goal.player || 'Gol'} (${displayName(goal.team)}). ${displayName(m.home)} ${s.home} a ${s.away} ${displayName(m.away)}`;
   return h('li', { class: ['goal-chip', isNew && 'is-new'], 'data-event-id': goal.event_id, 'aria-label': label },
-    h('span', { class: 'goal-chip__min', 'aria-hidden': 'true', text: goal.minute_label || '' }),
+    h('span', { class: 'goal-chip__min', 'aria-hidden': 'true', text: minuteLabel(goal) }),
     h('span', { class: 'goal-chip__player', 'aria-hidden': 'true' }, goal.player || 'Gol', tag ? h('small', { text: ` (${tag})` }) : null),
     matchScoreLine(goal),
   );
@@ -961,8 +977,8 @@ export function createGoalAlert(goal, { kind = 'goal', reason = '', onClose = nu
         createCrest(m.home, { size: 22 }), teamNames(m.home), score, teamNames(m.away), createCrest(m.away, { size: 22 }),
       ),
       h('p', { class: 'goal-alert__who' }, isGoal
-        ? [h('strong', { text: goal.player || 'Gol' }), ` · ${goal.minute_label || ''} · ${displayName(goal.team)}`]
-        : [`Gol de ${goal.player || ''} (${goal.minute_label || ''}) não vale mais. `, 'Lance corrigido pelo operador.']),
+        ? [h('strong', { text: goal.player || 'Gol' }), ` · ${minuteLabel(goal)} · ${displayName(goal.team)}`]
+        : [`Gol de ${goal.player || ''} (${minuteLabel(goal)}) não vale mais. `, 'Lance corrigido pelo operador.']),
     ),
     close,
   );

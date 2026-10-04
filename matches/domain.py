@@ -13,9 +13,13 @@ Convenções
   (2º tempo da prorrogação), penalties.
   `period` só existe com status live ou suspended (em suspenso, guarda onde parou).
 * Minuto é ABSOLUTO no jogo (45+2 = minute 45, stoppage 2; 90+3; 105+1; 120+2).
-  Faixas: 1T 0–45 (acréscimo só no 45); 2T 45–90 (acréscimo só no 90);
-  prorrogação 90–105 no 1º tempo (acréscimo só no 105) e 105–120 no 2º (acréscimo
-  só no 120). Fora disso: `invalid_minute`. Intervalo: minuto opcional; se vier,
+  Faixas dos lances: 1T 0–45 (acréscimo só no 45); 2T 46–90 (acréscimo só no 90);
+  prorrogação 91–105 no 1º tempo (acréscimo só no 105) e 106–120 no 2º (acréscimo
+  só no 120). Fora disso: `invalid_minute`. O minuto decide o período do lance:
+  um lance esquecido entra depois, no tempo dele (gol aos 30' lançado no 2T fica
+  no 1T), desde que esse tempo já tenha sido jogado e seja da mesma fase (tempo
+  normal ou prorrogação: com a prorrogação ou os pênaltis em andamento, o tempo
+  normal já está fechado). Intervalo: minuto opcional; se vier,
   é 45 (105 no intervalo da prorrogação), com ou sem acréscimo. Pênaltis:
   minuto opcional; se vier, é o do início da disputa (90 sem prorrogação, 120 com).
   Acréscimo vai de 1 a 30 (0 = sem acréscimo). `EventSpec.minute == "required"`
@@ -944,10 +948,10 @@ _ISO_DATETIME_PREFIX = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}")
 _MINUTE_RULES: dict[str, tuple[int, int, tuple[int, ...]]] = {
     Period.FIRST_HALF: (0, 45, (45,)),
     Period.HALF_TIME: (45, 45, (45,)),
-    Period.SECOND_HALF: (45, 90, (90,)),
-    Period.EXTRA_TIME: (90, 105, (105,)),
+    Period.SECOND_HALF: (46, 90, (90,)),
+    Period.EXTRA_TIME: (91, 105, (105,)),
     Period.EXTRA_HALF_TIME: (105, 105, (105,)),
-    Period.EXTRA_SECOND_HALF: (105, 120, (120,)),
+    Period.EXTRA_SECOND_HALF: (106, 120, (120,)),
     Period.PENALTIES: (90, 120, ()),
 }
 
@@ -1722,6 +1726,47 @@ def _game_minute(new: NewEvent, period: str, ctx: MatchContext) -> tuple[int | N
     return minute, stoppage
 
 
+# Fases do jogo: o lance esquecido volta só dentro da fase (tempo normal, prorrogação).
+_PHASE = {
+    Period.FIRST_HALF: 0, Period.HALF_TIME: 0, Period.SECOND_HALF: 0,
+    Period.EXTRA_TIME: 1, Period.EXTRA_HALF_TIME: 1, Period.EXTRA_SECOND_HALF: 1,
+    Period.PENALTIES: 2,
+}
+
+
+def _minute_period(minute: int) -> str | None:
+    """Tempo de jogo de um minuto absoluto: até 45(+n) 1T; 46 a 90(+n) 2T; 91 a 105(+n)
+    1º tempo da prorrogação; 106 a 120(+n) 2º tempo dela."""
+    for period in (Period.FIRST_HALF, Period.SECOND_HALF, Period.EXTRA_TIME, Period.EXTRA_SECOND_HALF):
+        if minute <= PERIOD_CLOCK[period]["regular_end"]:
+            return period
+    return None
+
+
+def _event_period(state: MatchState, spec: EventSpec, new: NewEvent, ctx: MatchContext) -> str:
+    """Período do lance pelo minuto informado. Sem minuto (ou minuto do próprio intervalo
+    ou da disputa, em lance aceito ali) → período corrente. Tempo que ainda não chegou,
+    ou de outra fase (do tempo normal com a prorrogação ou os pênaltis em andamento) →
+    período corrente (a validação recusa o minuto)."""
+    current = state.period
+    minute = new.minute
+    if minute is None or not _is_int(minute) or minute < 0:
+        return current
+    if current in (Period.HALF_TIME, Period.EXTRA_HALF_TIME, Period.PENALTIES) and current in spec.periods:
+        if current == Period.PENALTIES:
+            own = minute in _shootout_minutes(ctx)
+        else:
+            own = minute == _MINUTE_RULES[current][0]
+        if own:
+            return current
+    target = _minute_period(minute)
+    if target is None or PERIOD_ORDER[target] > PERIOD_ORDER[current]:
+        return current
+    if _PHASE[target] != _PHASE[current]:
+        return current  # a prorrogação e os pênaltis foram decididos pelo placar de antes
+    return target
+
+
 def _step_game(
     state: MatchState,
     new: NewEvent,
@@ -1733,7 +1778,7 @@ def _step_game(
 ) -> _Step:
     if state.status != Status.LIVE:
         raise _error("match_not_live", "O jogo não está em andamento.", status=state.status, type=spec.type)
-    period = state.period
+    period = _event_period(state, spec, new, ctx)
     if period not in spec.periods:
         what = spec.label[0].lower() + spec.label[1:]
         raise _error(

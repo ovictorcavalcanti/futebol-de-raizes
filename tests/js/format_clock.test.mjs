@@ -112,3 +112,28 @@ test('ServerClock: stop() + start() dentro do tick não deixa dois laços rodand
   // 10 s ⇒ ~10 ticks; com o laço duplicado seriam ~19
   assert.ok(ticks >= 9 && ticks <= 11, `ticks=${ticks}`);
 });
+
+test('formato do minuto: internacional por padrão, por tempo quando escolhido', async () => {
+  const { formatMinute, minuteLabel, getMinuteFormat } = await import('../../static/js/minute-format.js');
+  assert.equal(getMinuteFormat(), 'intl');
+  const cases = [
+    [21, null, 'first_half', "21'", "21' 1T"],
+    [45, 2, 'first_half', "45+2'", "47' 1T"],
+    [59, null, 'second_half', "59'", "14' 2T"],
+    [90, 3, 'second_half', "90+3'", "48' 2T"],
+    [95, null, 'extra_time', "95'", "5' 1TP"],
+    [120, 1, 'extra_second_half', "120+1'", "16' 2TP"],
+    [45, 1, 'half_time', "45+1'", "46' 1T"],
+    [120, null, 'penalties', "120'", "120'"],
+  ];
+  for (const [minute, stoppage, period, intl, half] of cases) {
+    assert.equal(formatMinute(minute, stoppage, period, 'intl'), intl);
+    assert.equal(formatMinute(minute, stoppage, period, 'half'), half);
+  }
+  const goal = { minute: 90, stoppage: 3, period: 'second_half', minute_label: "90+3'" };
+  assert.equal(minuteLabel(goal), "90+3'");
+  assert.equal(minuteLabel(goal, 'half'), "48' 2T");
+  const live = liveMatch({ period: 'second_half', clock: { running: true, offset: 45, regular_end: 90 }, period_started_at: new Date(Date.now() - 26.5 * 60_000).toISOString() });
+  assert.equal(liveMinuteLabel(live), "72'");
+  assert.equal(liveMinuteLabel(live, Date.now(), 'half'), "27' 2T");
+});

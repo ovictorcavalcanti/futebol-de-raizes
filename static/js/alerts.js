@@ -15,6 +15,7 @@
  * A regra de decisão (GoalAlertTracker) é pura e testada com node --test; o resto
  * (DOM, áudio, Notification) só roda quando createGoalAlerts() é chamado.
  */
+import { minuteLabel } from './minute-format.js';
 import { showToast } from './render.js';
 import { createGoalAlert } from './match-card.js';
 import { formatScore } from './format.js';
@@ -149,7 +150,8 @@ const shortName = (team) => team?.short_name || team?.name || '';
 export function notificationText(goal, { kind = 'goal', reason = '' } = {}) {
   const m = goal?.match || {};
   const s = goal?.score_after || { home: 0, away: 0 };
-  const who = `${goal?.player || 'Gol'}${goal?.minute_label ? ` (${goal.minute_label})` : ''}`;
+  const minute = minuteLabel(goal);
+  const who = `${goal?.player || 'Gol'}${minute ? ` (${minute})` : ''}`;
   if (kind === 'goal') {
     return {
       title: `É gol! ${shortName(m.home)} ${formatScore(s.home, s.away)} ${shortName(m.away)}`,

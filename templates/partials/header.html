@@ -11,6 +11,12 @@
         <time id="brasilia-clock" class="clock__time" data-hook="clock">--:--:--</time>
         <span class="clock__label"><span class="clock__label-long">Horário de </span>Brasília</span>
       </div>
+      {% if page and page != "operator" %}
+      {# formato do minuto (minute-format.js): internacional por padrão; pressionado = por tempo #}
+      <button type="button" class="btn btn--ghost btn--sm btn--toggle minute-toggle" data-minute-format-toggle aria-pressed="false" aria-label="Minutos por tempo (1T/2T)" title="Ver minutos por tempo (47' 1T)">
+        <span class="when-off">45+2'</span><span class="when-on">47' 1T</span>
+      </button>
+      {% endif %}
       <button type="button" class="btn btn--ghost btn--icon theme-toggle" data-theme-toggle aria-pressed="false" aria-label="Tema escuro" title="Usar tema escuro">
         <svg class="icon theme-toggle__sun" aria-hidden="true"><use href="#i-sun"/></svg>
         <svg class="icon theme-toggle__moon" aria-hidden="true"><use href="#i-moon"/></svg>

@@ -10,7 +10,7 @@
  */
 import { renderCompetitionNav, showToast } from './render.js';
 import { ServerClock, mountClock } from './clock.js';
-import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createTieCard, createTieGroup, tiesFromMatches } from './match-card.js';
+import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createTieCard, createTieGroup, tiesFromMatches, refreshMatchCards } from './match-card.js';
 import { createStandings, updateStandings } from './standings.js';
 import { getCompetitions, getCompetition, listMatches, getMatch } from './api.js';
 import { createStream, liveStatusIndicator } from './stream.js';
@@ -362,6 +362,7 @@ async function boot() {
   stream.start(data.cursor ?? null);
 
   clock.onTick((ms) => tickMatchCards(els.matches, ms));
+  document.addEventListener('minuteformatchange', () => refreshMatchCards(els.matches)); // formato do minuto trocado
   // virada do dia: "Hoje"/"Amanhã" dos cards mudam
   clock.onDayChange(() => {
     for (const card of state.cards.values()) {

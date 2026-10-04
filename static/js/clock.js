@@ -6,6 +6,7 @@
  * demorou na rede (atraso de rede só diminui o desvio medido).
  */
 import { dayKey, formatClock } from './format.js';
+import { formatMinute, getMinuteFormat } from './minute-format.js';
 
 export class ServerClock {
   #samples = [];
@@ -169,14 +170,14 @@ export function liveMinute(match, nowMs = Date.now()) {
 }
 
 /**
- * Rótulo do minuto ao vivo: "72'", "45+2'", "INT" (intervalo), "PÊN" (pênaltis).
- * Vazio quando o jogo não está ao vivo.
+ * Rótulo do minuto ao vivo: "72'", "45+2'" (ou, no formato por tempo, "27' 2T"),
+ * "INT" (intervalo), "PÊN" (pênaltis). Vazio quando o jogo não está ao vivo.
  */
-export function liveMinuteLabel(match, nowMs = Date.now()) {
+export function liveMinuteLabel(match, nowMs = Date.now(), format = getMinuteFormat()) {
   if (!match || match.status !== 'live' || match.partial_info) return '';
   if (match.period === 'half_time' || match.period === 'extra_half_time') return 'INT';
   if (match.period === 'penalties') return 'PÊN';
   const m = liveMinute(match, nowMs);
   if (!m) return match.period_short || '';
-  return m.stoppage ? `${m.minute}+${m.stoppage}'` : `${m.minute}'`;
+  return formatMinute(m.minute, m.stoppage, match.period, format);
 }

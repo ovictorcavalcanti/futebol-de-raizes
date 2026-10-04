@@ -429,16 +429,12 @@ def test_game_payloads_are_normalized():
         ("first_half", 44, 2),
         ("first_half", -1, None),
         ("first_half", 45, 31),
-        ("second_half", 44, None),
         ("second_half", 91, None),
         ("second_half", 89, 1),
-        ("second_half", 45, 1),
-        ("extra_time", 89, None),
         ("extra_time", 106, None),
         ("extra_time", 100, 1),
-        ("extra_second_half", 104, None),
         ("extra_second_half", 121, None),
-        ("extra_second_half", 105, 1),
+        ("extra_second_half", 110, 1),
         ("half_time", 50, None),
     ],
 )
@@ -461,11 +457,11 @@ def test_minutes_out_of_range(period, minute, stoppage):
     [
         ("first_half", 0, None),
         ("first_half", 45, 3),
-        ("second_half", 45, None),
+        ("second_half", 46, None),
         ("second_half", 90, 7),
-        ("extra_time", 90, None),
+        ("extra_time", 91, None),
         ("extra_time", 105, 1),
-        ("extra_second_half", 105, None),
+        ("extra_second_half", 106, None),
         ("extra_second_half", 120, 2),
     ],
 )
@@ -531,8 +527,28 @@ def test_minute_decreasing_needs_confirmation():
     # outro período sempre vem depois
     sim.post(EventType.HALF_TIME)
     sim.post(EventType.SECOND_HALF_START)
-    sim.goal(NAUTICO, "Kieza", 45)
-    assert sim.last.warnings == () and sim.state.last_clock == (3, 45, 0)
+    sim.goal(NAUTICO, "Kieza", 46)
+    assert sim.last.warnings == () and sim.state.last_clock == (3, 46, 0)
+
+
+def test_minute_decides_the_period_of_a_late_entry():
+    sim = live_sim()
+    sim.goal(SPORT, "Zé", 10)
+    rejects("invalid_minute", sim, EventType.GOAL, team_id=SPORT, minute=50, payload={"player": "Zé"})  # ainda não chegou
+    sim.post(EventType.HALF_TIME, minute=45, stoppage=3)
+    forgotten = sim.goal(NAUTICO, "Kieza", 30)  # lançado no intervalo, é do 1T
+    assert forgotten.period == "first_half"
+    sim.post(EventType.SECOND_HALF_START)
+    late = sim.goal(SPORT, "Hernane", 45, 2)  # 45+2 lançado no 2T: 1T
+    assert (late.period, late.minute, late.stoppage) == ("first_half", 45, 2)
+    second = sim.goal(SPORT, "Diego", 46)
+    assert second.period == "second_half"
+    card = sim.post(EventType.YELLOW_CARD, team_id=NAUTICO, minute=40, payload={"player": "Kieza"}, confirm=True)
+    assert card.period == "first_half" and sim.state.period == Period.SECOND_HALF
+    assert (sim.state.home_score, sim.state.away_score) == (3, 1)
+    # mesmo minuto: a ordem do lançamento desempata (gol relâmpago e expulsão no 46')
+    red = sim.post(EventType.RED_CARD, team_id=NAUTICO, minute=46, payload={"player": "Thiago"})
+    assert (red.period, red.minute) == ("second_half", 46) and red.sequence > second.sequence
 
 
 def test_player_sent_off_warning_uses_normalized_name():
@@ -1065,7 +1081,7 @@ def test_error_messages_use_the_right_preposition():
     state = MatchState(status=Status.LIVE, period=Period.EXTRA_TIME)
     with pytest.raises(DomainError) as info:
         apply_event(state, [], NewEvent("yellow_card", 106, team_id=SPORT, payload={"player": "Zé"}), CTX)
-    assert info.value.message == "No 1º tempo da prorrogação, o minuto vai de 90 a 105."
+    assert info.value.message == "No 1º tempo da prorrogação, o minuto vai de 91 a 105."
 
 
 def test_structural_minute_given_by_hand_is_compared_with_last_clock():

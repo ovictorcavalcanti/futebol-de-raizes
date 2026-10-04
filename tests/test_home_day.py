@@ -63,7 +63,7 @@ def test_day_boundary_in_brasilia_with_match_passing_midnight(operator_user):
     assert today["date"] == "2026-10-03"
     assert home_ids(today) == [overnight.id, after_midnight.id, night.id]
     yesterday = selectors.home_payload(day=date(2026, 10, 2), now=at_0020)
-    assert home_ids(yesterday) == [early.id, late_scheduled.id, overnight.id]
+    assert home_ids(yesterday) == [overnight.id, early.id, late_scheduled.id]  # ao vivo > encerrado > agendado
     assert home_ids(selectors.home_payload(day="2026-10-04", now=at_0020)) == []
 
     # termina às 00:40 BRT: fica na home de hoje até 02:40

@@ -135,6 +135,12 @@
   @media (max-width: 767px) {
     .fdr-brand__title { display: none; }
   }
+  /* Linhas dos inlines em tabela sem o texto repetido do objeto acima de cada linha. */
+  .inline-group .tabular td.original p { display: none; }
+  .inline-group .tabular tr.has_original td { padding-top: 8px; }
+  /* Inline largo (jogos da rodada) rola dentro do próprio quadro, sem empurrar a página. */
+  .inline-group .tabular { max-width: 100%; overflow-x: auto; }
+  .inline-group .tabular p.datetime { white-space: nowrap; }
 </style>
 {% endblock %}
 

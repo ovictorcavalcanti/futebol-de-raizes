@@ -1,4 +1,6 @@
-"""Estrutura: competições, temporadas, fases, grupos, rodadas, times e jogadores.
+"""Estrutura: competições, temporadas, fases, grupos, rodadas e times.
+
+Jogadores não têm cadastro: o nome é digitado no lance (`payload`) e na escalação.
 
 Pontuação, critérios de desempate e zonas da legenda são dados da fase, editáveis
 no Django Admin. O código só conhece o catálogo de critérios (standings/domain.py).
@@ -219,28 +221,3 @@ class GroupTeam(models.Model):
 
     def __str__(self):
         return f"{self.team} em {self.group}"
-
-
-class Player(models.Model):
-    """Jogador (fase 10). Até lá, o nome do jogador vai no `payload` do evento."""
-
-    class Position(models.TextChoices):
-        GOALKEEPER = "GK", "Goleiro"
-        DEFENDER = "DF", "Defensor"
-        MIDFIELDER = "MF", "Meio-campista"
-        FORWARD = "FW", "Atacante"
-
-    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="players", verbose_name="time")
-    name = models.CharField("nome", max_length=80)
-    number = models.PositiveSmallIntegerField("número", null=True, blank=True)
-    position = models.CharField("posição", max_length=2, choices=Position.choices, blank=True)
-    active = models.BooleanField("ativo", default=True)
-
-    class Meta:
-        db_table = "players"
-        ordering = ["team", "number", "name"]
-        verbose_name = "jogador"
-        verbose_name_plural = "jogadores"
-
-    def __str__(self):
-        return f"{self.name} ({self.team.short_name})" if self.team_id else self.name

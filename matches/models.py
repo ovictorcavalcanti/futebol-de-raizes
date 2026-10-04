@@ -14,7 +14,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from competitions.models import Group, Player, Round, Stage, Team
+from competitions.models import Group, Round, Stage, Team
 
 
 class Tie(models.Model):
@@ -196,7 +196,7 @@ class MatchEvent(models.Model):
     minute = models.PositiveSmallIntegerField("minuto", null=True, blank=True)
     stoppage = models.PositiveSmallIntegerField("acréscimo", null=True, blank=True)
     team = models.ForeignKey(Team, on_delete=models.PROTECT, null=True, blank=True, related_name="+", verbose_name="time")
-    player = models.ForeignKey(Player, on_delete=models.PROTECT, null=True, blank=True, related_name="+", verbose_name="jogador")
+    # Jogador sem cadastro: o nome vai no payload ("player"; substituição: "player_out"/"player_in").
     payload = models.JSONField("dados", default=dict, blank=True)
     annuls_event = models.ForeignKey("self", on_delete=models.PROTECT, null=True, blank=True, related_name="annulments", verbose_name="anula o evento")
     voided_at = models.DateTimeField("cancelado em", null=True, blank=True)
@@ -249,11 +249,18 @@ class MatchLineup(models.Model):
 
 
 class MatchLineupPlayer(models.Model):
+    """Jogador escalado: só o nome (jogadores não têm cadastro), número e posição."""
+
+    class Position(models.TextChoices):
+        GOALKEEPER = "GK", "Goleiro"
+        DEFENDER = "DF", "Defensor"
+        MIDFIELDER = "MF", "Meio-campista"
+        FORWARD = "FW", "Atacante"
+
     lineup = models.ForeignKey(MatchLineup, on_delete=models.CASCADE, related_name="entries", verbose_name="escalação")
-    player = models.ForeignKey(Player, on_delete=models.PROTECT, null=True, blank=True, related_name="+", verbose_name="jogador")
-    name = models.CharField("nome", max_length=80, blank=True)
+    name = models.CharField("nome", max_length=80)
     number = models.PositiveSmallIntegerField("número", null=True, blank=True)
-    position = models.CharField("posição", max_length=2, choices=Player.Position.choices, blank=True)
+    position = models.CharField("posição", max_length=2, choices=Position.choices, blank=True)
     starter = models.BooleanField("titular", default=True)
     order = models.PositiveSmallIntegerField("ordem", default=0)
 
@@ -264,18 +271,7 @@ class MatchLineupPlayer(models.Model):
         verbose_name_plural = "jogadores escalados"
 
     def __str__(self):
-        return self.display_name
-
-    @property
-    def display_name(self) -> str:
-        return self.name or (self.player.name if self.player_id else "")
-
-    def save(self, *args, **kwargs):
-        if not self.name and self.player_id:
-            self.name = self.player.name
-        if self.number is None and self.player_id:
-            self.number = self.player.number
-        super().save(*args, **kwargs)
+        return self.name
 
 
 class MatchOfficial(models.Model):

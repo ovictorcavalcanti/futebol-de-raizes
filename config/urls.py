@@ -13,6 +13,19 @@ admin.site.site_header = f"{settings.BRAND['name']} · Administração"  # BRAND
 admin.site.site_title = settings.BRAND["name"]
 admin.site.index_title = "Cadastros e regras"
 admin.site.login_form = ThrottledAdminAuthenticationForm  # avisa o bloqueio de login
+# Navegação por competição: sem a barra lateral com todas as listas (o índice é o ponto de partida).
+admin.site.enable_nav_sidebar = False
+ADMIN_APP_ORDER = ("competitions", "accounts", "auth", "public_api", "observability")
+
+
+def _ordered_app_list(request, app_label=None, _original=admin.site.get_app_list):
+    """Índice com Competições (e Times) primeiro; depois usuários, perfis, chaves e auditoria."""
+    apps = _original(request, app_label)
+    rank = {label: n for n, label in enumerate(ADMIN_APP_ORDER)}
+    return sorted(apps, key=lambda app: (rank.get(app["app_label"], len(rank)), app["name"]))
+
+
+admin.site.get_app_list = _ordered_app_list
 
 urlpatterns = [
     path("", core_views.home_page, name="home"),

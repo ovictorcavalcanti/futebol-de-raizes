@@ -1306,6 +1306,10 @@
   .table tr.is-playing td { background: var(--vermelho-tint); }
   .table tr.is-highlight td { background: var(--amarelo-tint); }
   .tied-mark { margin-left: 2px; font-weight: 700; color: var(--amarelo-ink); cursor: help; }
+  /* pontos com punição/bonificação: "13*", com o motivo na lista embaixo da legenda */
+  .adj-mark { margin-left: 1px; font-weight: 700; color: var(--vermelho-ink); text-decoration: none; cursor: help; }
+  .adjustments { display: grid; gap: 2px; margin: 0; padding: 0 var(--s-4); list-style: none; font-size: 0.8125rem; color: var(--ink-2); }
+  .adjustments__item .adj-mark { margin: 0 4px 0 0; }
 
   @container standings (max-width: 440px) {
     .table .col-gp, .table .col-gc { display: none; }

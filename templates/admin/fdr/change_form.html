@@ -1,0 +1,40 @@
+{% extends "admin/change_form.html" %}
+{# Páginas da hierarquia (competição › temporada › fase › rodada › jogo): a trilha segue  #}
+{# a hierarquia (`fdr_breadcrumbs`, competitions/admin.py → HierarchyAdminMixin), e a     #}
+{# partida ganha o atalho para a tela do operador (`fdr_object_tools`, `fdr_callout`).    #}
+
+{% block extrastyle %}{{ block.super }}
+<style>
+  .fdr-callout {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin: 0 0 20px; padding: 12px 16px;
+    border: 1px solid var(--border-color); border-left: 6px solid var(--accent); border-radius: 6px;
+    background: var(--darkened-bg); color: var(--body-fg);
+  }
+  .fdr-callout p { margin: 0; flex: 1 1 320px; font-size: .875rem; line-height: 1.45; }
+  .fdr-callout a.fdr-button, .object-tools a.fdr-tool-primary {
+    display: inline-block; padding: 9px 16px; border-radius: 6px; background: var(--default-button-bg);
+    color: #fff; font-weight: 700; text-decoration: none; white-space: nowrap;
+  }
+  .fdr-callout a.fdr-button:hover, .fdr-callout a.fdr-button:focus,
+  .object-tools a.fdr-tool-primary:hover, .object-tools a.fdr-tool-primary:focus { background: var(--default-button-hover-bg); color: #fff; }
+  .breadcrumbs .fdr-crumb-current { font-weight: 600; }
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}{% if fdr_breadcrumbs %}
+<div class="breadcrumbs" aria-label="Você está em">
+<a href="{% url 'admin:index' %}">Início</a>
+{% for crumb in fdr_breadcrumbs %}&rsaquo; {% if crumb.url and not forloop.last %}<a href="{{ crumb.url }}">{{ crumb.label }}</a>{% else %}<span class="fdr-crumb-current">{{ crumb.label }}</span>{% endif %}
+{% endfor %}</div>
+{% else %}{{ block.super }}{% endif %}{% endblock %}
+
+{% block object-tools-items %}{% for tool in fdr_object_tools %}
+<li><a href="{{ tool.url }}" class="{{ tool.class }}">{{ tool.label }}</a></li>
+{% endfor %}{{ block.super }}{% endblock %}
+
+{% block form_top %}{{ block.super }}{% if fdr_callout %}
+<div class="fdr-callout" role="note">
+  <p>{{ fdr_callout.text }}</p>
+  <a class="fdr-button" href="{{ fdr_callout.url }}">{{ fdr_callout.label }} →</a>
+</div>
+{% endif %}{% endblock %}

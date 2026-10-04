@@ -47,7 +47,7 @@ DETAIL_PREFETCH = (
     Prefetch(
         "lineups",
         queryset=MatchLineup.objects.order_by("id").prefetch_related(
-            Prefetch("entries", queryset=MatchLineupPlayer.objects.select_related("player").order_by("-starter", "order", "id"))
+            Prefetch("entries", queryset=MatchLineupPlayer.objects.order_by("-starter", "order", "id"))
         ),
     ),
     "officials",
@@ -191,7 +191,7 @@ def serialize_event(event: MatchEvent, match, *, timeline: Timeline | None = Non
         "minute_label": domain.format_minute(event.minute, event.stoppage),
         "team_id": event.team_id,
         "team_side": _side(match, event.team_id),
-        "player": {"id": event.player_id, "name": payload.get("player")},
+        "player": {"id": None, "name": payload.get("player")},  # jogador sem cadastro: só o nome
         "payload": dict(payload),
         "annuls_event_id": event.annuls_event_id,
         "annulled": event.type == EventType.GOAL and event.id in timeline.annulled,
@@ -361,7 +361,7 @@ def _cards(match, timeline: Timeline) -> tuple[dict, list[dict]]:
 def _lineup(lineup) -> dict:
     starters, substitutes = [], []
     for entry in lineup.entries.all():
-        item = {"name": entry.display_name, "number": entry.number, "position": entry.position or None}
+        item = {"name": entry.name, "number": entry.number, "position": entry.position or None}
         (starters if entry.starter else substitutes).append(item)
     return {"formation": lineup.formation or None, "coach": lineup.coach or None, "starters": starters, "substitutes": substitutes}
 

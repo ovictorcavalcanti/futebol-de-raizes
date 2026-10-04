@@ -81,8 +81,14 @@ class EventIn(Schema):
     minute: int | None = None
     stoppage: int | None = None
     team_id: int | None = None
-    player_id: int | None = None
-    payload: dict[str, Any] | None = None
+    player_id: int | None = Field(
+        None,
+        description="Não use: jogadores não têm cadastro (enviar → 400 invalid_input). O nome vai em payload.player.",
+        json_schema_extra={"deprecated": True},
+    )
+    payload: dict[str, Any] | None = Field(
+        None, description="Campos do tipo (catálogo), ex.: {\"player\": \"Zé Roberto\", \"origin\": \"penalty\"}"
+    )
     annuls_event_id: int | None = None
     confirm: bool = Field(False, description="Lança mesmo com avisos (422 confirmation_required)")
     source: Literal["operator", "feed", "script"] = "operator"

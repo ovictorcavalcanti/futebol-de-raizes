@@ -654,3 +654,50 @@ def test_domain_does_not_import_django():
     modules = [alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names]
     modules += [node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)]
     assert not [name for name in modules if name.split(".")[0] in {"django", "competitions", "matches", "standings"}]
+
+
+# --- Punição e bonificação em pontos ----------------------------------------------------
+
+
+def test_point_deduction_changes_the_order_but_not_head_to_head():
+    league = (
+        League("Sport", "Náutico", "Santa Cruz")
+        .play("Sport", 2, 0, "Náutico")
+        .play("Santa Cruz", 1, 0, "Náutico")
+        .play("Sport", 1, 1, "Santa Cruz")
+    )
+    rows = league.table()
+    assert names(rows) == ["Sport", "Santa Cruz", "Náutico"]
+    assert all(row.adjustment == 0 for row in rows)
+
+    ids = league.ids
+    rows = compute_standings(league.teams, league.matches, Rules(), adjustments={ids["Sport"]: -3})
+    assert names(rows) == ["Santa Cruz", "Sport", "Náutico"]
+    table = by_name(rows)
+    assert (table["Sport"].points, table["Sport"].adjustment) == (1, -3)
+    assert (table["Santa Cruz"].points, table["Santa Cruz"].adjustment) == (4, 0)
+
+    # Bonificação: os pontos ajustados ordenam; empatados em pontos, o confronto direto olha só
+    # os jogos (Sport 1 × 1 Santa Cruz → segue empatado, ordem alfabética).
+    rows = compute_standings(
+        league.teams, league.matches, Rules(criteria=("points", "head_to_head")), adjustments={ids["Santa Cruz"]: 3, ids["Sport"]: 2}
+    )
+    assert [(row.name, row.points) for row in rows] == [("Santa Cruz", 7), ("Sport", 6), ("Náutico", 0)]
+    rows = compute_standings(
+        league.teams, league.matches, Rules(criteria=("points", "head_to_head")), adjustments={ids["Santa Cruz"]: 2, ids["Sport"]: 2}
+    )
+    assert [(row.name, row.points, row.tied) for row in rows][:2] == [("Santa Cruz", 6, True), ("Sport", 6, True)]
+
+
+def test_adjustment_tie_falls_to_head_to_head_of_real_results():
+    league = League("A", "B").play("A", 1, 0, "B")  # A 3, B 0
+    rows = compute_standings(league.teams, league.matches, Rules(criteria=("points", "head_to_head")), adjustments={league.ids["B"]: 3})
+    assert [(row.name, row.points, row.tied) for row in rows] == [("A", 3, False), ("B", 3, False)]  # A venceu o jogo
+    rows = compute_standings(league.teams, league.matches, Rules(), adjustments={99: -5}, live=True)  # time fora da tabela: ignorado
+    assert [row.points for row in rows] == [3, 0]
+
+
+def test_adjustments_also_apply_to_teams_without_matches():
+    league = League("A", "B")
+    rows = compute_standings(league.teams, [], Rules(), adjustments={league.ids["B"]: -2})
+    assert [(row.name, row.points, row.played, row.adjustment) for row in rows] == [("A", 0, 0, 0), ("B", -2, 0, -2)]

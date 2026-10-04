@@ -328,7 +328,8 @@ class StandingRowOut(Schema):
     goals_for: int
     goals_against: int
     goal_difference: int
-    points: int
+    points: int = Field(..., description="Pontos já com a punição/bonificação (points_adjustment)")
+    points_adjustment: int = Field(0, description="Pontos tirados (negativo) ou dados (positivo) fora de campo; 0 sem ajuste")
     yellow_cards: int
     red_cards: int
     tied: bool = Field(..., description="Empate que sobrou depois de todos os critérios")
@@ -342,6 +343,12 @@ class GroupStandingsOut(Schema):
     rows: list[StandingRowOut]
 
 
+class PointAdjustmentOut(Schema):
+    team: TeamOut
+    points: int = Field(..., description="Negativo = punição (perda de pontos); positivo = bonificação")
+    reason: str
+
+
 class StandingsOut(Schema):
     stage_id: int
     stage_name: str
@@ -350,3 +357,4 @@ class StandingsOut(Schema):
     criteria: list[CriterionOut]
     legend: list[LegendOut]
     groups: list[GroupStandingsOut]
+    adjustments: list[PointAdjustmentOut] = Field(default_factory=list, description="Punições e bonificações em pontos da fase")

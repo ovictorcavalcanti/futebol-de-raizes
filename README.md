@@ -31,6 +31,7 @@ de apoio são estes:
 - [Seed, credenciais e simulação](#seed-credenciais-e-simulação)
 - [Marca e logo (configuração)](#marca-e-logo-configuração)
 - [Fluxo do operador](#fluxo-do-operador)
+- [Django Admin: navegação por competição](#django-admin-navegação-por-competição)
 - [APIs e documentação interativa](#apis-e-documentação-interativa)
 - [Controle de acesso e limites](#controle-de-acesso-e-limites)
 - [Métricas, logs e auditoria](#métricas-logs-e-auditoria)
@@ -68,9 +69,9 @@ flowchart LR
 | `config/` | settings (tudo por variável de ambiente), urls, asgi; `BRAND` (logo e marca) e `REALTIME` |
 | `core/` | trava de escrita (`core.locks.locked_atomic`), datas no horário de Brasília (`core.timeutils`), páginas, `/health`, storage dos estáticos |
 | `accounts/` | usuário próprio e os perfis Operador e Administrador (`accounts.roles`) |
-| `competitions/` | competição, temporada, fase (pontuação, critérios, zonas), grupo, rodada, time, jogador; comando `seed` |
+| `competitions/` | competição, temporada, fase (pontuação, critérios, zonas), grupo, rodada, time; comando `seed`. Jogador não tem cadastro: o nome vai no lance e na escalação |
 | `matches/` | partida, evento imutável, confronto e enriquecimento; `domain.py` (regras puras), `services.py` (escrita), `selectors.py` (leitura e serialização); comando `simulate_match` |
-| `standings/` | `domain.compute_standings` (puro) e a classificação em cache, oficial e ao vivo |
+| `standings/` | `domain.compute_standings` (puro), a classificação em cache (oficial e ao vivo) e as punições/bonificações em pontos (`PointAdjustment`) |
 | `realtime/` | tabela `outbox`, hub publicador e a view SSE; comando `purge_outbox` |
 | `api/` | Django Ninja: `/api/auth`, `/api/ops` e as rotas de leitura, com `/api/docs` |
 | `public_api/` | API pública `/public/v1` (fase 12): chave, limite de uso, cache HTTP, OpenAPI; comando `create_api_key` |
@@ -224,7 +225,7 @@ scripts/run_dev.sh                        # http://127.0.0.1:8000 (HOST=… PORT
 | `/` | Home: jogos de hoje, últimos gols, classificação ao vivo |
 | `/competition.html?slug=pernambucano-raiz` | Página da competição (rodadas, fases, classificação, confrontos) |
 | `/operator.html` | Tela do operador |
-| `/admin/` | Django Admin (cadastros, regras, usuários, chaves, auditoria) |
+| `/admin/` | Django Admin (competições → temporadas → fases → rodadas → jogos; times; usuários, chaves, auditoria) |
 | `/api/docs` · `/public/v1/docs` | Documentação interativa das APIs |
 | `/health` · `/metrics` | Healthcheck e métricas Prometheus |
 
@@ -251,8 +252,26 @@ Todas estão comentadas em [`.env.example`](.env.example). As principais:
 ```bash
 python manage.py seed                    # dados do dia de hoje (Brasília)
 python manage.py seed --reset            # apaga o que o seed criou e recria (mantém os usuários)
+python manage.py seed --clear            # só apaga o que o seed criou, sem recriar (mantém os usuários)
 python manage.py seed --date 2026-10-03  # outro dia
 ```
+
+**Apagar os dados de teste.** `seed --clear` apaga as duas competições do seed com tudo o que
+há dentro delas (temporadas, fases, grupos, rodadas, partidas, lances, confrontos, escalações,
+punições e a classificação), os times do seed que não são usados fora dele e as mensagens do
+outbox dessas partidas e fases (com a trava de escrita, sem cruzar com um lançamento). Usuários,
+auditoria e o que foi cadastrado à mão ficam. Para zerar **o banco inteiro** (tudo, usuários
+inclusive) e recomeçar:
+
+```bash
+dropdb -h localhost -U postgres fdr && createdb -h localhost -U postgres fdr   # o nome de DB_NAME
+python manage.py migrate
+python manage.py seed            # opcional: dados de demonstração de novo
+python manage.py createsuperuser # ou use os usuários do seed
+```
+
+No Compose, o equivalente é `docker compose down -v` (apaga o volume do banco) e
+`docker compose up -d`.
 
 O seed lança tudo pelos serviços de escrita, com origem `script` e horários reais:
 
@@ -263,7 +282,9 @@ O seed lança tudo pelos serviços de escrita, com origem `script` e horários r
   e o resto mais tarde.
 - **Copa Pernambuco**: grupos A e B encerrados, semifinais de ida e volta com prorrogação e
   a final no dia, em jogo único sem prorrogação.
-- Também inclui escalações, arbitragem, transmissões, estatísticas, público e renda.
+- Também inclui escalações, arbitragem, transmissões, estatísticas, público e renda. Os
+  jogadores são só nomes (gerados em memória para cada time e gravados nas escalações e nos
+  lances): não existe cadastro de jogadores.
 
 | Perfil | Usuário | Senha padrão | Variável para trocar |
 | --- | --- | --- | --- |
@@ -325,18 +346,63 @@ bandeira de Pernambuco e o wordmark “FUTEBOL DE RAÍZES”. Os arquivos são `
    fim do 1º tempo, 2º tempo, prorrogação, pênaltis, fim). Tudo vem de `available` na
    resposta do back, sem regra de jogo no front. Toda mudança de período pede confirmação
    com o placar.
-4. O formulário segue o catálogo: time, jogador (com a escalação em `<datalist>`), origem do
-   gol e minuto sugerido pelo relógio do jogo. Avisos brandos (minuto menor que o anterior,
+4. O formulário segue o catálogo: time, jogador (nome digitado, com a escalação em
+   `<datalist>`), origem do gol e minuto sugerido pelo relógio do jogo. Avisos brandos (minuto menor que o anterior,
    jogador fora de campo) abrem a confirmação e reenviam com a mesma chave.
 5. Na linha do tempo, **Cancelar lançamento** corrige erro de digitação (com motivo
    opcional). **Status da partida** adia, suspende, retoma, reagenda (data e hora de
    Brasília) ou cancela.
 6. A tela só mostra o que `GET /api/auth/me` permite. Cadastros e regras da classificação
-   (competições, fases, critérios, zonas e cores, grupos, rodadas, times, jogadores, partidas,
-   confrontos, escalações, arbitragem, estatísticas) ficam no **Django Admin**. Usuários,
-   perfis, chaves da API pública e auditoria são exclusivos do Administrador. Os perfis
-   Operador e Administrador são recriados a cada `migrate` e aparecem somente leitura no
-   admin.
+   (competições, fases, critérios, zonas e cores, punições em pontos, grupos, rodadas, times,
+   partidas, confrontos, escalações, arbitragem, estatísticas) ficam no **Django Admin** (seção
+   seguinte). Usuários, perfis, chaves da API pública e auditoria são exclusivos do
+   Administrador. Os perfis Operador e Administrador são recriados a cada `migrate` e aparecem
+   somente leitura no admin.
+
+---
+
+## Django Admin: navegação por competição
+
+O índice do admin mostra só os pontos de entrada: **Competições** e **Times** (e, para o
+Administrador, usuários, perfis, chaves da API pública e auditoria). O resto se abre descendo a
+hierarquia, e cada página mostra a trilha **Início › Competição › Temporada › Fase › Rodada ›
+Jogo**. "Salvar" volta para o nível de cima. As listas globais de partidas, rodadas, grupos e
+confrontos saíram do índice (os endereços continuam, para quem tem permissão).
+
+| Página | O que tem |
+| --- | --- |
+| Competição | Dados, temporadas e um painel com as fases de cada temporada (links e "+ adicionar fase") |
+| Temporada | Fases (nome, ordem, formato) com o link "abrir" |
+| Fase | Pontuação, critérios de desempate, zonas da legenda, **punições e bonificações em pontos**, grupos (com "Times do grupo (N)") e rodadas (com "Jogos da rodada (N)"; no mata-mata, "Confrontos e jogos"). Um quadro explica de onde vem a classificação |
+| Rodada | Os jogos da rodada (mandante, visitante, início, estádio, cidade; grupo só entre os da fase; status e placar somente leitura; "abrir") e, no mata-mata, os confrontos (jogos, prorrogação, times) — o jogo escolhe o confronto só entre os da rodada |
+| Jogo | Estrutura, situação e placar (calculados), **lances** (somente leitura, com "Cancelar lançamento" por linha), arbitragem, transmissões, estatísticas e os links das escalações. O botão **Lançar lances na tela do operador** abre `/operator.html?match=<id>` |
+| Escalação | Esquema, técnico e os jogadores (só nome, número e posição) |
+
+- **Lances**: são lançados na tela do operador, que confere os campos de cada tipo. Na página do
+  jogo, um lance errado se corrige marcando "Cancelar lançamento" e salvando; o admin chama
+  `matches.services.void_event` (perfil com a permissão de cancelar), mostra o erro da regra
+  quando o cancelamento não pode, e nada é apagado. Os cancelados somem da lista.
+- **Classificação**: não tem página. É um cache que o sistema recalcula a cada lance a partir
+  dos jogos, da pontuação, dos critérios e das punições. A **oficial** conta só os jogos
+  encerrados; a **ao vivo** inclui os jogos em andamento e é a que as páginas públicas mostram.
+- **Punição (time que perdeu pontos)**: na página da fase, em "punições e bonificações", escolha o
+  time (só os dos grupos da fase), os pontos (negativo tira, positivo dá; zero não vale) e o
+  motivo. Ao salvar, as tabelas da fase são recalculadas e a classificação nova é publicada no
+  stream. Os pontos ajustados valem para o critério "Pontos" e para a ordem; o confronto direto
+  continua só com os resultados dos jogos. Nas páginas públicas, os pontos ganham uma marca
+  ("13\*") e a lista "Santa Cruz: −3 pts — escalação irregular" aparece embaixo da legenda; a API
+  traz `points_adjustment` em cada linha e `adjustments` na fase.
+- Tudo segue o perfil (accounts/roles.py) e toda gravação passa pelos mesmos serviços e pela
+  trava de escrita; cada ação do admin vai para a auditoria.
+
+<p align="center">
+  <img src="docs/screenshots/admin-indice.png" alt="Índice do admin com Competições e Times" width="380">
+  <img src="docs/screenshots/admin-fase.png" alt="Página da fase com critérios, zonas, punições, grupos e rodadas" width="380">
+</p>
+<p align="center">
+  <img src="docs/screenshots/admin-rodada.png" alt="Página da rodada com os jogos" width="380">
+  <img src="docs/screenshots/admin-jogo.png" alt="Página do jogo com o botão da tela do operador e os lances" width="380">
+</p>
 
 ---
 
@@ -446,16 +512,18 @@ E2E=1 python -m pytest tests/e2e -o addopts="" -q
   sem banco (inclusive tabelas reais de Copas e Euros com confronto direto e fair play);
   serviços (idempotência, trava, outbox, auditoria); rotas `401`/`403`/`422`; virada do dia
   em Brasília; stream SSE com retomada sem perda nem duplicação; restrições do banco; admin;
-  seed; API pública (contrato sem gol anulado nem tipos internos); deploy (Compose, imagem,
+  navegação do admin por competição, cancelamento pela página do jogo e punições em pontos
+  (`tests/test_admin_navigation.py`); seed (`--reset` e `--clear`); API pública (contrato sem
+  gol anulado nem tipos internos); deploy (Compose, imagem,
   logs JSON, guarda da chave secreta). Com o Chromium do Playwright instalado, também rodam os
   testes das páginas com a API simulada.
 - **E2E** (`tests/e2e`, só com `E2E=1`): o operador lança um jogo inteiro pela tela; home e
   competição, abertas antes, acompanham gol e anulação sem recarregar (aviso, som,
-  notificação); a final vai aos pênaltis; o stream volta sozinho depois de reiniciar o
-  servidor. Também confere tema, marca, 390 px sem rolagem lateral, CLS < 0,1 e console limpo.
+  notificação); a final vai aos pênaltis; uma punição salva no admin aparece na classificação
+  aberta; o stream volta sozinho depois de reiniciar o servidor. Também confere tema, marca, 390 px sem rolagem lateral, CLS < 0,1 e console limpo.
   Variáveis opcionais: `E2E_DB_NAME`, `E2E_BASE_URL`, `E2E_CHROMIUM`.
-- Na última execução: **526 testes passaram** (22 pulados: os de navegador, sem `E2E=1`),
-  **49 testes JS** e **22 testes E2E**.
+- Na última execução: **557 testes passaram** (23 pulados: os de navegador, sem `E2E=1`),
+  **52 testes JS** e **23 testes E2E**.
 
 ---
 
@@ -473,7 +541,7 @@ E2E=1 python -m pytest tests/e2e -o addopts="" -q
 | 7. Tela do operador | Login, lançamentos, status, cancelamento | `templates/operator.html`, `static/js/operator.js` | `tests/e2e` (jogo inteiro pela tela), `tests/js/operator.test.mjs` |
 | 8. Home e competição | Menu, relógio, últimos gols, jogos com classificação, alertas, rodadas, mata-mata, stream | `templates/index.html`, `templates/competition.html`, `static/js/home.js`, `competition.js`, `alerts.js`, `stream.js` | `tests/e2e`, `tests/test_front_pages.py`, `tests/js/` |
 | 9. CSS | Classificação à direita dos jogos, topo alinhado; identidade pernambucana; tema claro e escuro | `static/css/app.css`, `docs/IDENTIDADE.md`, `templates/styleguide.html` | `tests/test_design_frontend.py` (contraste AA, ganchos), e2e (390 px, CLS) |
-| 10. Enriquecimento | Jogadores, escalação, arbitragem, transmissão, público, renda, estatísticas | `competitions.Player`, `matches.MatchLineup`/`MatchOfficial`/`MatchBroadcast`/`MatchStat`, `Match.attendance`/`revenue_cents` | `tests/test_match_domain.py` (substituição e cartão contra quem está em campo) |
+| 10. Enriquecimento | Jogadores (só nomes, sem cadastro), escalação, arbitragem, transmissão, público, renda, estatísticas | `matches.MatchLineup`/`MatchLineupPlayer` (nomes)/`MatchOfficial`/`MatchBroadcast`/`MatchStat`, `Match.attendance`/`revenue_cents` | `tests/test_match_domain.py` (substituição e cartão contra quem está em campo) |
 | 11. Operação | Adiamento e suspensão completos, auditoria, logs estruturados, métricas | `observability/`, `matches/domain.py` (relógio com suspensão) | `tests/test_observability.py`, `tests/test_ops_deploy.py`, `tests/test_api_ops.py` |
 | 12. API pública | `/public/v1`, lista de permissão, cache HTTP, chave, limite, OpenAPI | `public_api/` | `tests/test_public_api.py` (contrato sem gol anulado nem tipos internos) |
 

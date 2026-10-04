@@ -31,7 +31,7 @@ _CRUD_MODELS = [
     "competitions.round",
     "competitions.team",
     "competitions.groupteam",
-    "competitions.player",
+    "standings.pointadjustment",
     "matches.tie",
     "matches.match",
     "matches.matchlineup",
@@ -51,8 +51,7 @@ OPERATOR_PERMISSIONS = (
     OPS_PERMISSIONS
     + [perm for label in _CRUD_MODELS for perm in _crud(label)]
     + [
-        "matches.view_matchevent",
-        "standings.view_standing",
+        "matches.view_matchevent",  # lances dentro da página da partida (somente leitura)
     ]
 )
 

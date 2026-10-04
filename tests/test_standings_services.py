@@ -23,7 +23,7 @@ pytestmark = pytest.mark.django_db
 
 ROW_KEYS = {
     "position", "team", "played", "won", "drawn", "lost", "goals_for", "goals_against", "goal_difference",
-    "points", "yellow_cards", "red_cards", "tied", "zone", "playing",
+    "points", "points_adjustment", "yellow_cards", "red_cards", "tied", "zone", "playing",
 }
 ZONES = [
     {"name": "Classificados", "color": "#1B7F3B", "position_from": 1, "position_to": 2},
@@ -82,7 +82,8 @@ def test_stage_standings_shape_criteria_legend_zones_and_playing(league, operato
     Op(playing, operator_user).post("match_start")
 
     table = services.stage_standings(league["stage"])
-    assert set(table) == {"stage_id", "stage_name", "kind", "points", "criteria", "legend", "groups"}
+    assert set(table) == {"stage_id", "stage_name", "kind", "points", "criteria", "legend", "groups", "adjustments"}
+    assert table["adjustments"] == []
     assert table["kind"] == "live" and table["stage_name"] == "1ª fase"
     assert table["points"] == {"win": 3, "draw": 1, "loss": 0}
     assert table["criteria"] == [
@@ -151,7 +152,7 @@ def test_stages_standings_bounded_queries(league, django_assert_max_num_queries)
     other = make_league(n_teams=6)
     services.recompute_group(league["group"])
     services.recompute_group(other["group"])
-    with django_assert_max_num_queries(6):
+    with django_assert_max_num_queries(7):  # critérios, zonas, grupos, times, linhas, punições, jogos em andamento
         tables = services.stages_standings([league["stage"], other["stage"]])
     assert set(tables) == {league["stage"].id, other["stage"].id}
     assert len(tables[other["stage"].id]["groups"][0]["rows"]) == 6
@@ -205,3 +206,52 @@ def test_standings_message_shape(league):
     with locked_atomic():
         message = services.standings_message(league["stage"])
     assert message["stage_id"] == league["stage"].id and message["standings"]["kind"] == "live"
+
+
+# --- Punições e bonificações em pontos -------------------------------------------------------------
+
+
+def test_point_adjustments_enter_both_tables_and_the_reading(league):
+    from standings.models import PointAdjustment
+
+    sport, nautico, santa, ibis = league["teams"]
+    finish(make_match(league["stage"], sport, nautico), 1, 0)  # Sport 3
+    finish(make_match(league["stage"], santa, ibis), 1, 0)  # Santa Cruz 3
+    PointAdjustment.objects.create(stage=league["stage"], team=sport, points=-4, reason="escalação irregular")
+    PointAdjustment.objects.create(stage=league["stage"], team=sport, points=1, reason="recurso parcial")
+    PointAdjustment.objects.create(stage=league["stage"], team=ibis, points=2, reason="W.O. do adversário")
+
+    # Sem recálculo, a leitura percebe o cache velho (outros ajustes) e calcula na hora.
+    services.recompute_group(league["group"])
+    PointAdjustment.objects.filter(team=ibis).update(points=3)
+    table = services.stage_standings(league["stage"], live=False)
+    rows = {row["team"]["name"]: row for row in table["groups"][0]["rows"]}
+    assert (rows["Sport"]["points"], rows["Sport"]["points_adjustment"]) == (0, -3)
+    assert (rows["Íbis"]["points"], rows["Íbis"]["points_adjustment"]) == (3, 3)
+    assert [row["team"]["name"] for row in table["groups"][0]["rows"]][:2] == ["Santa Cruz", "Íbis"]
+    assert [(item["team"]["name"], item["points"], item["reason"]) for item in table["adjustments"]] == [
+        ("Sport", -4, "escalação irregular"),
+        ("Sport", 1, "recurso parcial"),
+        ("Íbis", 3, "W.O. do adversário"),
+    ]
+    services.recompute_group(league["group"])
+    for kind in ("official", "live"):
+        row = Standing.objects.get(group=league["group"], kind=kind, team=sport)
+        assert (row.points, row.adjustment, row.position) == (0, -3, 3)  # saldo melhor que o do Náutico
+
+
+def test_point_adjustment_model_validation(league):
+    from django.core.exceptions import ValidationError
+    from django.db import IntegrityError, transaction
+
+    from standings.models import PointAdjustment
+
+    outsider = make_team("Central")
+    with pytest.raises(ValidationError) as info:
+        PointAdjustment(stage=league["stage"], team=outsider, points=-3, reason="x").full_clean()
+    assert "team" in info.value.message_dict
+    with pytest.raises(ValidationError) as info:
+        PointAdjustment(stage=league["stage"], team=league["teams"][0], points=0, reason="x").full_clean()
+    assert "points" in info.value.message_dict
+    with pytest.raises(IntegrityError), transaction.atomic():
+        PointAdjustment.objects.create(stage=league["stage"], team=league["teams"][0], points=0, reason="x")

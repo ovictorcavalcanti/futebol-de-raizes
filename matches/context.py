@@ -39,7 +39,6 @@ def to_domain_event(row: MatchEvent) -> domain.Event:
         minute=row.minute,
         stoppage=row.stoppage,
         team_id=row.team_id,
-        player_id=row.player_id,
         payload=row.payload if isinstance(row.payload, dict) else {},
         annuls_event_id=row.annuls_event_id,
         id=row.id,
@@ -92,20 +91,18 @@ def tie_context(match: Match, legs: Sequence[Match]) -> domain.TieContext | None
 
 
 def lineups_for(match: Match) -> dict[int, tuple[domain.LineupPlayer, ...]]:
-    """Escalações da partida por time (só times com jogadores escalados)."""
+    """Escalações da partida por time (só times com jogadores escalados). Jogador
+    não tem cadastro: cada entrada é só o nome (`player_id` fica None)."""
     entries = (
         MatchLineupPlayer.objects.filter(lineup__match=match)
-        .select_related("lineup", "player")
+        .select_related("lineup")
         .order_by("lineup_id", "-starter", "order", "id")
     )
     lineups: dict[int, list[domain.LineupPlayer]] = defaultdict(list)
     for entry in entries:
-        name = entry.display_name
-        if not name and entry.player_id is None:
+        if not entry.name:
             continue
-        lineups[entry.lineup.team_id].append(
-            domain.LineupPlayer(name=name, starter=entry.starter, player_id=entry.player_id, number=entry.number)
-        )
+        lineups[entry.lineup.team_id].append(domain.LineupPlayer(name=entry.name, starter=entry.starter, number=entry.number))
     return {team_id: tuple(players) for team_id, players in lineups.items()}
 
 

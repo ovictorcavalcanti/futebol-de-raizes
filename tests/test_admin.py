@@ -1,6 +1,7 @@
 """Django Admin: o que cada perfil vê, regras da fase validadas e aplicadas pelo núcleo,
-partida editada pelo caminho de escrita, eventos só leitura com "Cancelar lançamento",
-auditoria das ações do admin e a marca no cabeçalho."""
+partida editada pelo caminho de escrita, lances só leitura dentro da partida com
+"Cancelar lançamento", auditoria das ações do admin e a marca no cabeçalho.
+(Navegação por competição, punições e o cancelamento pela página da partida: test_admin_navigation.py.)"""
 
 from __future__ import annotations
 
@@ -145,8 +146,7 @@ def full_data(league, operator_user):
     match = make_match(league["stage"], sport, nautico, round=league["rounds"][0])
     finish(match, operator_user, 1, 1)
     lineup = MatchLineup.objects.create(match=match, team=sport, formation="4-3-3", coach="Técnico")
-    player = sport.players.create(name="Zé Roberto", number=10, position="MF")
-    MatchLineupPlayer.objects.create(lineup=lineup, player=player)
+    MatchLineupPlayer.objects.create(lineup=lineup, name="Zé Roberto", number=10, position="MF")
     MatchOfficial.objects.create(match=match, role="referee", name="Árbitro Fulano", state="PE")
     knockout = make_knockout(league["season"], legs=1, extra_time=False, team_a=santa, team_b=retro)
     make_tie_matches(knockout["tie"])
@@ -176,7 +176,7 @@ def test_admin_pages_load_for_administrator(admin_client_fdr, admin_user_fdr, fu
 
 
 def test_operator_sees_operational_models_only(operator_client):
-    for model in (Team, Stage, Match, MatchEvent, Standing, MatchLineup):
+    for model in (Team, Stage, Match, MatchLineup):
         assert operator_client.get(url(model)).status_code == 200, model
     User = get_user_model()
     from django.contrib.auth.models import Group as AuthGroup
@@ -188,17 +188,15 @@ def test_operator_sees_operational_models_only(operator_client):
     if admin.site.is_registered(ApiKey):
         assert operator_client.get(url(ApiKey)).status_code == 403
     index = operator_client.get(reverse("admin:index")).content.decode()
-    assert "Partidas" in index or "partidas" in index
+    assert reverse("admin:competitions_competition_changelist") in index
     assert reverse("admin:accounts_user_changelist") not in index
     assert reverse("admin:observability_auditlog_changelist") not in index
 
 
-def test_standing_outbox_and_audit_are_read_only(admin_client_fdr, full_data):
-    row = Standing.objects.first()
-    assert row is not None
-    assert admin_client_fdr.get(url(Standing, "add")).status_code == 403
-    response = admin_client_fdr.post(change_url(row), {"points": 99})
-    assert response.status_code == 403
+def test_standing_has_no_page_and_outbox_and_audit_are_read_only(admin_client_fdr, full_data):
+    assert Standing.objects.exists()
+    assert not admin.site.is_registered(Standing)  # cache recalculado pelo sistema: sem página
+    assert not admin.site.is_registered(MatchEvent)  # lances ficam dentro da partida
     assert admin_client_fdr.get(url(Outbox, "add")).status_code == 403
     assert admin_client_fdr.get(url(AuditLog, "add")).status_code == 403
 
@@ -435,78 +433,28 @@ def test_match_event_inline_is_read_only(admin_client_fdr, league, operator_user
     finish(match, operator_user, 1, 0)
     response = admin_client_fdr.get(change_url(match))
     inline = next(item for item in response.context["inline_admin_formsets"] if item.formset.model is MatchEvent)
-    assert not inline.has_add_permission and not inline.has_change_permission and not inline.has_delete_permission
-    assert admin_client_fdr.get(url(MatchEvent, "add")).status_code == 403
+    assert not inline.has_add_permission and not inline.has_delete_permission
+    assert [field for field in inline.formset.form.base_fields] == ["void"]  # só a caixa de cancelar
+    assert len(inline.formset.forms) == MatchEvent.objects.filter(match=match).count()
 
 
-def test_void_action_cancels_events_through_service(operator_client, league, operator_user):
+def test_lineup_admin_publishes_match_and_entries_are_names(admin_client_fdr, league):
     sport, nautico = league["teams"][:2]
     match = make_match(league["stage"], sport, nautico)
-    op = Op(match, operator_user)
-    op.post("match_start")
-    goal = op.post("goal", minute=10, team_id=sport.id, payload={"player": "Zé"}).event
-    start = MatchEvent.objects.get(match=match, type="match_start")
-    response = operator_client.post(
-        url(MatchEvent),
-        {"action": "void_selected", "_selected_action": [str(goal.pk), str(start.pk)], "index": "0"},
-        follow=True,
-    )
-    assert response.status_code == 200
-    goal.refresh_from_db()
-    start.refresh_from_db()
-    assert goal.voided_at is not None and goal.voided_by == operator_user
-    assert start.voided_at is not None  # depois do gol, o início pode cair (sobra só ele)
-    match.refresh_from_db()
-    assert (match.home_score, match.status) == (0, "scheduled")
-    assert "cancelado" in messages_text(response)
-    assert AuditLog.objects.filter(action="event.void", match_id=match.id).count() == 2
-
-
-def test_void_action_reports_domain_error(operator_client, league, operator_user):
-    sport, nautico = league["teams"][:2]
-    match = make_match(league["stage"], sport, nautico)
-    op = Op(match, operator_user)
-    op.post("match_start")
-    op.post("goal", minute=10, team_id=sport.id, payload={"player": "Zé"})
-    start = MatchEvent.objects.get(match=match, type="match_start")
-    response = operator_client.post(
-        url(MatchEvent), {"action": "void_selected", "_selected_action": [str(start.pk)], "index": "0"}, follow=True
-    )
-    assert response.status_code == 200
-    start.refresh_from_db()
-    assert start.voided_at is None
-    assert "Cancelar este lançamento deixa a sequência inválida" in messages_text(response)
-
-
-def test_void_action_requires_permission(league, operator_user):
-    User = get_user_model()
-    viewer = User.objects.create_user("leitor", password="senha-forte-123", is_staff=True)
-    viewer.user_permissions.add(Permission.objects.get(codename="view_matchevent"))
-    client = Client()
-    client.force_login(viewer)
-    response = client.get(url(MatchEvent))
-    assert response.status_code == 200
-    assert "void_selected" not in response.content.decode()
-
-
-def test_lineup_admin_publishes_match_and_checks_team(admin_client_fdr, league):
-    sport, nautico = league["teams"][:2]
-    match = make_match(league["stage"], sport, nautico)
-    own = sport.players.create(name="Titular", number=9, position="FW")
-    stranger = nautico.players.create(name="Intruso", number=7, position="FW")
     mark = last_outbox_id()
     add = admin_client_fdr.get(url(MatchLineup, "add") + f"?match={match.pk}&team={sport.pk}")
     data = post_data(add)
     data.update({"formation": "4-4-2", "coach": "Professor"})
-    data.update({"entries-TOTAL_FORMS": "1", "entries-0-player": str(stranger.pk), "entries-0-starter": "on", "entries-0-order": "1"})
+    data.update({"entries-TOTAL_FORMS": "1", "entries-0-name": "", "entries-0-number": "9", "entries-0-starter": "on", "entries-0-order": "1"})
     response = admin_client_fdr.post(url(MatchLineup, "add"), data)
-    assert response.status_code == 200
-    assert "não é do time desta escalação" in response.content.decode()
-    data["entries-0-player"] = str(own.pk)
+    assert response.status_code == 200  # nome obrigatório (jogador não tem cadastro)
+    assert not MatchLineup.objects.filter(match=match).exists()
+    data["entries-0-name"] = "Titular"
     response = admin_client_fdr.post(url(MatchLineup, "add"), data)
     assert response.status_code == 302, response.content.decode()[:3000]
+    assert response["Location"] == change_url(match)  # "Salvar" volta para a partida
     message = Outbox.objects.filter(id__gt=mark, topic="match").last().payload
-    assert message["match"]["lineups"]["home"]["starters"][0]["name"] == "Titular"
+    assert message["match"]["lineups"]["home"]["starters"][0] == {"name": "Titular", "number": 9, "position": None}
 
 
 # --- Auditoria das ações do admin ---------------------------------------------------------------
@@ -571,7 +519,7 @@ def test_changelists_have_no_n_plus_one(admin_client_fdr, league, operator_user)
     from django.test.utils import CaptureQueriesContext
 
     sport, nautico, santa, retro = league["teams"]
-    models = (Match, MatchEvent, Standing, Stage, Group, Team, Tie, MatchLineup, AuditLog)
+    models = (Match, Stage, Group, Team, Tie, MatchLineup, AuditLog)
 
     def add_rows(home, away):
         match = make_match(league["stage"], home, away, round=league["rounds"][0])
@@ -848,29 +796,11 @@ def test_tie_change_republishes_its_matches(admin_client_fdr, league):
     assert all(item["tie"]["extra_time"] is True for item in published.values())
 
 
-def test_void_action_with_yellow_and_its_automatic_red(operator_client, league, operator_user):
-    sport, nautico = league["teams"][:2]
-    match = make_match(league["stage"], sport, nautico)
-    op = Op(match, operator_user)
-    op.post("match_start")
-    op.post("yellow_card", minute=10, team_id=sport.id, payload={"player": "Zé"})
-    second = op.post("yellow_card", minute=20, team_id=sport.id, payload={"player": "Zé"})
-    red = second.derived[0]
-    response = operator_client.post(
-        url(MatchEvent),
-        {"action": "void_selected", "_selected_action": [str(second.event.pk), str(red.pk)], "index": "0"},
-        follow=True,
-    )
-    text = messages_text(response)
-    assert "1 lançamento(s) cancelado(s)" in text and "vermelho" not in text.lower()
-    assert MatchEvent.objects.filter(pk__in=[second.event.pk, red.pk], voided_at__isnull=False).count() == 2
-
-
 # --- Revisão: consultas das páginas de alteração -------------------------------------------------
 
 
 def test_change_pages_with_inline_rows_have_no_n_plus_one(admin_client_fdr, league, operator_user):
-    """Grupo (times), time (jogadores) e escalação (jogadores): o número de consultas
+    """Grupo (times), partida (lances) e escalação (jogadores): o número de consultas
     não cresce com o número de linhas do inline."""
     from django.db import connection
     from django.test.utils import CaptureQueriesContext
@@ -878,17 +808,19 @@ def test_change_pages_with_inline_rows_have_no_n_plus_one(admin_client_fdr, leag
     sport, nautico = league["teams"][:2]
     match = make_match(league["stage"], sport, nautico)
     lineup = MatchLineup.objects.create(match=match, team=sport, formation="4-4-2")
+    op = Op(match, operator_user)
+    op.post("match_start")
 
     def grow(n):
         for i in range(n):
             team = Team.objects.create(name=f"Clube {Team.objects.count()}", short_name="CLB")
             GroupTeam.objects.create(group=league["group"], team=team)
-            player = sport.players.create(name=f"Jogador {sport.players.count()}", number=i + 1, position="MF")
-            MatchLineupPlayer.objects.create(lineup=lineup, player=player)
+            MatchLineupPlayer.objects.create(lineup=lineup, name=f"Jogador {lineup.entries.count()}", number=i + 1, position="MF")
+            op.post("yellow_card", minute=10 + op.n, team_id=nautico.id, payload={"player": f"Volante {op.n}"})
 
     def counts():
         result = {}
-        for target in (league["group"], sport, lineup):
+        for target in (league["group"], match, lineup):
             with CaptureQueriesContext(connection) as ctx:
                 assert admin_client_fdr.get(change_url(target)).status_code == 200
             result[type(target).__name__] = len(ctx.captured_queries)

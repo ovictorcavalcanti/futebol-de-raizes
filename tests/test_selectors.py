@@ -8,7 +8,6 @@ from datetime import timedelta
 
 import pytest
 
-from competitions.models import Player
 from core import timeutils
 from matches import selectors
 from matches.models import Match, MatchBroadcast, MatchLineup, MatchLineupPlayer, MatchOfficial, MatchStat
@@ -148,9 +147,8 @@ def test_clock_is_null_outside_running_periods(league, operator_user):
 def test_detail_enrichment(league):
     sport, nautico = league["teams"][0], league["teams"][1]
     match = make_match(league["stage"], sport, nautico, kickoff_at=utc(2026, 10, 3, 19))
-    keeper = Player.objects.create(team=sport, name="Caíque França", number=1, position="GK")
     home = MatchLineup.objects.create(match=match, team=sport, formation="4-3-3", coach="Mano")
-    MatchLineupPlayer.objects.create(lineup=home, player=keeper, starter=True, order=1, position="GK")
+    MatchLineupPlayer.objects.create(lineup=home, name="Caíque França", number=1, starter=True, order=1, position="GK")
     MatchLineupPlayer.objects.create(lineup=home, name="Lucas Arcanjo", number=14, starter=False, order=1, position="MF")
     MatchOfficial.objects.create(match=match, role="referee", name="Anderson Bezerra", state="PE")
     MatchBroadcast.objects.create(match=match, name="TV Capibaribe", url="https://example.com", kind="open_tv")

@@ -12,9 +12,9 @@ este arquivo.**
 | `config/` | settings, urls, asgi | `BRAND` (logo) e `REALTIME` em settings |
 | `core/` | trava de escrita (`core.locks`), datas (`core.timeutils`), páginas e `/health` | `locked_atomic()` = transação + `pg_advisory_xact_lock` |
 | `accounts/` | `User` próprio, perfis (`accounts.roles`) | grupos Operador/Administrador recriados no `migrate` (somente leitura no admin); entrar num deles marca `is_staff` |
-| `competitions/` | competição, temporada, fase, critério, zona, grupo, rodada, time, jogador | fase `league` cria grupo único "Tabela" |
+| `competitions/` | competição, temporada, fase, critério, zona, grupo, rodada, time | fase `league` cria grupo único "Tabela"; jogador não tem cadastro (nome no lance e na escalação) |
 | `matches/` | partida, evento, confronto, enriquecimento; `domain.py` (puro), `services.py` (escrita), `selectors.py` (leitura/serialização) | |
-| `standings/` | `Standing` (cache); `domain.py` (puro), `services.py` (recalcular/ler) | |
+| `standings/` | `Standing` (cache), `PointAdjustment` (punição/bonificação em pontos); `domain.py` (puro), `services.py` (recalcular/ler) | |
 | `realtime/` | `Outbox`, `outbox.enqueue`, `hub.py` (publicador), `views.stream` (SSE) | |
 | `observability/` | auditoria, logs JSON, métricas `/metrics` | `audit.record(...)`, `metrics.inc(...)` |
 | `public_api/` | API pública `/public/v1` (fase 12) | chave, limite, cache HTTP |
@@ -59,8 +59,10 @@ Cada função, numa única transação com `core.locks.locked_atomic()`:
 3. Monta `MatchContext` (times, confronto com outros jogos, escalações) e chama o domínio.
 4. Grava evento(s) com `sequence` = max + 1, `created_by`, `source`, `created_at = at`.
    Derivados (vermelho automático): `idempotency_key = f"{key}:auto:{n}"`, `source="system"`.
-   Jogador informado por id (`player_id`, `payload.player_out_id/player_in_id`) precisa
-   existir → senão `invalid_payload` (`details.field`).
+   Jogador não tem cadastro: o lance leva o **nome** (`payload.player`; substituição
+   `payload.player_out`/`player_in`). Id de jogador (`NewEvent.player_id`, `payload.player_id`,
+   `payload.player_out_id`, `payload.player_in_id`) → `services.InvalidInput` antes de tudo
+   (`400 invalid_input`, `details.field` = `player_id` ou `payload.<chave>`).
 5. Atualiza o cache da partida: status, period, period_started_at (created_at do evento
    que abriu o período, `state.period_started_seq`, **somado ao tempo parado** nas
    suspensões fechadas de `state.period_pauses`), placar, pênaltis (null sem disputa),
@@ -132,8 +134,9 @@ confronto não muda de fase nem fica com menos jogos; grupo/rodada com partidas 
 fase; formato da fase não muda deixando partidas ou confrontos inválidos — e `zone_no_overlap`
 (`standing_zones`: faixas da mesma fase não se sobrepõem; exclusão GiST com `btree_gist`,
 **DEFERRED**: conferida no commit, para o inline de zonas regravar várias faixas de uma vez).
-No admin, o POST da partida e do confronto roda inteiro com a trava de escrita
-(`matches.admin.WriteLockedPostMixin`): o segundo "Salvar" simultâneo vê o primeiro e recebe o
+No admin, o POST da partida, do confronto, da rodada (jogos e confrontos) e da fase (regras e
+punições) roda inteiro com a trava de escrita (`competitions.admin.WriteLockedPostMixin`): o segundo
+"Salvar" simultâneo vê o primeiro e recebe o
 erro do formulário.
 
 ### Domínio da partida (matches/domain.py)
@@ -142,7 +145,10 @@ erro do formulário.
   (ou `status_action_event(action, kickoff_at=, reason=)` → `apply_event`). Grave `result.event` e
   `result.derived` como vierem: período, minuto padrão dos eventos estruturais (início 0, intervalo 45,
   2T 45, prorrogação 90, pênaltis 90/120, fim 90/120), time herdado no gol anulado e payload já
-  normalizado (só as chaves do tipo; com escalação, nome canônico e `player_id` completados).
+  normalizado (só as chaves do tipo; com escalação, o nome canônico da escalação). Os campos
+  `player_id` do domínio (`Event`, `NewEvent`, `LineupPlayer`) continuam opcionais no código puro,
+  mas ninguém passa id: `context.lineups_for` monta `LineupPlayer(name, starter, number)` com
+  `player_id=None` e o serviço recusa id no lançamento.
 * Cancelamento: `check_void(events, event_id, ctx)` → `VoidResult(state, voided_ids)`; marque como
   cancelados **todos** os `voided_ids` (o pedido vem primeiro). Caem junto: derivados
   (`payload["derived_from_sequence"] == sequence` da origem), anulações que apontam para o gol e o
@@ -165,19 +171,51 @@ erro do formulário.
   (`payload.outcome` opcional do pênalti perdido). Gols anulados: `domain.annulled_goal_ids(events)`.
 
 Outros pontos de escrita que passam pelo mesmo núcleo:
-* Django Admin: salvar fase (pontuação/critérios) → `standings.services.on_stage_rules_changed(stage)`
-  (valida — `ConfigError` —, recalcula e publica); salvar zona → `on_stage_rules_changed(stage, recalc=False)`
-  (só publica `standings`); mata-mata: nada a fazer. Salvar partida → `matches.services.on_match_edited`;
-  escalação/arbitragem/estatística → `matches.services.publish_match(match)`. Times de grupo
-  (`GroupTeam`) → `standings.services.recompute_group(group)` (a leitura também calcula na hora
-  quando o cache não tem os times do grupo). Eventos não são editáveis no admin (somente leitura +
-  ação "cancelar lançamento" que chama `void_event`).
-* `seed`: usa `post_event`/`change_status` (source="script", `at=` para datar os lances).
+* Django Admin: salvar fase (pontuação/critérios/punições) → `standings.services.on_stage_rules_changed(stage)`
+  (valida — `ConfigError` —, recalcula e publica, sob `locked_atomic()`); salvar zona →
+  `on_stage_rules_changed(stage, recalc=False)` (só publica `standings`); mata-mata: nada a fazer.
+  Salvar partida (página da partida ou lista de jogos da página da rodada) →
+  `matches.services.on_match_edited`; confronto alterado (página do confronto ou da rodada) →
+  `on_match_edited(jogo, ["tie"])` em cada jogo; escalação/arbitragem/estatística →
+  `matches.services.publish_match(match)`. Times de grupo (`GroupTeam`) →
+  `standings.services.recompute_group(group)` (a leitura também calcula na hora quando o cache não
+  tem os times do grupo ou tem outros ajustes de pontos). Lances não são editáveis no admin: ficam
+  somente leitura dentro da partida (os cancelados não aparecem), com a caixa "Cancelar lançamento"
+  por linha, que chama `void_event` (exige `matches.void_event`; erro do domínio vira mensagem).
+  Lançar lance novo é só na tela do operador (`/operator.html?date=&match=`, link na partida).
+  Partida com lançamentos não se apaga. A classificação (`Standing`) não tem página no admin.
+* Punição/bonificação em pontos: `standings.PointAdjustment(stage, team, points ≠ 0, reason,
+  created_at)` (CHECK `point_adjustment_not_zero`; o time precisa estar num grupo da fase — `clean()`
+  e a lista de escolha do inline). Entra em `domain.compute_standings(..., adjustments={team_id:
+  pontos})`: `points` = pontos dos jogos + ajuste (`Row.adjustment`, coluna `standings.adjustment`);
+  o critério "points" e a ordem usam os pontos ajustados; o confronto direto continua só com os
+  resultados. Vale nas duas visões (oficial e ao vivo).
+* `seed`: usa `post_event`/`change_status` (source="script", `at=` para datar os lances); elenco de
+  nomes gerado em memória (`simulate_match.roster`), sem tabela de jogadores. `seed --clear` apaga o
+  que o seed criou (com a trava de escrita), inclusive as mensagens do outbox das partidas (`match`) e
+  fases (`standings`) apagadas e as `goals` que citam essas partidas; usuários e auditoria ficam.
 * `already_voided` não sai de `void_event` (o serviço devolve `VoidOutcome(already=True)`); só de
   `domain.check_void` chamado direto.
 * Fase com critérios gravados inválidos (vazios, repetidos ou fora do catálogo) não derruba o
   lançamento: `standings.services.stage_rules` usa os critérios padrão (`Rules().criteria`) e loga
   um aviso; a leitura mostra os critérios efetivos.
+
+### Navegação do Django Admin
+
+* Índice só com os pontos de entrada: Competições e Times (+ usuários, perfis, chaves da API pública e
+  auditoria para o Administrador). Temporada, fase, grupo, rodada, partida, confronto, escalação e
+  outbox usam `competitions.admin.HiddenFromIndexMixin` (`get_model_perms` vazio fora de
+  `/admin/<app>/`): somem do índice e da barra lateral, mas endereços e permissões continuam.
+* Hierarquia: Competição (temporadas + painel das fases com "+ adicionar fase" → `stage/add/?season=`)
+  › Temporada (fases, link "abrir") › Fase (critérios, zonas, punições, grupos com "Times do grupo (N)",
+  rodadas com "Jogos da rodada (N)" ou, no mata-mata, "Confrontos e jogos") › Rodada (jogos; no
+  mata-mata também os confrontos; grupo só entre os da fase, confronto só entre os da rodada; status e
+  placar somente leitura) › Jogo (estrutura, cache somente leitura, lances, arbitragem, transmissões,
+  estatísticas, links das escalações) › Escalação (esquema, técnico, nomes).
+* Trilha (`templates/admin/fdr/change_form.html`, `HierarchyAdminMixin.breadcrumbs`): Início ›
+  Competição › Temporada N › Fase › Rodada › Jogo (› Escalação); na inclusão, o pai vem do parâmetro
+  GET (`?season=`, `?stage=`, `?round=`, `?match=`). "Salvar" volta para o nível de cima; cancelar
+  lances fica na própria partida.
 
 ## 3. Leitura e serialização (matches/selectors.py, standings/services.py)
 
@@ -212,7 +250,8 @@ em até `READ_CACHE_SECONDS`.
 ```
 `annulled` = gol anulado por anulação válida. `score_after` só em gols válidos (null nos outros).
 `icon` = `domain.event_icon(type, payload)`. `player.name` = `payload.player` (null na substituição:
-use `payload.player_out`/`player_in`). Eventos de status também entram na linha do tempo (`kind: "status"`).
+use `payload.player_out`/`player_in`). `player.id` é sempre `null` (jogador não tem cadastro; o
+campo fica para o formato não mudar). Eventos de status também entram na linha do tempo (`kind: "status"`).
 Lançamentos cancelados **nunca** aparecem nas leituras (`visible_events`).
 
 ### GoalOut (resumo no card) / LatestGoalOut (home)
@@ -268,7 +307,7 @@ Sem vencedor: `winner_team_id`, `decided_by` e `decided_by_label` são `null` e 
   `"broadcasts": [{"name","url","kind","kind_label"}]`,
   `"stats": [{"key","label","home","away"}]`, `"attendance": 42318 | null`, `"revenue_cents": 234155000 | null`.
 * LineupOut: `{"formation": "4-3-3", "coach": "Fulano", "starters": [{"name","number","position"}], "substitutes": [...]}`
-  (`formation`, `coach`, `number`, `position` podem ser null). `stats`: uma linha por chave, na ordem
+  (`formation`, `coach`, `number`, `position` podem ser null; `name` sempre vem — a escalação é só de nomes). `stats`: uma linha por chave, na ordem
   de `MatchStat.Key`; lado sem valor = null.
 * Funções de leitura (`matches/selectors.py`, todas devolvem dict pronto): `serialize_team`,
   `serialize_event(event, match, timeline=)`, `serialize_match(match, detail=False, events=None, tie_legs=None)`,
@@ -288,12 +327,17 @@ Sem vencedor: `winner_team_id`, `decided_by` e `decided_by_label` são `null` e 
  "legend": [{"name": "Classificados", "color": "#1B7F3B", "from": 1, "to": 4}],
  "groups": [{"id": 4, "name": "Tabela", "rows": [
    {"position": 1, "team": TeamOut, "played": 5, "won": 4, "drawn": 1, "lost": 0,
-    "goals_for": 11, "goals_against": 3, "goal_difference": 8, "points": 13,
+    "goals_for": 11, "goals_against": 3, "goal_difference": 8, "points": 13, "points_adjustment": 0,
     "yellow_cards": 6, "red_cards": 0, "tied": false,
     "zone": {"name": "Classificados", "color": "#1B7F3B"} | null,
-    "playing": true}]}]}
+    "playing": true}]}],
+ "adjustments": [{"team": TeamOut, "points": -3, "reason": "escalação irregular"}]}
 ```
-`playing` = o time está em jogo ao vivo agora (destaque visual).
+`playing` = o time está em jogo ao vivo agora (destaque visual). `points` já inclui
+`points_adjustment` (soma das punições, negativas, e bonificações, positivas, do time na fase; 0
+sem ajuste). `adjustments` = cada punição/bonificação da fase, na ordem de cadastro (o front marca
+os pontos ajustados com "*" e lista `"Santa Cruz: −3 pts — escalação irregular"` sob a legenda).
+A API pública (`/public/v1/stages/{id}/standings`) expõe os mesmos dois campos.
 
 ## 4. Rotas
 
@@ -329,7 +373,8 @@ usado volta no `X-Request-ID` da resposta e vai nos logs e na auditoria.
 * MeUser: `{"id","username","name","roles": ["Operador"], "permissions": {"post_event": bool, "void_event": bool, "change_status": bool, "manage_users": bool, "admin_site": bool}}`.
 * Available: `{"events": ["goal", ...], "status": ["suspend", ...]}` (de `domain.available_actions`).
 * EventSpecOut: `{"type","label","kind","icon","minute": "required|optional|none","periods": [...], "fields": [{"name","kind","label","required","choices": [[v,l]]}]}`.
-* Corpo do lançamento: `{"type","minute"?,"stoppage"?,"team_id"?,"player_id"?,"payload"?: {},"annuls_event_id"?,"confirm"?: false,"source"?: "operator"}`.
+* Corpo do lançamento: `{"type","minute"?,"stoppage"?,"team_id"?,"payload"?: {},"annuls_event_id"?,"confirm"?: false,"source"?: "operator"}`.
+  Jogador pelo nome no `payload`; `player_id` (ou `payload.player_id`/`player_out_id`/`player_in_id`) → `400 invalid_input`.
 * HomeOut: `{"date","server_time","timezone","cursor","competitions": [{"id","name","slug","short_name","position","stages": [{"id","name","format","matches": [MatchOut],"standings": StageStandingsOut|null}]}],"latest_goals": [LatestGoalOut]}`.
   Só competições com jogo no dia, em `position`. Jogo da véspera que passa da meia-noite fica até 2h depois de `finished_at`.
   Regra exata (`selectors.day_matches_query`): começa no dia (Brasília), ou começou na véspera e

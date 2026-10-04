@@ -33,10 +33,19 @@ COPY api ./api
 COPY templates ./templates
 COPY static ./static
 
-# Estáticos com hash no nome (cache de um ano), servidos pelo WhiteNoise.
+# Estáticos com hash no nome (cache longo e imutável) e já comprimidos (.gz e
+# .br), servidos pelo WhiteNoise. Com DEBUG=0 o settings exige uma chave forte:
+# o collectstatic recebe uma aleatória, gerada aqui e descartada (variável só
+# deste RUN, não fica na imagem). Em execução a chave vem do ambiente.
 RUN install -d -o app -g app /app/staticfiles
 USER app
-RUN DJANGO_DEBUG=0 python manage.py collectstatic --noinput
+RUN DJANGO_DEBUG=0 \
+    DJANGO_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(50))')" \
+    python manage.py collectstatic --noinput
+
+# A imagem roda em modo produção; DJANGO_SECRET_KEY é obrigatória no
+# `docker run -e ...` ou no compose (sem ela o processo não sobe).
+ENV DJANGO_DEBUG=0
 
 EXPOSE 8000
 
@@ -45,7 +54,9 @@ HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=6 \
 
 # --timeout-graceful-shutdown: as conexões SSE nunca terminam sozinhas; no
 # desligamento o uvicorn as encerra após 5 s e os navegadores reconectam.
+# --no-access-log: o acesso já sai em JSON pelo log `fdr.http` (uma linha por
+# requisição); o do uvicorn seria uma segunda linha para a mesma requisição.
 CMD ["uvicorn", "config.asgi:application", \
      "--host", "0.0.0.0", "--port", "8000", "--workers", "1", \
      "--proxy-headers", "--forwarded-allow-ips", "*", \
-     "--timeout-graceful-shutdown", "5"]
+     "--timeout-graceful-shutdown", "5", "--no-access-log"]

@@ -4,6 +4,8 @@ Pontuação, critérios de desempate e zonas da legenda são dados da fase, edit
 no Django Admin. O código só conhece o catálogo de critérios (standings/domain.py).
 """
 
+from django.contrib.postgres.constraints import ExclusionConstraint
+from django.contrib.postgres.fields import IntegerRangeField, RangeOperators
 from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
 from django.db import models
@@ -102,6 +104,13 @@ class StageCriterion(models.Model):
             raise ValidationError({"key": f"Critério desconhecido: {self.key}"})
 
 
+class IntRange(models.Func):
+    """`int4range(de, até, '[]')`: faixa fechada de posições (restrição de exclusão das zonas)."""
+
+    function = "int4range"
+    output_field = IntegerRangeField()
+
+
 class StandingZone(models.Model):
     stage = models.ForeignKey(Stage, on_delete=models.CASCADE, related_name="zones", verbose_name="fase")
     name = models.CharField("nome", max_length=60)
@@ -116,6 +125,19 @@ class StandingZone(models.Model):
             models.CheckConstraint(condition=models.Q(position_from__lte=models.F("position_to")), name="zone_range_ok"),
             models.CheckConstraint(condition=models.Q(color__regex=r"^#[0-9A-Fa-f]{6}$"), name="zone_color_hex"),
             models.CheckConstraint(condition=models.Q(position_from__gte=1), name="zone_from_positive"),
+            # Faixas da mesma fase não se sobrepõem (btree_gist, migração 0002). Conferida no
+            # commit (DEFERRED): o inline de zonas grava várias de uma vez, e uma troca como
+            # 1-4/5-8 → 1-3/4-8 se sobrepõe no meio do caminho. No admin, quem avisa é
+            # `standings.domain.validate_rules` (no inline a fase fica fora do formulário).
+            ExclusionConstraint(
+                name="zone_no_overlap",
+                expressions=[
+                    ("stage", RangeOperators.EQUAL),
+                    (IntRange("position_from", "position_to", models.Value("[]")), RangeOperators.OVERLAPS),
+                ],
+                deferrable=models.Deferrable.DEFERRED,
+                violation_error_message="As faixas de posição da fase não podem se sobrepor.",
+            ),
         ]
         verbose_name = "zona da legenda"
         verbose_name_plural = "zonas da legenda"

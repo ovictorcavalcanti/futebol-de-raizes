@@ -194,6 +194,8 @@ function storageSet(key, value) {
  * @param {Array} [opts.initialGoals] latest_goals da carga inicial
  * @param {(goal: object) => boolean} [opts.isRelevant] o gol é de um jogo que está na home?
  * @param {string} [opts.iconUrl] ícone da notificação
+ * @param {{available: boolean, reason: string|null}} [opts.support] resultado de notificationSupport()
+ *   já calculado pela página (ela mostra o botão antes dos dados, sem layout shift)
  */
 export function createGoalAlerts({
   region,
@@ -208,6 +210,7 @@ export function createGoalAlerts({
   maxVisible = 3,
   ttl = 120_000,
   win = window,
+  support: knownSupport = null,
 } = {}) {
   const tracker = new GoalAlertTracker(initialGoals);
   const notifications = new Map(); // event_id → Notification
@@ -255,7 +258,7 @@ export function createGoalAlerts({
   }
 
   /* --- Notificações ---------------------------------------------------------------- */
-  const support = notificationSupport(win);
+  const support = knownSupport || notificationSupport(win);
   const paintNotify = () => notifyButton?.setAttribute('aria-pressed', String(notifyOn));
   if (notifyButton) {
     notifyButton.hidden = !support.available;

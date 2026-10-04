@@ -408,6 +408,23 @@ def test_docs_and_openapi_without_key(client):
 # --- Leitura ----------------------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("path", ["/nao-existe", "/", "/competitions/x/y/z", "/v2/matches"])
+def test_unknown_public_path_is_json_404(client, key, path):
+    """Caminho inexistente sob /public/v1/ responde no formato de erro da API (não a página
+    HTML do Django), com ou sem chave."""
+    for api_key in (key, None):
+        body = assert_error(get(client, path, api_key), 404, "not_found")
+        assert body["details"]["path"] == f"{BASE}{path}"
+    response = client.post(f"{BASE}{path}", {}, content_type="application/json")  # sem CSRF: também JSON
+    assert_error(response, 404, "not_found")
+
+
+def test_wrong_method_on_public_route_is_json_405(client, key):
+    response = client.post(f"{BASE}/competitions", {}, content_type="application/json", HTTP_X_API_KEY=key)
+    body = assert_error(response, 405, "method_not_allowed")
+    assert body["details"]["allowed"] == ["GET"] and response["Allow"] == "GET"
+
+
 def test_competitions_and_competition_detail(client, key, league, live_match):
     other = make_league(n_teams=2, slug="copa-do-nordeste", position=5)
     menu = ok(get(client, "/competitions", key))["competitions"]

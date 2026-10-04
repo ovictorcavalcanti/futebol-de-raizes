@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{# Acesso negado (PermissionDenied fora da API e do admin): mesma casca da 404, com o request. #}
+{% block title %}{{ brand.name }} · Acesso negado{% endblock %}
+{% block head %}<meta name="robots" content="noindex">{% endblock %}
+{% block main %}
+<div class="container">
+  <section class="empty azulejo" aria-labelledby="error-title">
+    <svg class="empty__art" viewBox="0 0 240 150" aria-hidden="true"><use href="#ill-sertao"/></svg>
+    <p class="eyebrow">Erro 403</p>
+    <h1 id="error-title" class="empty__title">Acesso negado.</h1>
+    <p class="empty__text">Seu perfil não tem permissão para abrir esta página.</p>
+    <p><a class="btn btn--primary" href="/"><svg class="icon" aria-hidden="true"><use href="#i-ball"/></svg>Ver os jogos de hoje</a></p>
+  </section>
+</div>
+{% endblock %}

@@ -677,6 +677,7 @@ def uvicorn_server(transactional_db, tmp_path):
         **os.environ,
         "DB_NAME": connection.settings_dict["NAME"],
         "DJANGO_DEBUG": "1",
+        "DB_POOL": "0",  # conta só a conexão do hub (com pool, o min_size fica aberto); pool: test_ops_deploy
         "REALTIME_HUB_ENABLED": "1",
         "REALTIME_PING_INTERVAL": "0.5",
         "REALTIME_POLL_INTERVAL": "0.2",

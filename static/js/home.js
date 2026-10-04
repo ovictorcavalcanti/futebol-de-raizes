@@ -13,7 +13,7 @@ import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createL
 import { createStandings, updateStandings } from './standings.js';
 import { getHome, getCompetitions, getMatch } from './api.js';
 import { createStream, liveStatusIndicator } from './stream.js';
-import { createGoalAlerts } from './alerts.js';
+import { createGoalAlerts, notificationSupport } from './alerts.js';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -36,6 +36,12 @@ const els = {
 
 const clock = new ServerClock();
 const now = () => clock.nowMs();
+
+// O botão de notificações (e o aviso de HTTPS) já no primeiro desenho, antes dos dados: o
+// cabeçalho dos "Últimos gols" não muda de altura quando a home chega (sem layout shift).
+const notifySupport = notificationSupport(window);
+if (els.notifyButton) els.notifyButton.hidden = !notifySupport.available;
+if (els.notifyHint) els.notifyHint.hidden = notifySupport.reason !== 'insecure';
 const state = {
   date: null,
   competitions: [], // menu
@@ -135,6 +141,7 @@ function competitionSection(comp, nextCards, nextStandings) {
 function renderLatestGoals(goals = [], freshIds = null) {
   els.latestList.replaceChildren(...goals.map((g) => createLatestGoal(g, { isNew: !!freshIds?.has(g.event_id) })));
   els.latestList.hidden = goals.length === 0;
+  els.latestList.removeAttribute('aria-busy'); // sai o chip esqueleto do HTML
   els.latestEmpty.hidden = goals.length > 0;
 }
 
@@ -169,6 +176,7 @@ function render(home) {
 function showError() {
   els.competitions.replaceChildren();
   els.competitions.removeAttribute('aria-busy');
+  if (!state.date) els.latest.hidden = true; // nunca carregou: sem o esqueleto dos últimos gols
   els.error.hidden = false;
 }
 
@@ -257,6 +265,7 @@ async function boot() {
     initialGoals: home.latest_goals || [],
     isRelevant: (goal) => state.cards.has(goal.match_id ?? goal.match?.id), // só jogos que estão na home
     iconUrl: document.querySelector('link[rel="icon"]')?.href || '',
+    support: notifySupport,
   });
 
   stream = createStream({

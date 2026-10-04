@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   effectiveMinuteMode, suggestMinute, buildEventBody, toBrasiliaInput, groupByCompetition, lineupPlayers,
+  splitActions, structuralConfirm,
 } from '../../static/js/operator.js';
 import {
   ApiError, apiFetch, getCookie, queryString, toApiError, newIdempotencyKey, setCsrfToken,
@@ -97,6 +98,47 @@ test('partidas agrupadas por competição na ordem da API', () => {
   const copa = { id: 2, name: 'Copa Pernambuco' };
   const groups = groupByCompetition([{ id: 1, competition: pe }, { id: 2, competition: copa }, { id: 3, competition: pe }]);
   assert.deepEqual(groups.map((g) => [g.competition.name, g.matches.map((m) => m.id)]), [['Pernambucano Raiz', [1, 3]], ['Copa Pernambuco', [2]]]);
+});
+
+test('botões: lances de jogo primeiro, andamento do jogo (estruturais) à parte, ordem da API em cada grupo', () => {
+  const kinds = {
+    half_time: 'structural', match_end: 'structural', penalties_start: 'structural',
+    goal: 'game', yellow_card: 'game', substitution: 'game', shootout_kick: 'game',
+  };
+  const specOf = (type) => ({ kind: kinds[type] || 'game' });
+  // a API devolve na ordem do catálogo: estruturais antes do gol
+  assert.deepEqual(splitActions(['half_time', 'goal', 'yellow_card', 'substitution', 'match_end'], specOf), {
+    game: ['goal', 'yellow_card', 'substitution'],
+    flow: ['half_time', 'match_end'],
+  });
+  assert.deepEqual(splitActions(['match_start'], () => ({ kind: 'structural' })), { game: [], flow: ['match_start'] });
+  assert.deepEqual(splitActions(['penalties_start', 'shootout_kick'], specOf), { game: ['shootout_kick'], flow: ['penalties_start'] });
+  assert.deepEqual(splitActions([], specOf), { game: [], flow: [] });
+  // tipo desconhecido do catálogo fica nos lances (nunca some)
+  assert.deepEqual(splitActions(['novo_tipo'], () => undefined), { game: ['novo_tipo'], flow: [] });
+});
+
+test('confirmação do andamento do jogo: um texto por estrutural, com o placar', () => {
+  const match = { home: { name: 'Sport', short_name: 'SPT' }, away: { name: 'Náutico' }, home_score: 2, away_score: 1 };
+  assert.deepEqual(structuralConfirm('match_end', match), {
+    title: 'Encerrar a partida?', text: 'Sport 2 × 1 Náutico. A tabela oficial é recalculada.', ok: 'Encerrar',
+  });
+  assert.equal(structuralConfirm('half_time', match).title, 'Encerrar o 1º tempo?');
+  assert.match(structuralConfirm('half_time', match).text, /^Sport 2 × 1 Náutico\. /);
+  assert.equal(structuralConfirm('second_half_start', match).ok, 'Iniciar 2º tempo');
+  assert.equal(structuralConfirm('extra_time_start', match).title, 'Iniciar a prorrogação?');
+  assert.equal(structuralConfirm('penalties_start', match).title, 'Ir para os pênaltis?');
+  const start = structuralConfirm('match_start', { home: { name: 'Sport' }, away: { name: 'Náutico' }, home_score: null, away_score: null });
+  assert.equal(start.title, 'Iniciar a partida?');
+  assert.match(start.text, /^Sport × Náutico\./);
+  // estrutural novo, sem texto próprio: usa o rótulo do catálogo
+  assert.deepEqual(structuralConfirm('intervalo_tecnico', match, 'Intervalo técnico'), {
+    title: 'Intervalo técnico?', text: 'Sport 2 × 1 Náutico. Isto muda o período da partida.', ok: 'Confirmar',
+  });
+  for (const type of ['match_start', 'half_time', 'second_half_start', 'extra_time_start', 'penalties_start', 'match_end']) {
+    const c = structuralConfirm(type, match);
+    assert.ok(c.title.endsWith('?') && c.text && c.ok, type);
+  }
 });
 
 test('jogadores da escalação: do time escolhido; no gol contra, do adversário', () => {

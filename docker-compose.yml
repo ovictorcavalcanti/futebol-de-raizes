@@ -1,12 +1,22 @@
 # Ambiente de teste com HTTPS: PostgreSQL 16, UM processo ASGI e o Caddy como
 # proxy sem buffer na frente (docs/PLANO.md, fase 6).
 #
-#   cp .env.example .env        # ajuste a chave secreta e o que mais quiser
+#   cp .env.example .env        # e troque DJANGO_SECRET_KEY por uma chave nova:
+#   python -c 'import secrets; print(secrets.token_urlsafe(50))'
 #   docker compose up --build
 #   abra https://localhost      # certificado da CA interna do Caddy
 #
+# DJANGO_SECRET_KEY é obrigatória (do .env ou do shell): sem ela todo comando do
+# compose para com erro; com o exemplo do .env.example ou uma chave fraca, o app
+# se recusa a subir (DEBUG=0).
+#
 # Criar o primeiro administrador:
 #   docker compose exec app python manage.py createsuperuser
+#
+# Só o PostgreSQL, para desenvolver no host (scripts/run_dev.sh e pytest), sem
+# Postgres local: scripts/dev_db.sh (publica a porta em 127.0.0.1; veja
+# deploy/compose.dev.yml). Este arquivo não publica a 5432 de propósito: o
+# `docker compose up` completo não briga com um Postgres que já use a porta.
 
 name: futebol-de-raizes
 
@@ -34,25 +44,36 @@ services:
         required: false
     environment:
       # Valores do ambiente de teste; o resto vem do .env.
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?defina DJANGO_SECRET_KEY no .env (veja .env.example)}
       DB_HOST: db
       DB_PORT: "5432"
       DB_NAME: ${DB_NAME:-fdr}
       DB_USER: ${DB_USER:-postgres}
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      # Pool de conexões do psycopg: sem ele cada requisição abriria uma conexão
+      # nova (com autenticação SCRAM). O hub do tempo real segura uma do pool o
+      # tempo todo; mantenha DB_POOL_MAX >= 3 e bem abaixo do max_connections
+      # do Postgres (100).
+      DB_POOL: ${DB_POOL:-1}
+      DB_POOL_MIN: ${DB_POOL_MIN:-2}
+      DB_POOL_MAX: ${DB_POOL_MAX:-20}
       DJANGO_DEBUG: "0"
       SECURE_COOKIES: "1"
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
       DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-https://localhost}
-    # Migra e sobe UM processo ASGI: o hub do stream SSE vive nele.
+    # Migra e sobe UM processo ASGI: o hub do stream SSE vive nele. A saída fica
+    # só em JSON, uma linha por registro: migrate calado (-v 0; erro ainda
+    # derruba o contêiner) e sem o log de acesso do uvicorn, porque o fdr.http
+    # já escreve uma linha por requisição.
     command:
       - sh
       - -c
       - >-
-        python manage.py migrate --noinput &&
+        python manage.py migrate --noinput -v 0 &&
         exec uvicorn config.asgi:application
         --host 0.0.0.0 --port 8000 --workers 1
         --proxy-headers --forwarded-allow-ips='*'
-        --timeout-graceful-shutdown 5
+        --timeout-graceful-shutdown 5 --no-access-log
     depends_on:
       db:
         condition: service_healthy

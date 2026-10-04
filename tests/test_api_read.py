@@ -303,3 +303,107 @@ def test_unknown_api_route_is_json_404(client):
         assert response.status_code == 404 and response["Content-Type"] == "application/json"
         assert_error(response.json(), "not_found")
     assert Client(enforce_csrf_checks=True).post("/api/nada").status_code == 404
+
+
+# --- Micro-cache das leituras (home e competição) ------------------------------------------
+
+
+@pytest.fixture
+def read_cache(settings):
+    settings.READ_CACHE_SECONDS = 5  # o conftest desliga por padrão
+
+
+def _post(match, user, type_, key, **fields):
+    from matches import services
+    from matches.domain import NewEvent
+
+    return services.post_event(match.id, user, NewEvent(type=type_, **fields), idempotency_key=key)
+
+
+def test_home_cache_hit_costs_one_query_and_keeps_server_time_fresh(read_cache, client, monkeypatch, django_assert_max_num_queries):
+    clock = use_clock(monkeypatch, brt(3, 12, 0))
+    lg = make_league(n_teams=2)
+    make_match(lg["stage"], *lg["teams"], kickoff_at=brt(3, 16, 0))
+    first = get_home(client)
+    clock.set(brt(3, 12, 0) + timedelta(seconds=2))
+    with django_assert_max_num_queries(2):  # só o cursor do outbox
+        second = get_home(client)
+    assert second["server_time"] == "2026-10-03T15:00:02Z" != first["server_time"]
+    assert {**second, "server_time": None} == {**first, "server_time": None}
+    # a cópia devolvida não mexe no que está guardado
+    third = get_home(client)
+    assert third["server_time"] == second["server_time"] and third["competitions"] == first["competitions"]
+
+
+def test_home_cache_is_invalidated_by_any_published_write(read_cache, client, operator_user):
+    lg = make_league(n_teams=2)
+    home_team = lg["teams"][0]
+    match = make_match(lg["stage"], *lg["teams"], kickoff_at=timeutils.now() - timedelta(minutes=30))
+    _post(match, operator_user, "match_start", "c-1")
+    before = get_home(client)
+    card = before["competitions"][0]["stages"][0]["matches"][0]
+    assert (card["home_score"], card["status"]) == (0, "live")
+    _post(match, operator_user, "goal", "c-2", team_id=home_team.id, minute=10, payload={"player": "Zé"})
+    after = get_home(client)
+    card = after["competitions"][0]["stages"][0]["matches"][0]
+    assert card["home_score"] == 1 and after["cursor"] > before["cursor"]
+    assert [goal["player"] for goal in after["latest_goals"]] == ["Zé"]
+
+
+def test_cache_entries_are_per_day_and_per_stage_round(read_cache, client, monkeypatch):
+    use_clock(monkeypatch, brt(3, 12, 0))
+    lg = make_league(n_teams=4, slug="pe")
+    t = lg["teams"]
+    today = make_match(lg["stage"], t[0], t[1], kickoff_at=brt(3, 16, 0), round=lg["rounds"][0])
+    tomorrow = make_match(lg["stage"], t[2], t[3], kickoff_at=brt(4, 16, 0), round=lg["rounds"][1])
+    assert home_ids(get_home(client)) == [today.id]
+    assert home_ids(get_home(client, "2026-10-04")) == [tomorrow.id]
+    assert home_ids(get_home(client, "2026-10-03")) == [today.id]
+
+    def page(**params):
+        response = client.get("/api/competitions/pe", params)
+        assert response.status_code == 200 and response["Cache-Control"] == "no-store"
+        return response.json()
+
+    first, second = lg["rounds"][0], lg["rounds"][1]
+    assert [m["id"] for m in page(round=first.id)["stage"]["matches"]] == [today.id]
+    assert [m["id"] for m in page(round=second.id)["stage"]["matches"]] == [tomorrow.id]
+    assert page(stage=lg["stage"].id, round=second.id)["current_round_id"] == second.id
+    assert page()["current_round_id"] == first.id
+
+
+def test_competition_404_is_not_cached(read_cache, client):
+    from django.core.cache import caches
+
+    response = client.get("/api/competitions/nao-existe")
+    assert response.status_code == 404 and response.json()["code"] == "not_found"
+    make_league(n_teams=2, slug="nao-existe")
+    assert client.get("/api/competitions/nao-existe").status_code == 200
+    stage_404 = client.get("/api/competitions/nao-existe", {"stage": 999999})
+    assert stage_404.status_code == 404
+    assert len(caches["reads"]._cache) == 1  # só a resposta 200
+
+
+def test_edit_without_message_waits_for_expiry_and_cache_off_reads_every_time(client, settings, monkeypatch):
+    """Edição que não publica mensagem (ex.: nome do time no admin) aparece quando a
+    entrada vence (até READ_CACHE_SECONDS); com 0, toda leitura monta o payload de novo."""
+    from django.core.cache import caches
+
+    use_clock(monkeypatch, brt(3, 12, 0))
+    lg = make_league(n_teams=2)
+    make_match(lg["stage"], *lg["teams"], kickoff_at=brt(3, 16, 0))
+    team_model = type(lg["teams"][0])
+
+    def home_names():
+        return [m["home"]["name"] for m in get_home(client)["competitions"][0]["stages"][0]["matches"]]
+
+    settings.READ_CACHE_SECONDS = 5
+    original = home_names()
+    team_model.objects.filter(pk=lg["teams"][0].pk).update(name="Renomeado")
+    assert home_names() == original  # ainda na validade, mesmo cursor
+    caches["reads"].clear()  # = entrada vencida
+    assert home_names() == ["Renomeado"]
+
+    settings.READ_CACHE_SECONDS = 0
+    team_model.objects.filter(pk=lg["teams"][0].pk).update(name="De novo")
+    assert home_names() == ["De novo"]

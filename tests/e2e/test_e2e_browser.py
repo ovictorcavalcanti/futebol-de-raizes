@@ -9,9 +9,14 @@ próprio carregado com o seed e o Chromium do Playwright. Prova o "pronto quando
   recarregar (placar, "É gol!", últimos gols, classificação), com som e notificação para
   quem ativou; a anulação gera o aviso de correção e tira o gol da lista;
 * mata-mata (confrontos com agregado e vencedor; a final indo aos pênaltis com a página
-  aberta), navegação de rodadas e fases, tema que persiste, logo vindo da configuração da
-  marca, nenhum erro no console, nenhuma rolagem horizontal a 390 px e o stream voltando
-  sozinho (com o que perdeu) depois de o servidor reiniciar.
+  aberta), navegação de rodadas e fases, tema que persiste, logo e nome vindos da
+  configuração da marca (também no admin), nenhum erro no console, nenhuma rolagem
+  horizontal a 390 px e o stream voltando sozinho (com o que perdeu) depois de o servidor
+  reiniciar;
+* acabamento: os lances antes do "Andamento do jogo" (estruturais à parte, sempre com
+  confirmação), nomes dos times sem quebrar no meio da palavra de 320 a 1024 px, CLS < 0,1
+  no carregamento da home e da competição (1280 e 390 px) e o admin claro por padrão e no
+  mesmo tema do site.
 
 Só roda com E2E=1 (preparar o banco leva ~40 s):
 
@@ -352,6 +357,17 @@ class ApiOperator:
 # --- Tela do operador ---------------------------------------------------------------------------
 
 
+# Estruturais (andamento do jogo): grupo à parte na tela e confirmação antes do envio
+STRUCTURAL = {
+    "match_start": "Iniciar a partida?",
+    "half_time": "Encerrar o 1º tempo?",
+    "second_half_start": "Iniciar o 2º tempo?",
+    "extra_time_start": "Iniciar a prorrogação?",
+    "penalties_start": "Ir para os pênaltis?",
+    "match_end": "Encerrar a partida?",
+}
+
+
 class OperatorPage:
     def __init__(self, page, expect):
         self.page = page
@@ -376,7 +392,9 @@ class OperatorPage:
         self.expect(self.board.locator(".match")).to_be_visible()
 
     def open(self, event_type: str):
-        self.page.click(f'#action-grid .action-btn[data-type="{event_type}"]')
+        # lances de jogo em #action-grid; andamento do jogo (estruturais) em #flow-actions
+        grid = "#flow-actions" if event_type in STRUCTURAL else "#action-grid"
+        self.page.click(f'{grid} .action-btn[data-type="{event_type}"]')
         self.expect(self.page.locator("#event-form-card")).to_be_visible()
         self.expect(self.page.locator("#event-type")).to_have_value(event_type)
 
@@ -395,6 +413,12 @@ class OperatorPage:
     def submit(self):
         self.form.locator('[data-hook="event-submit"]').click()
 
+    def confirm_structural(self, event_type: str):
+        dialog = self.page.locator("#confirm-dialog")
+        self.expect(dialog).to_be_visible()
+        self.expect(dialog.locator('[data-hook="confirm-title"]')).to_have_text(STRUCTURAL[event_type])
+        dialog.locator('[data-hook="confirm-ok"]').click()
+
     def wait_posted(self):
         self.expect(self.page.locator("#event-form-card")).to_be_hidden()
         self.expect(self.form.locator('[data-hook="event-submit"]')).to_be_enabled()
@@ -408,6 +432,8 @@ class OperatorPage:
         for name, value in fields.items():
             self.fill(name.replace("__", "."), value)
         self.submit()
+        if event_type in STRUCTURAL:
+            self.confirm_structural(event_type)
         self.wait_posted()
 
     def status(self, action: str, *, kickoff_at: str | None = None, reason: str | None = None):
@@ -464,9 +490,26 @@ def test_fase7_operador_lanca_um_jogo_inteiro_pela_tela(new_context, console, ba
     rescheduled = _get_json(f"{base_url}/api/matches/{match['id']}")["match"]
     assert datetime.fromisoformat(rescheduled["kickoff_at"].replace("Z", "+00:00")) == new_kickoff
 
+    # agendado: nenhum lance de jogo; o início fica no grupo "Andamento do jogo"
+    expect(op.page.locator("#action-grid .action-btn")).to_have_count(0)
+    expect(op.page.locator("#flow-actions .action-btn")).to_have_count(1)
+    expect(op.page.locator('#flow-actions .action-btn[data-type="match_start"]')).to_be_visible()
+    # "Voltar" na confirmação não lança nada
+    op.open("match_start")
+    op.submit()
+    expect(op.page.locator("#confirm-dialog")).to_be_visible()
+    op.page.locator('#confirm-dialog button[value="cancel"]').click()
+    expect(op.page.locator("#confirm-dialog")).to_be_hidden()
+    expect(op.board.locator(".score__vs")).to_be_visible()
+    op.form.locator('[data-hook="event-cancel"]').click()
+
     # início de jogo
     op.post("match_start")
     op.expect_status("Ao vivo", "1T")
+    # ao vivo: o gol é o primeiro botão; fim do 1º tempo só no grupo do andamento, depois dos lances
+    expect(op.page.locator("#action-grid .action-btn").first).to_have_attribute("data-type", "goal")
+    expect(op.page.locator('#action-grid .action-btn[data-type="half_time"]')).to_have_count(0)
+    expect(op.page.locator('#flow-actions .action-btn[data-type="half_time"]')).to_be_visible()
     op.expect_score(0, 0)
     expect(op.page.locator("#op-timeline li[data-event-id]")).to_have_count(2)  # reagendado + início
 
@@ -553,13 +596,10 @@ def test_fase7_operador_lanca_um_jogo_inteiro_pela_tela(new_context, console, ba
     op.post("goal", side="home", minute=60, payload__player="Mandante Um")
     op.expect_score(2, 1)
 
-    # fim de jogo (pede confirmação)
+    # fim de jogo (pede confirmação, como todo o andamento do jogo)
     op.open("match_end")
     op.submit()
-    dialog = op.page.locator("#confirm-dialog")
-    expect(dialog).to_be_visible()
-    expect(dialog.locator('[data-hook="confirm-title"]')).to_have_text("Encerrar a partida?")
-    dialog.locator('[data-hook="confirm-ok"]').click()
+    op.confirm_structural("match_end")
     op.wait_posted()
     op.expect_status("Encerrado")
     op.expect_score(2, 1)
@@ -845,6 +885,7 @@ def test_logo_vem_da_configuracao_da_marca(new_context, console, e2e_env):
         pytest.skip("servidor externo: não dá para trocar a configuração da marca")
     env = {**e2e_env["env"], "BRAND_LOGO_URL": "img/logo-mark.svg", "BRAND_NAME": "Raízes de Teste"}
     env.pop("BRAND_LOGO_DARK_URL", None)
+    env.pop("BRAND_LOGO_ALT", None)  # sem ele, o alt do logo é o BRAND_NAME
     brand_server = Server(env, e2e_env["logs"] / "uvicorn-brand.log")
     try:
         ctx = new_context()
@@ -854,9 +895,103 @@ def test_logo_vem_da_configuracao_da_marca(new_context, console, e2e_env):
         expect(page.locator("img.brand__logo--dark")).to_have_attribute("src", "/static/img/logo-mark.svg")
         expect(page).to_have_title(re.compile("Raízes de Teste"))
         assert page.evaluate("document.querySelector('img.brand__logo--light').naturalWidth") > 0
+        expect(page.locator("img.brand__logo--light")).to_have_attribute("alt", "Raízes de Teste")
         expect(page.locator("article.match").first).to_be_visible()
+        # o admin também segue o BRAND_NAME (cabeçalho e título)
+        page.goto(f"{brand_server.base}/admin/login/")
+        expect(page.locator(".fdr-brand__title")).to_have_text("Raízes de Teste · Administração")
+        expect(page).to_have_title(re.compile("Raízes de Teste"))
     finally:
         brand_server.close()
+
+
+# --- Nome do time, layout shift e tema do admin ------------------------------------------------
+
+NAMES_JS = """() => [...document.querySelectorAll('.match .team__name')].map((name) => {
+  const shown = [...name.children].find((c) => getComputedStyle(c).display !== 'none');
+  const lh = parseFloat(getComputedStyle(name).lineHeight);
+  return { kind: shown.classList.contains('team__short') ? 'short' : 'full', text: shown.textContent,
+    height: shown.getBoundingClientRect().height, lh, overflow: name.scrollWidth - name.clientWidth };
+})"""
+
+
+@pytest.mark.parametrize("width", [320, 360, 375, 1024])
+@pytest.mark.parametrize("path", ["/", "/competition.html?slug=pernambucano-raiz"])
+def test_nome_do_time_nao_quebra_no_meio_da_palavra(new_context, console, path, width):
+    """Sigla em uma linha (nada de "SP/T"; o ✓ do vencedor fica fora do fluxo); nome completo
+    em no máximo duas linhas equilibradas; nada vaza da célula do time."""
+    from playwright.sync_api import expect
+
+    ctx = new_context(width, 900)
+    page = console.watch(ctx.new_page(), f"nomes-{width}")
+    page.goto(path)
+    expect(page.locator("article.match").first).to_be_visible()
+    page.wait_for_timeout(200)
+    names = page.evaluate(NAMES_JS)
+    assert len(names) >= 20
+    bad = [n for n in names if n["height"] > (1.5 if n["kind"] == "short" else 2.5) * n["lh"] or n["overflow"] > 1]
+    assert not bad, bad
+    if width <= 375:
+        assert {n["kind"] for n in names} == {"short"}
+    assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
+
+
+CLS_OBSERVER = """
+window.__cls = 0; window.__shifts = [];
+new PerformanceObserver((list) => {
+  for (const entry of list.getEntries()) {
+    if (entry.hadRecentInput) continue;
+    window.__cls += entry.value;
+    window.__shifts.push([entry.value, entry.sources.map((s) => (s.node && (s.node.id || s.node.className)) || '?')]);
+  }
+}).observe({ type: 'layout-shift', buffered: true });
+"""
+
+
+@pytest.mark.parametrize("viewport", [(1280, 800), (390, 844)])
+@pytest.mark.parametrize("path", ["/", "/competition.html?slug=pernambucano-raiz"])
+def test_carregamento_sem_layout_shift(new_context, console, path, viewport):
+    """CLS < 0,1 ("bom") do esqueleto aos dados: rodapé fora da 1ª tela, menu com a mesma
+    altura, últimos gols e data reservados, fontes da 1ª tela pré-carregadas."""
+    from playwright.sync_api import expect
+
+    ctx = new_context(*viewport)
+    ctx.add_init_script(CLS_OBSERVER)
+    page = console.watch(ctx.new_page(), f"cls-{viewport[0]}")
+    page.goto(path)
+    expect(page.locator("article.match").first).to_be_visible()
+    page.wait_for_timeout(1500)
+    cls = page.evaluate("window.__cls")
+    assert cls < 0.1, page.evaluate("window.__shifts")
+
+
+def test_admin_claro_por_padrao_e_com_o_mesmo_tema_do_site(browser, base_url, console):
+    """Sistema em modo escuro e nada guardado: o admin abre claro (como o site). O tema
+    escolhido no site vale no admin, e o botão do admin alterna só claro/escuro, de volta ao site."""
+    from playwright.sync_api import expect
+
+    ctx = browser.new_context(viewport={"width": 1024, "height": 700}, color_scheme="dark", base_url=base_url, locale="pt-BR")
+    try:
+        page = console.watch(ctx.new_page(), "admin-tema")
+        html = page.locator("html")
+        page.goto("/admin/login/")
+        expect(html).to_have_attribute("data-theme", "light")
+        page.goto("/")
+        page.locator("[data-theme-toggle]").click()
+        expect(html).to_have_attribute("data-theme", "dark")
+        page.goto("/admin/login/")
+        expect(html).to_have_attribute("data-theme", "dark")
+        toggle = page.locator(".theme-toggle")
+        toggle.click()
+        expect(html).to_have_attribute("data-theme", "light")  # sem o passo "auto" do Django
+        toggle.click()
+        expect(html).to_have_attribute("data-theme", "dark")
+        toggle.click()
+        expect(html).to_have_attribute("data-theme", "light")
+        page.goto("/")
+        expect(html).to_have_attribute("data-theme", "light")  # a escolha volta para o site
+    finally:
+        ctx.close()
 
 
 # --- Tempo real: o servidor cai e volta ------------------------------------------------------------

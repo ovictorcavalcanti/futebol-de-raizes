@@ -1,14 +1,15 @@
+from django.conf import settings
 from django.contrib import admin
 from django.urls import path
 
 from api.urls import urlpatterns as api_urlpatterns
 from core import views as core_views
 from observability import views as observability_views
-from public_api.api import public_api
+from public_api.urls import urlpatterns as public_urlpatterns
 from realtime.views import stream
 
-admin.site.site_header = "Futebol de Raízes · Administração"
-admin.site.site_title = "Futebol de Raízes"
+admin.site.site_header = f"{settings.BRAND['name']} · Administração"  # BRAND_NAME
+admin.site.site_title = settings.BRAND["name"]
 admin.site.index_title = "Cadastros e regras"
 
 urlpatterns = [
@@ -21,6 +22,6 @@ urlpatterns = [
     path("metrics", observability_views.metrics, name="metrics"),
     path("api/stream", stream, name="stream"),
     *api_urlpatterns,
-    path("public/v1/", public_api.urls),
+    *public_urlpatterns,  # /public/v1/ (+ 404/405 em JSON)
     path("admin/", admin.site.urls),
 ]

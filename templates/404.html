@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% load static %}
+{# Página não encontrada (DEBUG desligado): renderizada pelo page_not_found do Django com o request, #}
+{# então a marca (context processor), o tema e o sprite funcionam. Sem `page`: o cabeçalho não mostra  #}
+{# o menu de competições (só as páginas que o preenchem o recebem).                                     #}
+{% block title %}{{ brand.name }} · Página não encontrada{% endblock %}
+{% block description %}Esta página não existe. Veja os jogos de hoje no {{ brand.name }}.{% endblock %}
+{% block head %}<meta name="robots" content="noindex">{% endblock %}
+{% block main %}
+<div class="container">
+  <section class="empty azulejo" aria-labelledby="error-title">
+    <svg class="empty__art" viewBox="0 0 240 150" aria-hidden="true"><use href="#ill-sertao"/></svg>
+    <p class="eyebrow">Erro 404</p>
+    <h1 id="error-title" class="empty__title">Essa página não existe, visse?</h1>
+    <p class="empty__text">O endereço pode ter mudado ou estar digitado errado. A bola continua rolando na página inicial.</p>
+    <p><a class="btn btn--primary" href="/"><svg class="icon" aria-hidden="true"><use href="#i-ball"/></svg>Ver os jogos de hoje</a></p>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}
+{# relógio de Brasília do cabeçalho (sem API aqui: a hora do aparelho) #}
+<script type="module">
+  import { ServerClock, mountClock } from "{% static 'js/clock.js' %}";
+  const el = document.getElementById("brasilia-clock");
+  if (el) mountClock(el, new ServerClock());
+</script>
+{% endblock %}

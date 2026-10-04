@@ -2,6 +2,12 @@
 
 Placar, status, período e confronto são caches gravados na mesma transação do
 lançamento; a fonte da verdade é a lista de eventos (ver matches/domain.py).
+
+As restrições do plano que sustentam as regras valem no banco, não só no `clean()`
+(que só o admin chama): CHECKs e `uniq_match_tie_leg` aqui; gatilhos da migração
+`0002_structure_triggers` para o que envolve outras tabelas (grupo, rodada e
+confronto da mesma fase da partida; mata-mata ⇔ confronto; fase com tabela ⇔ grupo;
+`leg` ≤ `ties.legs`). Violação → `IntegrityError` (SQLSTATE check_violation).
 """
 
 from django.conf import settings
@@ -111,6 +117,15 @@ class Match(models.Model):
                 condition=models.Q(tie__isnull=True, leg__isnull=True) | models.Q(tie__isnull=False, leg__in=[1, 2]),
                 name="match_leg_with_tie",
             ),
+            # Um jogo por (confronto, ida/volta). NULL é distinto no Postgres: partida de
+            # grupo (sem confronto) não entra. O resto da estrutura (grupo/rodada/confronto da
+            # mesma fase, mata-mata ⇔ confronto, leg ≤ ties.legs) é conferido por gatilhos
+            # (migração 0002): envolve outras tabelas, fora do alcance de um CHECK.
+            models.UniqueConstraint(
+                fields=["tie", "leg"],
+                name="uniq_match_tie_leg",
+                violation_error_message="Já existe uma partida para este jogo do confronto.",
+            ),
         ]
         permissions = [
             ("post_event", "Pode lançar eventos de partida"),
@@ -149,8 +164,8 @@ class Match(models.Model):
                 errors["leg"] = "Informe se é o jogo de ida/único (1) ou de volta (2)."
             elif self.leg > tie.legs:
                 errors["leg"] = "O confronto não aceita mais partidas do que o número de jogos."
-            elif Match.objects.filter(tie=tie, leg=self.leg).exclude(pk=self.pk).exists():
-                errors["leg"] = "Já existe uma partida para este jogo do confronto."
+            # Jogo repetido no confronto: `uniq_match_tie_leg` (validate_constraints no admin;
+            # o banco recusa também a corrida de dois "Salvar" ao mesmo tempo).
             if {self.home_team_id, self.away_team_id} != {tie.team_a_id, tie.team_b_id}:
                 errors["home_team"] = "Os times da partida precisam ser os do confronto."
         elif self.leg:

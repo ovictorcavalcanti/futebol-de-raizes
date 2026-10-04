@@ -18,7 +18,8 @@ from functools import wraps
 
 from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import Prefetch
-from django.http import Http404
+from django.http import Http404, JsonResponse
+from django.views.decorators.csrf import csrf_exempt
 from ninja import NinjaAPI, Query
 from ninja.errors import AuthenticationError, HttpError, Throttled, ValidationError
 
@@ -61,7 +62,8 @@ API pública do **Futebol de Raízes**: competições, partidas com os lances e 
 * **Lances**: só os lances públicos — sem eventos de status, sem gols anulados e sem
   lançamentos cancelados.
 * **Erros**: `{{"code", "message", "details"}}` — 400 `invalid_input`, 401 `invalid_api_key`,
-  404 `not_found`, 429 `rate_limited`.
+  404 `not_found` (também caminho inexistente sob `/public/v1/`), 405 `method_not_allowed`,
+  429 `rate_limited`.
 """
 
 public_api = NinjaAPI(
@@ -111,6 +113,49 @@ _NOT_FOUND = (
     (Stage.DoesNotExist, "Fase não encontrada."),
 )
 _HTTP_CODES = {400: "invalid_input", 401: "invalid_api_key", 404: "not_found", 405: "method_not_allowed", 429: "rate_limited"}
+
+
+def _plain_error(status: int, code: str, message: str, details: dict) -> JsonResponse:
+    """Erro no formato da API pública fora do Ninja (sem chave nem limite de uso)."""
+    response = JsonResponse({"code": code, "message": message, "details": details}, status=status)
+    response["Cache-Control"] = cache.NO_STORE
+    metrics.inc("fdr_public_api_requests_total", endpoint=code, status=status)
+    return response
+
+
+@csrf_exempt
+def not_found_view(request, rest: str = ""):
+    """Caminho inexistente sob `/public/v1/`: 404 no formato de erro da API pública
+    (não a página HTML do Django). Não exige chave nem conta no limite de uso."""
+    return _plain_error(
+        404, "not_found", "Rota da API pública não encontrada.", {"path": request.path, "docs": "/public/v1/docs"}
+    )
+
+
+def json_errors(view):
+    """Envolve a view de um caminho do Ninja: 404 (ex.: a raiz `/public/v1/`) e 405
+    (método não aceito) que o Ninja/Django respondem em HTML ou texto puro saem no
+    formato de erro da API pública."""
+
+    @wraps(view)
+    def wrapper(request, *args, **kwargs):
+        try:
+            response = view(request, *args, **kwargs)
+        except Http404:
+            return not_found_view(request)
+        if "application/json" in response.get("Content-Type", ""):
+            return response
+        if response.status_code == 405:
+            allowed = response.get("Allow", "")
+            methods = [method.strip() for method in allowed.split(",") if method.strip()]
+            json_response = _plain_error(405, "method_not_allowed", "Método não permitido.", {"allowed": methods})
+            json_response["Allow"] = allowed
+            return json_response
+        if response.status_code == 404:
+            return not_found_view(request)
+        return response
+
+    return wrapper
 
 
 @public_api.exception_handler(PublicError)

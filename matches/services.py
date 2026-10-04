@@ -11,9 +11,10 @@ Cada função roda numa única transação com a trava global de escrita
 4. Grava o evento e os derivados (sequence max + 1…, autor, origem, `created_at`).
 5. Atualiza o cache da partida a partir do estado novo (`version += 1`).
 6. Confronto: `compute_tie_result` e grava vencedor/forma da decisão no `Tie`.
-7. Partida de grupo: recalcula a classificação (oficial e ao vivo).
-8. Outbox: `match` sempre; `standings` na partida de grupo; `goals` quando o conjunto
-   de gols válidos da partida mudou.
+7. Partida de grupo: recalcula a classificação (oficial e ao vivo) quando mudou
+   status, placar ou cartão.
+8. Outbox: `match` sempre; `standings` quando a classificação foi recalculada (item 7);
+   `goals` quando o conjunto de gols válidos da partida mudou.
 9. Auditoria. Métricas depois do commit.
 
 `DomainError` sobe para a API (422) e é contado em `fdr_domain_rejections_total`;
@@ -152,7 +153,9 @@ def on_match_edited(match: Match, changed_fields, user=None, request=None) -> No
     o confronto antigos também são recalculados; só com os nomes, recalcula todos os
     grupos da fase atual da partida. Refaz o cache a partir dos eventos quando os
     times ou o confronto mudam, recalcula classificação/confronto, `version += 1`
-    e publica `match` (+ `standings`) sob a trava.
+    e publica `match` (+ `standings`) sob a trava. Início (`kickoff_at`) editado que
+    põe ou tira de hoje uma partida com gols válidos → também `goals` (`changes` vazio,
+    `latest_goals` refeito): os últimos gols da home não ficam velhos até recarregar.
     """
     previous = dict(changed_fields) if isinstance(changed_fields, Mapping) else {}
     names = {_field_name(name) for name in changed_fields}
@@ -200,6 +203,8 @@ def on_match_edited(match: Match, changed_fields, user=None, request=None) -> No
         if names & TABLE_FIELDS:
             for stage in stages.values():
                 enqueue("standings", standings_services.standings_message(stage))
+        if "kickoff_at" in names and work.left_or_joined_today(previous.get("kickoff_at")):
+            work.enqueue_latest_goals()
 
 
 def publish_match(match: Match):
@@ -470,17 +475,38 @@ class _Work:
             other_legs = [leg for leg in self.legs if leg.pk != match.pk]
             _bump_versions(other_legs)
         after = (match.status, match.home_score, match.away_score)
-        if match.group_id and (after != self.before or changed_types & CARD_TYPES):
+        # A tabela (e o `playing`, que só depende do status) só muda com status, placar
+        # ou cartão: sem recálculo, a mensagem `standings` seria idêntica à anterior.
+        recomputed = bool(match.group_id) and (after != self.before or bool(changed_types & CARD_TYPES))
+        if recomputed:
             standings_services.recompute_group(match.group)
 
         self.enqueue_match()
         _enqueue_legs(other_legs)
-        if match.group_id:
+        if recomputed:
             enqueue("standings", standings_services.standings_message(match.stage))
         self.enqueue_goals(created_ids, removed_reason)
 
     def enqueue_match(self):
         return enqueue("match", _match_message(self.match, self.rows, self.legs))
+
+    def left_or_joined_today(self, old_kickoff) -> bool:
+        """Início editado no admin: a partida (com gols válidos) entrou ou saiu dos jogos de
+        hoje? Então os últimos gols da home mudaram. Sem o valor antigo, considera que sim."""
+        if not selectors.goal_snapshots(self.match, self.rows):
+            return False
+        now = timeutils.now()
+        today = timeutils.local_today(now)
+        if old_kickoff in (None, ""):
+            return True
+        was_today = selectors.on_day(self.match, today, now, kickoff_at=_aware(old_kickoff))
+        return was_today != selectors.on_day(self.match, today, now)
+
+    def enqueue_latest_goals(self, changes: Sequence[dict] = ()) -> None:
+        """Mensagem `goals` com os últimos gols de hoje (`changes` vazio: só a lista mudou)."""
+        now = timeutils.now()
+        today = timeutils.local_today(now)
+        enqueue("goals", {"date": today.isoformat(), "changes": list(changes), "latest_goals": selectors.latest_goals(today, now)})
 
     def enqueue_goals(self, created_ids: set[int], removed_reason: str) -> None:
         after = selectors.goal_snapshots(self.match, self.rows)
@@ -492,11 +518,8 @@ class _Work:
         for event_id, goal in self.goals_before.items():
             if event_id not in after:
                 changes.append({"kind": "removed", "reason": removed_reason, "goal": goal})
-        if not changes:
-            return
-        now = timeutils.now()
-        today = timeutils.local_today(now)
-        enqueue("goals", {"date": today.isoformat(), "changes": changes, "latest_goals": selectors.latest_goals(today, now)})
+        if changes:
+            self.enqueue_latest_goals(changes)
 
 
 def _match_message(match: Match, rows: Iterable[MatchEvent], legs: Sequence[Match]) -> dict:

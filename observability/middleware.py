@@ -1,13 +1,19 @@
 """Id de requisição, log de acesso estruturado e métricas HTTP.
 
+O id vem do header `X-Request-ID` (ex.: do proxy) só quando tem 1 a 64 caracteres
+de `[A-Za-z0-9._:-]`; senão é gerado (uuid4 hex). Ele volta no header da resposta,
+vai em cada linha de log e em `AuditLog.request_id`.
+
 Funciona em modo síncrono e assíncrono (o stream SSE é uma view async e não
 pode ser forçado para uma thread).
 """
 
+import re
 import time
 import uuid
 
 from asgiref.sync import iscoroutinefunction, markcoroutinefunction
+from django.conf import settings
 from django.utils.functional import empty
 
 from .logging import get_logger, request_id_var, user_var
@@ -16,6 +22,18 @@ from .metrics import metrics
 log = get_logger("http")
 
 _SKIP_LOG_PREFIXES = ("/static/", "/health", "/metrics")
+# X-Request-ID aceito do cliente/proxy: até 64 caracteres seguros (cabe em
+# AuditLog.request_id e não injeta nada no header de resposta nem nos logs).
+# Fora disso, o id é gerado aqui.
+REQUEST_ID_MAX_LENGTH = 64
+_VALID_RID = re.compile(rf"[A-Za-z0-9._:-]{{1,{REQUEST_ID_MAX_LENGTH}}}")
+
+
+def request_id_from(value: str | None) -> str:
+    """Id da requisição: o header recebido, se válido; senão um uuid4 hex novo."""
+    if value and _VALID_RID.fullmatch(value):
+        return value
+    return uuid.uuid4().hex
 
 
 def _username(request) -> str:
@@ -30,9 +48,18 @@ def _username(request) -> str:
 
 
 def _route(request) -> str:
+    """Rótulo de rota das métricas e do log: o padrão da URL, nunca o caminho concreto.
+
+    A página inicial (`path("")`) vira "/"; arquivos estáticos, servidos pelo WhiteNoise
+    antes da resolução de URL, viram "/static/*"; "unmatched" fica só para o que não
+    casou com nenhuma rota (404 de verdade).
+    """
+    static_url = settings.STATIC_URL or ""
+    if static_url.startswith("/") and request.path.startswith(static_url):
+        return static_url + "*"
     match = getattr(request, "resolver_match", None)
-    if match is not None and match.route:
-        return "/" + match.route.lstrip("/")
+    if match is not None:
+        return "/" + (match.route or "").lstrip("/")
     return "unmatched"
 
 
@@ -46,7 +73,7 @@ class RequestContextMiddleware:
             markcoroutinefunction(self)
 
     def _start(self, request):
-        rid = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+        rid = request_id_from(request.headers.get("X-Request-ID"))
         request.request_id = rid
         token = request_id_var.set(rid)
         return rid, token, time.perf_counter()

@@ -3,3 +3,5 @@ django-ninja==1.7.1
 psycopg[binary,pool]==3.3.6
 uvicorn[standard]==0.50.2
 whitenoise==6.12.0
+# Versões .br dos estáticos no collectstatic (core.storage); sem ele, só .gz.
+Brotli==1.2.0

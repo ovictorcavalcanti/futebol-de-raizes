@@ -16,7 +16,9 @@ de exemplo: `DJANGO_DEBUG=1 python manage.py runserver` → **`/styleguide.html`
 | `static/img/azulejo.svg` | Padrão de azulejo (uma cor), usado como **máscara** — a cor vem do tema. |
 | `static/img/empty-sertao.svg` | Ilustração do estado vazio (sol + mandacaru), versão arquivo. A versão que segue o tema é o símbolo `#ill-sertao` do sprite. |
 | `static/sounds/gol.wav` | Fanfarra de metais, 1,2 s, 22050 Hz mono 16 bits. |
-| `templates/base.html` | `<head>` (tema antes da 1ª pintura, `theme-color`, favicon, 2 fontes pré-carregadas, CSS), sprite embutido, cabeçalho, `<main>`, rodapé, `#toasts`, `theme.js`. |
+| `templates/base.html` | `<head>` (tema antes da 1ª pintura, `theme-color`, favicon, 3 fontes pré-carregadas — Barlow 400, Barlow Condensed 700 e Alfa Slab One, a face do h1, que é o LCP da home —, CSS), sprite embutido, cabeçalho, `<main>`, rodapé, `#toasts`, `theme.js`. |
+| `templates/404.html`, `403.html`, `500.html` | Páginas de erro com DEBUG desligado. 404 e 403 estendem `base.html` (renderizadas com o request: marca, tema, sprite; sem `page`, então sem o menu de competições) com o estado vazio do sertão e "Ver os jogos de hoje". A 500 é autossuficiente (o `server_error` do Django renderiza sem request nem context processors): CSS embutido com papel/tinta e a faixa do frevo, tema escuro pela escolha salva, "Não deu certo agora." e link para `/`. |
+| `templates/admin/base_site.html` | Admin com a marca: logo (largura limitada), `brand.name · Administração`, faixa do frevo, paleta nos dois temas e o tema sincronizado com o do site (seção 3). |
 | `templates/partials/` | `icons.svg` (sprite), `header.html`, `footer.html`, `logo.html`, `operator-templates.html`. |
 | `templates/index.html`, `competition.html`, `operator.html` | Cascas das páginas com regiões, `<template>`s e `data-hook`s (seção 4). |
 | `templates/styleguide.html` + `static/js/styleguide.js` | Guia de estilo para QA visual. |
@@ -41,6 +43,12 @@ O contexto `brand` (`core/context_processors.py`, `settings.BRAND`) alimenta:
 * Sem `BRAND_LOGO_DARK_URL`: com o logo padrão, o tema escuro usa
   `img/logo-dark.svg`; com logo próprio, repete o mesmo arquivo.
 * O símbolo do rodapé e do login usa `brand.favicon_src`.
+* Logo de qualquer proporção: `.brand` encolhe (`flex: 0 1 auto`) e `.brand__logo` tem
+  altura fixa (36/40/44 px) com largura limitada a `min(240px, 100%)` e `object-fit:
+  contain` — um logo horizontal largo (10:1) não empurra relógio e tema para fora da tela.
+  No admin, `max-width: min(240px, 55vw)`.
+* `BRAND_NAME` vale também para o `alt` do logo (quando `BRAND_LOGO_ALT` não vem) e para o
+  cabeçalho e o título do admin (`brand.name · Administração`).
 
 ## 3. Tema e tokens
 
@@ -50,6 +58,12 @@ O contexto `brand` (`core/context_processors.py`, `settings.BRAND`) alimenta:
   `aria-pressed`; o nome acessível fica fixo, "Tema escuro", para o leitor de tela
   não anunciar o contrário do estado), guarda a escolha, sincroniza abas (`storage`)
   e dispara o evento `themechange` no `document`.
+* **Admin no mesmo tema:** o `admin/js/theme.js` do Django começaria em "auto" (segue o
+  sistema) com um ciclo de 3 estados e chave própria (`localStorage["theme"]`). O
+  `templates/admin/base_site.html` sobrescreve o bloco `dark-mode-vars` e, **antes** do
+  script do Django, copia a escolha do site (`fdr-theme`; claro sem ela) para `theme`; um
+  ouvinte de clique em fase de captura troca o ciclo do botão do admin por claro ⇄ escuro e
+  grava nas duas chaves — a escolha vale nos dois sentidos (site ⇄ admin).
 * Todas as cores são tokens em `:root` / `:root[data-theme="dark"]`:
   `--paper --surface --surface-2 --ink --ink-2 --ink-3 --line --line-strong --azul
   --vermelho --amarelo --verde`, `--field` (borda de campo de formulário e trilho do
@@ -76,7 +90,7 @@ escondidas; quem liga os dados tira o `hidden`.
 
 | Gancho | Uso |
 | --- | --- |
-| `#competitions-nav` (`aria-busy="true"`) › `ul[data-hook="competition-links"]` | Menu de competições. Preencha com `renderCompetitionNav(list, competitions, {activeSlug, liveSlugs})` (tira o `aria-busy`). Não existe no operador. |
+| `#competitions-nav` (`aria-busy="true"`) › `ul[data-hook="competition-links"]` | Menu de competições. Preencha com `renderCompetitionNav(list, competitions, {activeSlug, liveSlugs})` (tira o `aria-busy`). Só nas páginas com `page` público (home, competição, guia): não existe no operador nem nas páginas de erro (sem script para preenchê-lo). Esqueleto e links têm a mesma altura (`.comp-nav__list { min-height: 44px }`), sem layout shift. |
 | `#brasilia-clock` (`<time>`) | Relógio de Brasília: `mountClock(el, serverClock)`. Fora de qualquer `aria-live`. |
 | `#live-status` (`hidden`) › `[data-hook="live-status-text"]` | "Reconectando ao vivo…" quando o stream cai. |
 | `#toasts` | Região dos avisos passageiros: `showToast(texto, {kind})`. |
@@ -86,12 +100,12 @@ escondidas; quem liga os dados tira o `hidden`.
 
 | Gancho | Uso |
 | --- | --- |
-| `#home-date` (`<time>`) | Data do dia: `formatDateLong(server_time)`. |
-| `#latest-goals` (`hidden`) | Bloco "Últimos gols". Some quando não há jogo no dia. |
+| `#home-date` (`<time>`) | Data do dia: já vem no HTML (`{% now %}`, Brasília) e o JS reescreve com `formatDateLong` da data da resposta — a linha nunca aparece depois (sem layout shift). |
+| `#latest-goals` | Bloco "Últimos gols", **visível desde a 1ª pintura** com um chip esqueleto (altura de um `.goal-chip`), sem layout shift quando os dados chegam. `home.js` o esconde no dia sem jogo (o estado vazio toma o lugar) e no erro da carga inicial. |
 | `#goal-alert` (`aria-live="polite"`) | Avisos: `createGoalAlert(goal)` / `createGoalAlert(goal, {kind: 'correction', reason})`. Use `prepend`. |
-| `#toggle-sound`, `#toggle-notifications` (`hidden`) | Botões liga/desliga (`aria-pressed`). Os rótulos trocam sozinhos via `.when-on`/`.when-off`. Mostre o de notificações só onde `new Notification()` funciona. |
+| `#toggle-sound`, `#toggle-notifications` (`hidden`) | Botões liga/desliga (`aria-pressed`). Os rótulos trocam sozinhos via `.when-on`/`.when-off`. O de notificações só aparece onde `new Notification()` funciona: um script inline logo depois dele (antes da 1ª pintura) aplica a mesma regra de `isMobileDevice`/`notificationSupport` (sem o teste do construtor) e `alerts.js` confirma depois — o botão não surge com os módulos empurrando a página. |
 | `#notifications-hint` (`hidden`) | "As notificações do sistema só funcionam com HTTPS." — aparece quando a página não está em contexto seguro. |
-| `#latest-goals-list` (`<ol>`) | `createLatestGoal(goal, {isNew})` por item, do mais novo ao mais antigo. |
+| `#latest-goals-list` (`<ol tabindex="0">`, `aria-busy="true"`) | `createLatestGoal(goal, {isNew})` por item, do mais novo ao mais antigo (substitui o chip esqueleto; `home.js` tira o `aria-busy`). Rola para o lado: `tabindex="0"` dá foco pelo teclado (os chips não são focáveis) e a borda direita esmaece como dica de rolagem. |
 | `#latest-goals-empty` (`hidden`) | "Nenhum gol hoje ainda. Paciência, que ele vem." |
 | `#competitions` (`aria-busy="true"`) | Contém esqueletos; substitua por uma seção por competição e tire o `aria-busy`. |
 | `#home-empty` (`hidden`) | "Hoje não tem jogo, visse?" |
@@ -139,16 +153,17 @@ for (const stage of comp.stages) {
 | `#op-boot` | Esqueleto enquanto `/api/auth/me` não responde (esconda depois). |
 | `#op-login` (`hidden`), `#login-form` (`username`, `password`), `#login-error` › `[data-hook="login-error-text"]`, `#login-submit` | Login (use `aria-busy="true"` no botão durante o envio). |
 | `#op-app` (`hidden`) | Painel. `[data-hook="user-name"]`, `[data-hook="user-roles"]`, `[data-hook="admin-link"]` (`hidden`; mostre com `permissions.admin_site`), `#logout-button`. |
-| `#picker-date`, `#picker-refresh`, `#picker-list` (`aria-busy`), `#picker-empty` | Escolha da partida; itens com `tpl-pick-item` (`aria-current="true"` no selecionado). |
+| `[data-hook="picker"]` (`<div role="region">`), `#picker-date`, `#picker-refresh`, `#picker-list` (`aria-busy`), `#picker-empty` | Escolha da partida (região nomeada, não `<aside>`: fica dentro da seção do painel). `#picker-list` é uma lista de listas: um `li.match-picker__group` por competição com `h3.match-picker__group-title` e `ul.match-picker__sublist` (`aria-labelledby` no título) com os itens `tpl-pick-item` (`aria-current="true"` no selecionado). |
 | `#op-placeholder` | Estado vazio até escolher a partida. |
 | `#op-scoreboard` (`hidden`) | Placar: `createMatchCard(match, {details: false, showRound: true, showCompetition: true})`. |
 | `#op-work` (`hidden`) | Área de trabalho. |
-| `#action-grid` | Botões `tpl-action-button` dos tipos em `available.events` (classe `action-btn--goal` no gol, `action-btn--structural` nos estruturais; `aria-pressed="true"` no que está com formulário aberto). |
+| `#action-grid` | Botões `tpl-action-button` dos **lances de jogo** de `available.events` (gol, cartões, substituição…; classe `action-btn--goal` no gol; `aria-pressed="true"` no que está com formulário aberto), na ordem da API. Sem nenhum: "Nenhum lance disponível neste momento." (ou "Nenhum lance de jogo neste momento." quando só há andamento). |
+| `#flow-block` (`hidden`) › `#flow-actions` | **Andamento do jogo**: os estruturais de `available.events` (início, fim do 1º tempo, 2º tempo, prorrogação, pênaltis, fim), depois dos lances e com outra cara (`.action-grid--flow`: botão baixo e largo, fundo rebaixado, faixa amarela, classe `action-btn--structural`). Some sem estrutural disponível. Todo envio daqui passa pelo `#confirm-dialog`. |
 | `#status-actions` | Botões `tpl-status-button` de `catalog.status_actions` (cancelar com `btn--danger`; `disabled` fora de `available.status`). |
-| `[data-hook="actions-card"]` › `actions-block` / `status-block` | Cartão das ações; cada bloco some sem a permissão (`post_event` / `change_status`), o cartão some sem as duas. |
-| `#event-form-card` (`hidden`), `#event-form` | Formulário. `[data-hook]`: `event-form-icon` (`<use>`), `event-form-title`, `event-warnings` (+ `event-warnings-list`, para `confirmation_required`), `event-error`, `event-type` (`#event-type`: `<select>` dos tipos em `available.events`), `event-fields`, `event-cancel`, `event-submit`, `event-submit-label`. |
+| `[data-hook="actions-card"]` › `actions-block` (lances + andamento) / `status-block` | Cartão das ações; cada bloco some sem a permissão (`post_event` / `change_status`), o cartão some sem as duas. |
+| `#event-form-card` (`hidden`), `#event-form` | Formulário. `[data-hook]`: `event-form-icon` (`<use>`), `event-form-title`, `event-warnings` (+ `event-warnings-list`, para `confirmation_required`), `event-error`, `event-type` (`#event-type`: `<select>` dos tipos em `available.events`, lances primeiro e os estruturais num `<optgroup label="Andamento do jogo">`), `event-fields`, `event-cancel`, `event-submit`, `event-submit-label`. |
 | `#op-timeline`, `#op-timeline-empty`, `[data-hook="timeline-count"]` | Lançamentos (mais recente primeiro) com `tpl-op-event`. |
-| `#confirm-dialog` | Confirmação genérica: `confirm-title`, `confirm-text`, `confirm-list` (`<ul>` dos avisos, `hidden` sem itens), `confirm-ok`; `returnValue` = `"confirm"` ou `"cancel"`. |
+| `#confirm-dialog` | Confirmação genérica (andamento do jogo e avisos `confirmation_required`): `confirm-title`, `confirm-text`, `confirm-list` (`<ul>` dos avisos, `hidden` sem itens), `confirm-ok`; `returnValue` = `"confirm"` ou `"cancel"` ("Voltar"). |
 | `#status-dialog` | `status-title`, `status-text`, `status-kickoff-field` (`hidden`; mostre no reagendar) › `#status-kickoff`, `#status-reason`, `status-ok`. |
 | `#void-dialog` | `void-text`, `#void-reason`, `void-ok` (botão de perigo). |
 
@@ -223,13 +238,18 @@ Todos são módulos ES puros, sem dependências; texto entra só por
 * `createTieCard(tieDetail, {now}) → card do confronto` (agregado, vencedor, forma da decisão, jogos).
 * `createLatestGoal(latestGoal, {isNew}) → <li>` da lista de últimos gols.
 * `createGoalAlert(latestGoal, {kind: 'goal'|'correction', reason?: 'annulled'|'voided', onClose?}) → aviso` ("É gol!" / "Oxe! Gol anulado." + "Lance corrigido pelo operador.").
+* `annulledGoalNote(goalAnnulledEvent) → "Gol anulado aos 60' — Impedimento (VAR)"` — a linha do gol riscado na linha do tempo. A linha do tempo é registro (dado): sem o "Oxe!", que fica só no aviso ao vivo (IDENTIDADE §5); a anulação avulsa mostra o motivo sob o título "Gol anulado".
 
 O card cobre todos os status: agendado (pílula com horário, dia relativo), ao vivo
 (minuto correndo, faixa vermelha no topo), intervalo (amarelo), encerrado
 (vencedor em destaque, perdedor esmaecido), pênaltis `(4) × (3) pên.`, suspenso,
 adiado e cancelado (hachura). Linha do confronto no mata-mata (agregado e quem
 avança, com o agregado na mesma ordem mandante × visitante do placar do card).
-Resumo sem abrir: autores dos gols e vermelhos. Abas só com dado:
+Nome do time: sigla no celular, nome completo a partir de 520 px de card; quebra só entre
+palavras (`overflow-wrap: normal`, `text-wrap: balance`; a sigla nunca quebra) e o ✓ do
+vencedor fica fora do fluxo (no canto, junto da faixa do time), sem apertar o nome; em card
+estreito (< 380 px) escudo, vão e coluna do placar diminuem. Resumo sem abrir: autores dos
+gols e vermelhos. Abas só com dado:
 **Lances** (linha do tempo de dois lados com trilho central e separadores de
 período; gol anulado riscado com o motivo; lance sem time, como o VAR, vai ao
 centro com o minuto junto do texto; em cards estreitos o placar parcial
@@ -257,11 +277,11 @@ riscado (`<s>`), nunca como placar atual.
 
 ### `alerts.js` (só a home)
 * `GoalAlertTracker` (puro): `decide(changes, serverNowMs, {isRelevant}) → [{action: 'alert'|'silent'|'correction'|'restore'|'skip', goal, reason}]` — um alerta por id de evento; lista inicial = já alertada; gol com `created_at` mais de 2 min atrás (relógio do servidor) entra sem alerta; `removed` → correção (uma vez); `restored` → volta sem alerta; gol de jogo fora da home não alerta.
-* `createGoalAlerts({region, soundButton, notifyButton, audio, hint, serverNow, initialGoals, isRelevant}) → {handle(goalsMessage), reset(goals)}` — aviso na página (`createGoalAlert`, máx. 3, somem em 2 min; a correção toma o lugar do "É gol!" do mesmo gol), som (`#goal-sound`; o clique em "Ativar som" toca a amostra e libera o áudio; recusa do navegador volta o botão a "Ativar som"), `Notification` (fecha a do gol e abre a de correção). Preferências em `localStorage` (`fdr-sound`, `fdr-notifications`, com `try/catch`).
+* `createGoalAlerts({region, soundButton, notifyButton, audio, hint, serverNow, initialGoals, isRelevant, support?}) → {handle(goalsMessage), reset(goals)}` (`support`: resultado de `notificationSupport()` já calculado pela página, que mostra o botão antes dos dados) — aviso na página (`createGoalAlert`, máx. 3, somem em 2 min; a correção toma o lugar do "É gol!" do mesmo gol), som (`#goal-sound`; o clique em "Ativar som" toca a amostra e libera o áudio; recusa do navegador volta o botão a "Ativar som"), `Notification` (fecha a do gol e abre a de correção). Preferências em `localStorage` (`fdr-sound`, `fdr-notifications`, com `try/catch`).
 * `notificationSupport(window)` — API presente, contexto seguro e computador (`userAgentData.mobile`, user agent, iPadOS com toque); sem permissão, testa `new Notification()` em `try/catch`.
 
 ### `operator.js` (partes puras exportadas)
-`effectiveMinuteMode(spec, period)` (espelha `domain.minute_mode`), `suggestMinute(match, spec, nowMs)`, `buildEventBody(type, entries, {minute, stoppage})`, `toBrasiliaInput(iso)`, `groupByCompetition`, `lineupPlayers(match, teamId, {opponent})`. A tela só liga quando a página tem `#op-app`.
+`effectiveMinuteMode(spec, period)` (espelha `domain.minute_mode`), `suggestMinute(match, spec, nowMs)`, `buildEventBody(type, entries, {minute, stoppage})`, `toBrasiliaInput(iso)`, `groupByCompetition`, `lineupPlayers(match, teamId, {opponent})`, `splitActions(types, specOf) → {game, flow}` (lances de jogo × estruturais, na ordem da API), `structuralConfirm(type, match, label?) → {title, text, ok}` (texto da confirmação de cada estrutural, com o placar). A tela só liga quando a página tem `#op-app`.
 
 ### `fixtures.js` (só para o guia de estilo)
 `SERVER_TIME`, `TIMEZONE`, `TEAMS`, `COMPETITIONS`, `MATCHES` (`live`, `halfTime`, `scheduledToday`, `scheduledTomorrow`, `finished`, `postponed`, `suspended`, `cancelled`, `knockoutLeg1`, `knockoutPenalties`, `knockoutSingle`), `TIES`, `STANDINGS`, `STANDINGS_GROUPS`, `LATEST_GOALS`, `HOME`, `COMPETITION`, `ME`, `CATALOG`, `AVAILABLE`, `summaryOf(match)`. Os horários são relativos ao carregamento do módulo.
@@ -320,7 +340,9 @@ document.addEventListener('visibilitychange', () => document.hidden || clock.che
   (`change_status`), "Cancelar" na linha do tempo (`void_event`), link do admin (`admin_site`).
 * Partidas da data (`GET /api/matches?date=`, padrão hoje em Brasília), agrupadas por
   competição; ↑/↓ andam pela lista; `?date=&match=` na URL.
-* Botões só de `available` (nada de regra de jogo no front). Formulário pelo catálogo:
+* Botões só de `available` (nada de regra de jogo no front): **lances de jogo primeiro**
+  (`#action-grid`) e o **andamento do jogo** (estruturais) num grupo à parte, depois dos
+  lances (`#flow-actions`), para ninguém mudar o período por engano. Formulário pelo catálogo:
   `<select>` de tipo limitado a `available.events`; campos por `EventSpec.fields`
   (reaproveitados entre tipos — trocar o tipo mantém o que já foi digitado; "Cancelar", Esc
   ou outro clique no mesmo botão desistem do lance e limpam tudo —, os que não valem ficam
@@ -328,8 +350,10 @@ document.addEventListener('visibilitychange', () => document.hidden || clock.che
   rádios com os dois times (opcional ganha "Nenhum"); jogador com `<datalist>` da
   escalação (gol contra → elenco adversário); gol anulado lista os gols válidos e, com o
   gol escolhido, esconde o time (herdado); minuto conforme `minute_mode`, pré-preenchido
-  com a sugestão do relógio (atualiza a cada segundo até o operador mexer). Fim de jogo
-  pede confirmação.
+  com a sugestão do relógio (atualiza a cada segundo até o operador mexer). **Todo
+  estrutural pede confirmação** no envio (`#confirm-dialog` com o placar: "Iniciar a
+  partida?", "Encerrar o 1º tempo?", "Iniciar o 2º tempo?", "Iniciar a prorrogação?", "Ir
+  para os pênaltis?", "Encerrar a partida?"); "Voltar" não envia nada.
 * Envio: validação nativa (`reportValidity`), botão desabilitado até a resposta,
   `X-CSRFToken`, `Idempotency-Key` nova por lançamento (`crypto.randomUUID()`).
   `422 confirmation_required` → `#confirm-dialog` com os avisos; "Confirmar" reenvia com
@@ -344,31 +368,48 @@ document.addEventListener('visibilitychange', () => document.hidden || clock.che
 
 ## 7. Desempenho e acessibilidade
 
-* Uma folha de estilo, sprite embutido (zero requisições de ícone), 2 fontes
-  pré-carregadas, `modulepreload` dos módulos da página, imagens com
+* Uma folha de estilo, sprite embutido (zero requisições de ícone), 3 fontes
+  pré-carregadas (Barlow 400, Barlow Condensed 700 e Alfa Slab One — sem o preload, a face
+  do h1 "Jogos de hoje", o LCP, só era descoberta depois do CSS e trocava ~0,8 s depois numa
+  rede lenta), `modulepreload` dos módulos da página, imagens com
   `width/height`, `loading="lazy"` no logo escuro e nos escudos remotos,
   `content-visibility: auto` nas seções de competição, detalhe do jogo desenhado
   só com o acordeão aberto, minuto atualizado sem redesenhar o card.
+* **Sem layout shift no carregamento** (CLS medido < 0,1; ~0,00 a 1280 px e no celular):
+  `<main>` com `min-height: 100dvh` na home e na competição (o rodapé não aparece na 1ª
+  pintura para depois pular), menu com a mesma altura como esqueleto e com links, últimos
+  gols visíveis com chip esqueleto, data do dia já no HTML, botão de notificações decidido
+  antes da 1ª pintura e esqueleto do título da competição com a altura de uma linha do h1.
+  Resta a troca do Barlow 600 (botões) numa janela estreita de computador (~0,085 a 390 px,
+  ainda "bom"): pré-carregar mais um peso custaria ~0,1 s de FCP numa rede lenta para todos,
+  e no celular não há o que ganhar.
 * Foco visível (anel azul + halo amarelo), `prefers-reduced-motion`, impressão
   básica, sem rolagem horizontal a 390 px, cor nunca é o único sinal (status em
   texto, nome da zona, "avança", `aria-label` no placar: "Sport 2 a 1 Náutico").
-* Testes: `tests/test_design_frontend.py` (sem banco: ganchos, marca, contraste AA
-  recalculado dos tokens, `modulepreload` sem cascata e, se houver Chromium do
+* Testes: `tests/test_design_frontend.py` (sem banco: ganchos, marca, fontes
+  pré-carregadas, contraste AA recalculado dos tokens, `modulepreload` sem cascata, a regra
+  inline do botão de notificações igual à de `alerts.js` e, se houver Chromium do
   Playwright, os componentes no navegador — versão atrasada ignorada, detalhe pedido
   de novo, agregado na ordem do placar, link `javascript:` barrado, aviso de correção,
-  botão de tema) e `tests/js/*.test.mjs` (`node --test tests/js/*.test.mjs`; o pytest
-  roda também em outro fuso).
+  botão de tema, gol anulado sem "Oxe!" na linha do tempo) e `tests/js/*.test.mjs`
+  (`node --test tests/js/*.test.mjs`; o pytest roda também em outro fuso).
 * `tests/e2e/test_e2e_browser.py` (só com `E2E=1`: `E2E=1 python -m pytest tests/e2e -o addopts=""`):
   ponta a ponta de verdade — banco próprio com o `seed`, uvicorn (um processo) e Chromium. O
   operador lança um jogo inteiro pela tela (reagendar, início, gols, cartão, aviso com
   confirmação, gol anulado, "Cancelar lançamento", suspender/retomar, intervalo, 2º tempo,
   fim); home e competição abertas antes acompanham gol e anulação sem recarregar (aviso, som,
   `Notification`, últimos gols, classificação); a final vai aos pênaltis com a página aberta;
-  rodadas, fases, tema, logo da configuração, console limpo, 390 px sem rolagem lateral e o
-  stream voltando sozinho depois de reiniciar o servidor. `E2E_BASE_URL` reaproveita um
+  rodadas, fases, tema, logo e nome da configuração (também no admin), console limpo, 390 px
+  sem rolagem lateral, o stream voltando sozinho depois de reiniciar o servidor, nomes dos
+  times sem quebrar no meio da palavra (320–1024 px), CLS < 0,1 no carregamento (1280 e
+  390 px) e o admin claro por padrão e no mesmo tema do site. `E2E_BASE_URL` reaproveita um
   servidor já de pé. Capturas das páginas reais em `docs/screenshots/`.
 * `tests/test_front_pages.py`: os testes puros das páginas em node (alertas, reconexão,
   minuto sugerido, `api.js`), os ganchos dos templates e as três páginas no Chromium com
   a API simulada por `page.route()` (gol pelo stream com alerta único, correção e
   reconexão com `Last-Event-ID`; rodadas e fases da competição; login, formulário e
-  confirmação com a mesma chave no operador).
+  confirmação com a mesma chave no operador; lances antes do andamento do jogo e a
+  confirmação dos estruturais; lista de partidas como lista de listas; nomes dos times a
+  320–1024 px; logo 10:1 sem empurrar o cabeçalho), as páginas de erro (404/403 com a
+  marca em PT-BR, 500 sem contexto), o preload da fonte dos títulos, os últimos gols
+  visíveis com esqueleto e focáveis e o nome da marca no admin e no `alt` do logo.

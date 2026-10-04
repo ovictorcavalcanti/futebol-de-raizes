@@ -63,12 +63,17 @@ Contraste mínimo AA (4.5:1 texto, 3:1 elementos gráficos) nos dois temas.
 * Wordmark "FUTEBOL DE RAÍZES" em Alfa Slab One (convertido em curvas no SVG).
 * Configuração: `BRAND_LOGO_URL`, `BRAND_LOGO_DARK_URL`, `BRAND_NAME`,
   `BRAND_TAGLINE`, `BRAND_FAVICON_URL` (ver `config/settings.py` → `BRAND`).
-  Os templates usam `{{ brand.logo_src }}`/`{{ brand.logo_dark_src }}`.
+  Os templates usam `{{ brand.logo_src }}`/`{{ brand.logo_dark_src }}`. O logo pode ter
+  qualquer proporção: altura fixa e largura de no máximo 240 px (sem distorcer); o
+  `BRAND_NAME` também vira o texto alternativo do logo (sem `BRAND_LOGO_ALT`) e o título
+  do admin.
 
 ## 5. Tom de voz (microtexto)
 
 Português do Brasil com sotaque pernambucano na medida — em momentos de emoção e
-nos estados vazios, nunca em dados ou em mensagens de erro técnicas.
+nos estados vazios, nunca em dados ou em mensagens de erro técnicas. A linha do tempo
+do jogo é dado: o gol anulado aparece riscado com "Gol anulado aos 60' — motivo", sem
+o "Oxe!", que é do aviso ao vivo.
 
 | Situação | Texto |
 | --- | --- |
@@ -80,6 +85,8 @@ nos estados vazios, nunca em dados ou em mensagens de erro técnicas.
 | Relógio | "Horário de Brasília" |
 | Rodapé | "Do Recife ao Sertão, futebol de raiz." |
 | Erro genérico | "Não deu certo agora. Tente de novo em instantes." |
+| Página não encontrada (404) | "Essa página não existe, visse?" + "Ver os jogos de hoje" |
+| Erro do servidor (500) | "Não deu certo agora." + "Tivemos um problema do nosso lado. Tente de novo em instantes." |
 
 ## 6. Componente de jogo (inspirado no wireframe `docs/wireframe-jogo.webp`)
 
@@ -92,7 +99,8 @@ linha do tempo de dois lados, escalações, ficha — com ganhos de UX:
    ("2T · 72'", "45+2'"), data relativa ("Hoje · 16:30", "Amanhã"), estádio e
    cidade com ícones. Em telas pequenas quebra em duas linhas sem perder o status.
 2. **Placar**: faixas laterais com a cor de cada time; nome completo no desktop e
-   sigla no celular; placar grande tabular; vencedor em destaque e perdedor
+   sigla no celular (o nome quebra só entre palavras, em no máximo duas linhas
+   equilibradas; a sigla nunca quebra); placar grande tabular; vencedor em destaque e perdedor
    esmaecido ao fim; pênaltis "(4) × (3) pên."; no mata-mata, linha de agregado e
    quem avançou.
 3. **Resumo sem abrir**: autores dos gols sob cada time ("Pavón 18' · Reinaldo 56'")
@@ -119,5 +127,9 @@ linha do tempo de dois lados, escalações, ficha — com ganhos de UX:
   (‹ Rodada 5 ›), jogos e classificação lado a lado; mata-mata vira lista de
   confrontos por rodada com agregado e vencedor.
 * Operador: funcional e denso, mesma identidade: login → escolha da partida →
-  painel com placar, botões das ações disponíveis, formulário do lance, linha do
-  tempo com "cancelar lançamento" e ações de status com `<dialog>` de confirmação.
+  painel com placar, botões dos lances disponíveis (gol primeiro) e, à parte, o
+  "Andamento do jogo" (início, fim de tempo, pênaltis, fim — com outra cara e sempre
+  com confirmação), formulário do lance, linha do tempo com "cancelar lançamento" e
+  ações de status com `<dialog>` de confirmação.
+* Páginas de erro (404/500) com a mesma identidade: faixa do frevo, estado vazio do
+  sertão, texto em PT-BR e o caminho de volta para os jogos de hoje.

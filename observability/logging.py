@@ -3,12 +3,14 @@
 import contextvars
 import json
 import logging
+import logging.config
 from datetime import datetime, timezone
 
 request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="")
 user_var: contextvars.ContextVar[str] = contextvars.ContextVar("user", default="")
 
-_RESERVED = set(vars(logging.makeLogRecord({})).keys()) | {"message", "asctime"}
+# color_message: cópia de msg com cores ANSI que o uvicorn manda em `extra`.
+_RESERVED = set(vars(logging.makeLogRecord({})).keys()) | {"message", "asctime", "color_message"}
 
 
 class RequestContextFilter(logging.Filter):
@@ -41,3 +43,14 @@ class JsonFormatter(logging.Formatter):
 
 def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(f"fdr.{name}")
+
+
+def configure(config: dict) -> None:
+    """LOGGING_CONFIG do settings: aplica LOGGING e manda os avisos do Python
+    (`warnings`) para o logger "py.warnings", no mesmo formato dos demais registros.
+
+    Sem isso, um aviso (ex.: o do Django ao servir um estático do WhiteNoise pelo
+    ASGI) sairia em texto puro no meio das linhas JSON.
+    """
+    logging.config.dictConfig(config)
+    logging.captureWarnings(True)

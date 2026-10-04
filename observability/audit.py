@@ -35,7 +35,7 @@ def record(action: str, *, actor=None, obj=None, object_type: str = "", object_i
         match_id=match_id,
         data=data or {},
         ip=client_ip(request),
-        request_id=request_id_var.get(),
+        request_id=request_id_var.get()[:64],  # o middleware já valida; segunda trava (varchar 64)
     )
     metrics.inc("fdr_audit_records_total", action=action)
     log.info("audit", extra={"action": action, "actor": entry.actor_username, "object_type": object_type, "object_id": entry.object_id, "match_id": match_id})

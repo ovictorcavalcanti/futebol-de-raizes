@@ -16,6 +16,8 @@ Toda escrita passa pelo mesmo núcleo dos lançamentos (matches/services.py):
 * Escalação, arbitragem, transmissão e estatística: `services.publish_match`.
 * Eventos: somente leitura. Lançamento errado se corrige com a ação "Cancelar
   lançamento", que chama `services.void_event` (exige `matches.void_event`).
+* Partida e confronto: o POST do formulário inteiro roda com a trava global de escrita
+  (`WriteLockedPostMixin`): conferência e gravação sem corrida com outro "Salvar".
 """
 
 from __future__ import annotations
@@ -169,6 +171,25 @@ class EventDisplayMixin:
         return format_html('<strong style="color:var(--error-fg)">cancelado</strong> por {} em {}', obj.voided_by, when)
 
 
+class WriteLockedPostMixin:
+    """POST do formulário inteiro — validação e gravação — dentro da trava global de
+    escrita (`core.locks`), na fila dos lançamentos.
+
+    * As conferências do formulário (jogo repetido no confronto, número de jogos,
+      lançamentos refeitos) leem o banco: sem a trava, dois "Salvar" simultâneos (ou o
+      clique duplo) passariam os dois; com ela, o segundo vê o primeiro e recebe o erro
+      do formulário (o banco ainda recusa, por `uniq_match_tie_leg` e pelos gatilhos).
+    * Ordem única de travas: a linha do confronto só é gravada depois da trava global,
+      como no caminho dos lançamentos (que reapura o confronto) — sem deadlock.
+    """
+
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+        if request.method == "POST":
+            with locked_atomic():
+                return super().changeform_view(request, object_id, form_url, extra_context)
+        return super().changeform_view(request, object_id, form_url, extra_context)
+
+
 # --- Confronto ------------------------------------------------------------------------------
 
 
@@ -209,7 +230,7 @@ class TieForm(forms.ModelForm):
 
 
 @admin.register(Tie)
-class TieAdmin(BaseAdmin):
+class TieAdmin(WriteLockedPostMixin, BaseAdmin):
     """Confronto de mata-mata. Vencedor e forma da decisão são apurados pelos lances."""
 
     form = TieForm
@@ -394,7 +415,7 @@ class MatchForm(forms.ModelForm):
 
 
 @admin.register(Match)
-class MatchAdmin(BaseAdmin):
+class MatchAdmin(WriteLockedPostMixin, BaseAdmin):
     form = MatchForm
     list_display = ("kickoff_at", "match_label", "score", "status", "competition", "stage", "round")
     list_display_links = ("kickoff_at", "match_label")

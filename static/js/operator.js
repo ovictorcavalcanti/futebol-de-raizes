@@ -6,13 +6,16 @@
  * * Mostra só o que me.permissions permite (lançar, cancelar, mudar status).
  * * Escolha da partida por data (Brasília), agrupada por competição.
  * * Botões a partir de `available` (GET /api/matches/:id) — nenhuma regra de jogo
- *   aqui —, formulário montado pelo catálogo (GET /api/ops/catalog), minuto
+ *   aqui —: lances de jogo primeiro; o andamento do jogo (estruturais: início, fim de
+ *   tempo, pênaltis, fim) num grupo à parte que sempre pede confirmação no envio;
+ *   formulário montado pelo catálogo (GET /api/ops/catalog), minuto
  *   sugerido pelo relógio do jogo, confirmação de avisos (422 confirmation_required)
  *   com a MESMA chave de idempotência, linha do tempo com "cancelar lançamento" e
  *   ações de status com <dialog>.
  * * Não assina o stream: busca a partida de novo depois de cada envio.
  *
- * As partes puras (minuto sugerido, corpo do lançamento, data em Brasília) são
+ * As partes puras (minuto sugerido, corpo do lançamento, data em Brasília, grupos de
+ * botões e texto da confirmação do andamento) são
  * exportadas e testadas com node --test; a tela só liga quando há #op-app.
  */
 import { h, hooks, cloneTemplate, showToast } from './render.js';
@@ -107,6 +110,53 @@ export function toBrasiliaInput(value) {
   if (Number.isNaN(d.getTime())) return '';
   const parts = Object.fromEntries(F_LOCAL.formatToParts(d).map((p) => [p.type, p.value]));
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}
+
+/**
+ * Separa os tipos de `available.events` em lances de jogo (gol, cartões, substituição…)
+ * e andamento do jogo (estruturais: início, fim de tempo, prorrogação, pênaltis, fim),
+ * mantendo a ordem da API em cada grupo. Os lances vêm primeiro na tela; o andamento
+ * fica num grupo à parte para ninguém trocar o período por engano.
+ * @param {string[]} types
+ * @param {(type: string) => {kind?: string}} specOf
+ * @returns {{game: string[], flow: string[]}}
+ */
+export function splitActions(types = [], specOf = () => ({})) {
+  const game = [];
+  const flow = [];
+  for (const type of types) (specOf(type)?.kind === 'structural' ? flow : game).push(type);
+  return { game, flow };
+}
+
+/**
+ * Texto do #confirm-dialog antes de lançar um estrutural (todo o andamento do jogo pede
+ * confirmação: mudar o período mexe no relógio, na tabela e no que o torcedor vê).
+ * @param {string} type
+ * @param {object} match  partida atual (home/away/home_score/away_score)
+ * @param {string} [label] rótulo do catálogo, para um tipo novo sem texto próprio
+ * @returns {{title: string, text: string, ok: string}}
+ */
+export function structuralConfirm(type, match, label = '') {
+  const name = (team, fallback) => team?.name || team?.short_name || fallback;
+  const home = name(match?.home, 'Mandante');
+  const away = name(match?.away, 'Visitante');
+  const score = `${home} ${match?.home_score ?? 0} × ${match?.away_score ?? 0} ${away}`;
+  switch (type) {
+    case 'match_start':
+      return { title: 'Iniciar a partida?', text: `${home} × ${away}. O relógio do jogo começa a contar.`, ok: 'Iniciar' };
+    case 'half_time':
+      return { title: 'Encerrar o 1º tempo?', text: `${score}. O jogo vai para o intervalo.`, ok: 'Encerrar 1º tempo' };
+    case 'second_half_start':
+      return { title: 'Iniciar o 2º tempo?', text: `${score}. O relógio do jogo volta a contar.`, ok: 'Iniciar 2º tempo' };
+    case 'extra_time_start':
+      return { title: 'Iniciar a prorrogação?', text: `${score}. O relógio do jogo volta a contar.`, ok: 'Iniciar prorrogação' };
+    case 'penalties_start':
+      return { title: 'Ir para os pênaltis?', text: `${score}. Começa a disputa de pênaltis.`, ok: 'Iniciar pênaltis' };
+    case 'match_end':
+      return { title: 'Encerrar a partida?', text: `${score}. A tabela oficial é recalculada.`, ok: 'Encerrar' };
+    default:
+      return { title: `${label || 'Mudar o andamento do jogo'}?`, text: `${score}. Isto muda o período da partida.`, ok: 'Confirmar' };
+  }
 }
 
 /** Partidas agrupadas por competição, na ordem em que a API devolveu. */
@@ -347,13 +397,13 @@ function pickItem(match) {
 }
 
 function renderPicker() {
-  const groups = groupByCompetition(state.matches);
-  const items = [];
-  for (const group of groups) {
-    items.push(h('li', { class: 'match-picker__group', role: 'presentation' },
-      h('h3', { class: 'match-picker__group-title', text: group.competition?.name || '' })));
-    for (const match of group.matches) items.push(pickItem(match));
-  }
+  // lista de listas: <li> da competição (título) › <ul> com as partidas — semântica de lista válida
+  const items = groupByCompetition(state.matches).map((group, index) => {
+    const titleId = uid(`picker-group-${group.competition?.id ?? index}`);
+    return h('li', { class: 'match-picker__group' },
+      h('h3', { class: 'match-picker__group-title', id: titleId, text: group.competition?.name || '' }),
+      h('ul', { class: 'match-picker__sublist', 'aria-labelledby': titleId }, ...group.matches.map(pickItem)));
+  });
   els.pickerList.replaceChildren(...items);
   els.pickerList.removeAttribute('aria-busy');
   els.pickerEmpty.hidden = state.matches.length > 0;
@@ -477,36 +527,50 @@ function specFor(type) {
   return state.specs.get(type) || { type, label: type, kind: 'game', icon: 'info', minute: 'optional', fields: [] };
 }
 
+/** Botões de lance dos dois grupos (lances de jogo e andamento do jogo). */
+function actionButtons() {
+  return [...els.actionGrid.querySelectorAll('.action-btn'), ...els.flowActions.querySelectorAll('.action-btn')];
+}
+
+function findActionButton(type) {
+  return actionButtons().find((btn) => btn.dataset.type === type) || null;
+}
+
 function paintActions() {
   // os botões são redesenhados: o foco volta para o botão equivalente
   const focused = document.activeElement;
-  const focusType = els.actionGrid.contains(focused) ? focused.dataset.type : null;
+  const focusType = els.actionsBlock.contains(focused) ? focused.dataset.type : null;
   const focusAction = els.statusActions.contains(focused) ? focused.dataset.action : null;
   paintButtons();
-  if (focusType) els.actionGrid.querySelector(`[data-type="${focusType}"]`)?.focus();
+  if (focusType) findActionButton(focusType)?.focus();
   if (focusAction) {
     const btn = els.statusActions.querySelector(`[data-action="${focusAction}"]`);
     if (btn && !btn.disabled) btn.focus();
   }
 }
 
+function actionButton(type) {
+  const spec = specFor(type);
+  const btn = cloneTemplate('tpl-action-button');
+  const p = hooks(btn);
+  p['action-icon'].setAttribute('href', `#i-${spec.icon || 'info'}`);
+  p['action-label'].textContent = spec.label;
+  btn.dataset.type = type;
+  btn.classList.toggle('action-btn--goal', type === 'goal');
+  btn.classList.toggle('action-btn--structural', spec.kind === 'structural');
+  btn.setAttribute('aria-pressed', String(state.formType === type));
+  btn.addEventListener('click', () => (state.formType === type ? cancelForm() : openForm(type)));
+  return btn;
+}
+
 function paintButtons() {
   if (can('post_event')) {
-    const types = state.available.events || [];
-    const buttons = types.map((type) => {
-      const spec = specFor(type);
-      const btn = cloneTemplate('tpl-action-button');
-      const p = hooks(btn);
-      p['action-icon'].setAttribute('href', `#i-${spec.icon || 'info'}`);
-      p['action-label'].textContent = spec.label;
-      btn.dataset.type = type;
-      btn.classList.toggle('action-btn--goal', type === 'goal');
-      btn.classList.toggle('action-btn--structural', spec.kind === 'structural');
-      btn.setAttribute('aria-pressed', String(state.formType === type));
-      btn.addEventListener('click', () => (state.formType === type ? cancelForm() : openForm(type)));
-      return btn;
-    });
-    els.actionGrid.replaceChildren(...(buttons.length ? buttons : [h('p', { class: 'match__empty', text: 'Nenhum lance disponível neste momento.' })]));
+    // tudo vem de `available`: lances de jogo primeiro; estruturais no grupo "Andamento do jogo"
+    const { game, flow } = splitActions(state.available.events || [], specFor);
+    const empty = flow.length ? 'Nenhum lance de jogo neste momento.' : 'Nenhum lance disponível neste momento.';
+    els.actionGrid.replaceChildren(...(game.length ? game.map(actionButton) : [h('p', { class: 'match__empty', text: empty })]));
+    els.flowActions.replaceChildren(...flow.map(actionButton));
+    els.flowBlock.hidden = flow.length === 0;
   }
   if (can('change_status')) {
     const allowed = new Set(state.available.status || []);
@@ -790,8 +854,13 @@ function refreshSuggestion(nowMs = now()) {
 }
 
 function paintTypeSelect() {
-  const types = state.available.events || [];
-  els.eventType.replaceChildren(...types.map((type) => h('option', { value: type, text: specFor(type).label })));
+  // mesma ordem dos botões: lances de jogo, depois o andamento do jogo (em grupo próprio)
+  const { game, flow } = splitActions(state.available.events || [], specFor);
+  const option = (type) => h('option', { value: type, text: specFor(type).label });
+  els.eventType.replaceChildren(
+    ...game.map(option),
+    ...(flow.length ? [h('optgroup', { label: 'Andamento do jogo' }, ...flow.map(option))] : []),
+  );
   els.eventType.value = state.formType || '';
 }
 
@@ -845,7 +914,7 @@ function openForm(type, { focus = true } = {}) {
   refreshSuggestion();
 
   els.formCard.hidden = false;
-  for (const btn of els.actionGrid.querySelectorAll('.action-btn')) btn.setAttribute('aria-pressed', String(btn.dataset.type === type));
+  for (const btn of actionButtons()) btn.setAttribute('aria-pressed', String(btn.dataset.type === type));
   if (focus) {
     const first = [state.minute, ...activeControls().map(([, c]) => c)].find((c) => c && !c.el.hidden);
     (first?.focusTarget() || els.eventType).focus();
@@ -866,11 +935,8 @@ function closeForm({ restoreFocus = true } = {}) {
   if (!els) return;
   els.formCard.hidden = true;
   hideFormMessages();
-  for (const btn of els.actionGrid.querySelectorAll('.action-btn')) btn.setAttribute('aria-pressed', 'false');
-  if (restoreFocus && type) {
-    const button = els.actionGrid.querySelector(`.action-btn[data-type="${type}"]`);
-    (button || els.actionGrid.querySelector('button'))?.focus();
-  }
+  for (const btn of actionButtons()) btn.setAttribute('aria-pressed', 'false');
+  if (restoreFocus && type) (findActionButton(type) || actionButtons()[0])?.focus();
 }
 
 /** "Cancelar"/Esc/clique no mesmo botão: desiste do lance — os valores não passam para o próximo. */
@@ -909,13 +975,10 @@ async function onSubmitEvent(event) {
   hideFormMessages();
   if (!els.eventForm.reportValidity()) return; // validação nativa (o form tem novalidate para não validar no Enter dos campos escondidos)
   const body = collectBody();
-  if (state.formType === 'match_end') {
-    const m = state.match;
-    const ok = await askConfirm({
-      title: 'Encerrar a partida?',
-      text: `${teamName(m.home)} ${m.home_score ?? 0} × ${m.away_score ?? 0} ${teamName(m.away)}. A tabela oficial é recalculada.`,
-      ok: 'Encerrar',
-    });
+  const spec = specFor(state.formType);
+  if (spec.kind === 'structural') {
+    // andamento do jogo (início, fim de tempo, pênaltis, fim): sempre confirma antes de enviar
+    const ok = await askConfirm(structuralConfirm(spec.type, state.match, spec.label));
     if (!ok) return;
   }
   state.formKey = state.formKey || api.newIdempotencyKey();
@@ -1221,6 +1284,8 @@ function bindElements() {
     actionsBlock: document.querySelector('[data-hook="actions-block"]'),
     statusBlock: document.querySelector('[data-hook="status-block"]'),
     actionGrid: $('action-grid'),
+    flowBlock: $('flow-block'),
+    flowActions: $('flow-actions'),
     statusActions: $('status-actions'),
     formCard: $('event-form-card'),
     eventForm: form,

@@ -71,7 +71,8 @@
     </div>
 
     <div class="op-layout">
-      <aside class="card match-picker" aria-labelledby="picker-title" data-hook="picker">
+      {# região nomeada (não <aside>): fica dentro da seção do painel, não é complementar ao topo #}
+      <div class="card match-picker" role="region" aria-labelledby="picker-title" data-hook="picker">
         <div class="card__head">
           <h2 id="picker-title" class="card__title"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>Partidas</h2>
           <button id="picker-refresh" type="button" class="btn btn--ghost btn--icon btn--sm" data-hook="picker-refresh" aria-label="Atualizar lista">
@@ -84,7 +85,7 @@
         </div>
         <ul id="picker-list" class="match-picker__list" data-hook="picker-list" aria-label="Partidas da data" aria-busy="true"></ul>
         <p id="picker-empty" class="match__empty" data-hook="picker-empty" hidden>Nenhuma partida nesta data.</p>
-      </aside>
+      </div>
 
       <div id="op-panel" class="op-panel" data-hook="panel">
         <div id="op-placeholder" class="empty empty--compact" data-hook="placeholder">
@@ -101,6 +102,15 @@
               <div data-hook="actions-block">
                 <h2 id="actions-title" class="op-section-title"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Lançar lance</h2>
                 <div id="action-grid" class="action-grid" data-hook="action-grid" role="group" aria-labelledby="actions-title"></div>
+                {# Andamento do jogo: os estruturais de available.events (início, fim de tempo, pênaltis, fim), #}
+                {# separados dos lances para não mudar o período por engano; pedem confirmação no envio.       #}
+                <div id="flow-block" class="op-flow" data-hook="flow-block" hidden>
+                  <div class="op-flow__head">
+                    <h3 id="flow-actions-title" class="op-section-title"><svg class="icon" aria-hidden="true"><use href="#i-whistle"/></svg>Andamento do jogo</h3>
+                    <p id="flow-actions-hint" class="op-flow__hint">Muda o período da partida — pede confirmação.</p>
+                  </div>
+                  <div id="flow-actions" class="action-grid action-grid--flow" data-hook="flow-actions" role="group" aria-labelledby="flow-actions-title" aria-describedby="flow-actions-hint"></div>
+                </div>
               </div>
               <div class="op-actions__status" data-hook="status-block">
                 <h3 id="status-actions-title" class="op-section-title"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>Status da partida</h3>

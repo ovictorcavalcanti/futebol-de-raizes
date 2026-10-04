@@ -11,7 +11,7 @@ este arquivo.**
 | --- | --- | --- |
 | `config/` | settings, urls, asgi | `BRAND` (logo) e `REALTIME` em settings |
 | `core/` | trava de escrita (`core.locks`), datas (`core.timeutils`), páginas e `/health` | `locked_atomic()` = transação + `pg_advisory_xact_lock` |
-| `accounts/` | `User` próprio, perfis (`accounts.roles`) | grupos Operador/Administrador recriados no `migrate` |
+| `accounts/` | `User` próprio, perfis (`accounts.roles`) | grupos Operador/Administrador recriados no `migrate` (somente leitura no admin); entrar num deles marca `is_staff` |
 | `competitions/` | competição, temporada, fase, critério, zona, grupo, rodada, time, jogador | fase `league` cria grupo único "Tabela" |
 | `matches/` | partida, evento, confronto, enriquecimento; `domain.py` (puro), `services.py` (escrita), `selectors.py` (leitura/serialização) | |
 | `standings/` | `Standing` (cache); `domain.py` (puro), `services.py` (recalcular/ler) | |
@@ -71,8 +71,10 @@ Cada função, numa única transação com `core.locks.locked_atomic()`:
    mudou, os outros jogos dele ganham `version += 1` e uma mensagem `match` cada.
 7. Partida de grupo: `standings.services.recompute_group(group)` (oficial e ao vivo) quando
    mudou status, placar ou cartão.
-8. Outbox (nesta ordem): sempre `match`; `standings` sempre que a partida é de grupo; `goals`
-   quando o conjunto de gols válidos da partida mudou (entrada, saída ou volta).
+8. Outbox (nesta ordem): sempre `match`; `standings` quando a partida é de grupo e a
+   classificação foi recalculada (status, placar ou cartão mudaram — item 7; substituição,
+   acréscimo, VAR, intervalo etc. não reenviam a mesma tabela); `goals` quando o conjunto de
+   gols válidos da partida mudou (entrada, saída ou volta).
 9. Auditoria: `observability.audit.record("event.create" | "event.void" | "match.status", ...)`
    com `match_id` e `data` (`type`, `period`, `minute`, `stoppage`, `team_id`, `key`, `source`,
    `derived`, `warnings`; status: `action`, `kickoff_at`, `reason`; void: `voided_ids`, `reason`).
@@ -115,8 +117,24 @@ Decisões do serviço:
   editáveis. Se o confronto recalculado mudou de resultado, os
   outros jogos dele (e os do confronto antigo) ganham `version += 1` e uma mensagem `match` cada,
   como no item 6; a mensagem `match` da própria partida já sai com o confronto novo.
+  `kickoff_at` editado que põe ou tira de hoje (regra de `selectors.day_matches_query`, espelhada
+  em `selectors.on_day`) uma partida com gols válidos → também `goals` com `changes: []` e
+  `latest_goals` refeito (sem o valor antigo — só os nomes —, publica sempre que há gols).
 
 `DomainError` sobe para a API, que responde 422. Nada é gravado quando há erro.
+
+Estrutura garantida pelo banco (não só pelo `clean()` do admin; seed e shell também passam por
+ela), violação → `IntegrityError`: `uniq_match_tie_leg` (um jogo por confronto e ida/volta);
+gatilhos de `matches/migrations/0002_structure_constraints.py` — grupo, rodada e confronto da
+mesma fase da partida, fase de mata-mata ⇔ partida com confronto, fase com tabela ⇒ partida com
+grupo, `leg` ≤ `ties.legs`; confronto só em mata-mata e com a rodada da fase dele; com jogos, o
+confronto não muda de fase nem fica com menos jogos; grupo/rodada com partidas não mudam de
+fase; formato da fase não muda deixando partidas ou confrontos inválidos — e `zone_no_overlap`
+(`standing_zones`: faixas da mesma fase não se sobrepõem; exclusão GiST com `btree_gist`,
+**DEFERRED**: conferida no commit, para o inline de zonas regravar várias faixas de uma vez).
+No admin, o POST da partida e do confronto roda inteiro com a trava de escrita
+(`matches.admin.WriteLockedPostMixin`): o segundo "Salvar" simultâneo vê o primeiro e recebe o
+erro do formulário.
 
 ### Domínio da partida (matches/domain.py)
 
@@ -165,6 +183,15 @@ Outros pontos de escrita que passam pelo mesmo núcleo:
 
 Toda resposta com horário traz `server_time` (ISO UTC com `Z`) e `timezone` (`"America/Sao_Paulo"`).
 Respostas da home e da competição trazem `cursor` (maior id do outbox), **lido antes do estado**.
+
+Micro-cache (`api/read.py`, cache `reads`): `GET /api/home` e `GET /api/competitions/{slug}` ficam
+guardados por `settings.READ_CACHE_SECONDS` (variável `READ_CACHE_SECONDS`, padrão 5 s; `0` desliga),
+chave = rota + parâmetros (dia de Brasília calculado a cada pedido; `slug`, `stage`, `round`) +
+cursor do outbox. Toda escrita que publica mensagem muda o cursor e invalida na hora; o payload
+guardado vale o mesmo que uma leitura nova naquele cursor (o stream entrega o resto). Acerto = 1
+consulta (o cursor). `server_time`/`timezone` são sempre os da requisição. Erros (404) não entram.
+Edição no admin que **não** publica mensagem (nome de time ou competição, escudo, cores) aparece
+em até `READ_CACHE_SECONDS`.
 
 ### TeamOut
 ```json
@@ -272,6 +299,13 @@ Sem vencedor: `winner_team_id`, `decided_by` e `decided_by_label` são `null` e 
 
 Erros: `{"code": "...", "message": "...", "details": {...}}` (+ `"warnings": [{"code","message"}]` em `confirmation_required`).
 `400 invalid_input` (formato), `401 not_authenticated`, `403 permission_denied`, `403 csrf_failed`, `404 not_found`, `422 <regra>`.
+API pública (`/public/v1/`, `public_api/urls.py`): caminho inexistente (inclusive a raiz) → `404
+not_found` em JSON (`details.path`, `details.docs`), sem exigir chave; método não aceito → `405
+method_not_allowed` (`details.allowed`, header `Allow`).
+
+Id de requisição: o header `X-Request-ID` recebido só é aceito com 1 a 64 caracteres de
+`[A-Za-z0-9._:-]` (cabe em `AuditLog.request_id`); fora disso o servidor gera um (uuid4 hex). O id
+usado volta no `X-Request-ID` da resposta e vai nos logs e na auditoria.
 
 | Rota | Resposta |
 | --- | --- |
@@ -282,9 +316,9 @@ Erros: `{"code": "...", "message": "...", "details": {...}}` (+ `"warnings": [{"
 | `POST /api/ops/matches/{id}/events/{eventId}/void` `{"reason"}` | `200 {"voided": [ids], "match": MatchOut(detalhe), "available": Available, "already": bool}` (`already`: já estava cancelado, nada mudou) |
 | `POST /api/ops/matches/{id}/status` + `Idempotency-Key` `{"action","kickoff_at"?,"reason"?}` | `201 {"event": EventOut, "match": ..., "available": ..., "replayed": false}` · replay → `200` com `"replayed": true` |
 | `GET /api/ops/catalog` | `{"events": [EventSpecOut], "status_actions": [{"action","label"}], "periods": [{"key","label","short"}], "statuses": [{"key","label"}]}` (todos os tipos do catálogo, status inclusive) |
-| `GET /api/home?date=YYYY-MM-DD` | HomeOut, `Cache-Control: no-store` |
+| `GET /api/home?date=YYYY-MM-DD` | HomeOut, `Cache-Control: no-store` (micro-cache no servidor, §3) |
 | `GET /api/competitions` | `{"competitions": [{"id","name","slug","short_name","position"}]}` |
-| `GET /api/competitions/{slug}?stage=&round=` | CompetitionOut |
+| `GET /api/competitions/{slug}?stage=&round=` | CompetitionOut (micro-cache no servidor, §3) |
 | `GET /api/stages/{id}/standings?live=1` | StageStandingsOut + `server_time`, `timezone` |
 | `GET /api/matches?roundId=&date=&status=&stageId=` | `{"server_time","timezone","matches": [MatchOut]}` (`date` = dia de Brasília pelo `kickoff_at`; `status` aceita vários separados por vírgula; sem filtro, no máximo 500) |
 | `GET /api/matches/{id}` | `{"server_time","timezone","cursor","match": MatchOut(detalhe), "available": Available}` |
@@ -331,8 +365,11 @@ Erros: `{"code": "...", "message": "...", "details": {...}}` (+ `"warnings": [{"
 * Login: CSRF conferido explicitamente (rota anônima); `django.contrib.auth.login` troca a chave
   da sessão e o token CSRF — por isso a resposta traz o `csrf_token` novo (o cookie também muda).
   Senha errada, usuário inexistente e usuário inativo → o mesmo `401 invalid_credentials`.
-  Logout sem sessão responde `{"ok": true}`. Auditoria: `auth.login`, `auth.logout`,
-  `auth.login_failed` (`data.username`).
+  Logout sem sessão responde `{"ok": true}`. Auditoria pelos sinais de autenticação do Django
+  (`observability.signals`), em qualquer porta — `/api/auth/*` e `/admin/login/`/`/admin/logout/`
+  — uma linha por evento: `auth.login`, `auth.logout`, `auth.login_failed` (`data.username`, o
+  usuário digitado; a senha nunca). `client.force_login` (testes) também grava `auth.login`.
+  Troca da própria senha em `/admin/password_change/` → `auth.password_change`.
 * `Idempotency-Key`: obrigatório em `/events` e `/status`, 1 a 64 caracteres
   (`services.IDEMPOTENCY_KEY_MAX_LENGTH`; o campo tem 80 para o sufixo `:auto:N`), sem o trecho
   reservado `:auto:` → senão `400 invalid_input` (`details.field = "Idempotency-Key"`). `source` aceita `operator`, `feed` e
@@ -356,9 +393,12 @@ Erros: `{"code": "...", "message": "...", "details": {...}}` (+ `"warnings": [{"
   * `match`: `{"stage_id", "competition_id", "match": MatchOut(detalhe)}`
   * `standings`: `{"stage_id", "standings": StageStandingsOut(live)}`
   * `goals`: `{"date": "YYYY-MM-DD", "changes": [{"kind": "added"|"removed"|"restored", "reason": "annulled"|"voided"|"unvoided"|null, "goal": LatestGoalOut}], "latest_goals": [LatestGoalOut]}`
-    (pares: `added`/null, `removed`/`annulled`, `removed`/`voided`, `restored`/`unvoided` — ver §2).
+    (pares: `added`/null, `removed`/`annulled`, `removed`/`voided`, `restored`/`unvoided` — ver §2;
+    `changes` vazio = só a lista mudou, ex.: início editado no admin).
   * Uma escrita gera, nesta ordem: `match` (+ `match` dos outros jogos do confronto quando o
-    resultado dele muda), `standings` (partida de grupo), `goals` (gols válidos mudaram).
+    resultado dele muda), `standings` (partida de grupo com a classificação recalculada:
+    status, placar ou cartão mudaram), `goals` (gols válidos mudaram; ou, no admin, o início
+    editado pôs ou tirou de hoje uma partida com gols — `changes: []`).
 * Hub (`realtime/hub.py`): um por processo. Busca o outbox uma vez por lote e
   distribui o mesmo quadro (já serializado) para todas as filas. Acorda no
   `on_commit` de `enqueue`, com polling de segurança. Marca `published_at`.

@@ -17,7 +17,9 @@
       </button>
     </div>
   </div>
-  {% if page != "operator" %}
+  {# Menu só nas páginas públicas que o preenchem (home, competição, guia); fora delas — operador #}
+  {# e páginas de erro, sem `page` — o esqueleto ficaria carregando para sempre.                    #}
+  {% if page and page != "operator" %}
   <nav id="competitions-nav" class="comp-nav" aria-label="Competições" aria-busy="true">
     <div class="container">
       <ul class="comp-nav__list" data-hook="competition-links">

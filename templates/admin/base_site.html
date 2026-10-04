@@ -5,6 +5,14 @@
 
 {% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ brand.name }} · Administração{% endblock %}
 
+{# Tema: claro por padrão e o MESMO do site. O admin/js/theme.js do Django roda dentro deste bloco, #}
+{# antes de extrastyle/extrahead, e grava "auto" (segue o sistema) se não houver escolha — por isso  #}
+{# a sincronização vem antes dele: copia a escolha do site (localStorage "fdr-theme", claro sem ela) #}
+{# para a chave do Django ("theme"). O clique no botão do admin (fase de captura, antes do ciclo de  #}
+{# 3 estados do Django) alterna só claro/escuro e grava nas duas chaves: volta igual para o site.    #}
+{% block dark-mode-vars %}<script>(function(){var k="fdr-theme",d=document.documentElement,t="light";try{if(localStorage.getItem(k)==="dark")t="dark"}catch(e){}d.dataset.theme=t;try{localStorage.setItem("theme",t)}catch(e){}document.addEventListener("click",function(ev){if(!ev.target.closest||!ev.target.closest(".theme-toggle"))return;ev.stopPropagation();ev.preventDefault();var next=d.dataset.theme==="dark"?"light":"dark";d.dataset.theme=next;try{localStorage.setItem("theme",next);localStorage.setItem(k,next)}catch(e){}},true);})();</script>
+{{ block.super }}{% endblock %}
+
 {% block extrastyle %}{{ block.super }}
 <style>
   @font-face {
@@ -15,6 +23,11 @@
   html[data-theme="light"], :root {
     --fdr-frevo: linear-gradient(90deg, #C8102E 0 25%, #F2B705 25% 50%, #0E8A4A 50% 75%, #12306B 75% 100%);
     --fdr-badge-bg: #FBF6EC;
+    --body-bg: #FBF6EC;
+    --darkened-bg: #F3EBDB;
+    --body-fg: #1B1712;
+    --hairline-color: #E5DAC5;
+    --border-color: #CDBFA6;
     --primary: #12306B;
     --secondary: #12306B;
     --accent: #F2B705;
@@ -41,6 +54,11 @@
     :root {
       --fdr-frevo: linear-gradient(90deg, #FF5C6C 0 25%, #FFCB3D 25% 50%, #3DD68C 50% 75%, #8FB0FF 75% 100%);
       --fdr-badge-bg: #F2EDE2;
+      --body-bg: #0C1322;
+      --darkened-bg: #141D31;
+      --body-fg: #F2EDE2;
+      --hairline-color: #28344F;
+      --border-color: #3A4868;
       --primary: #1E3A78;
       --secondary: #12306B;
       --accent: #FFCB3D;
@@ -67,6 +85,11 @@
   html[data-theme="dark"] {
     --fdr-frevo: linear-gradient(90deg, #FF5C6C 0 25%, #FFCB3D 25% 50%, #3DD68C 50% 75%, #8FB0FF 75% 100%);
     --fdr-badge-bg: #F2EDE2;
+    --body-bg: #0C1322;
+    --darkened-bg: #141D31;
+    --body-fg: #F2EDE2;
+    --hairline-color: #28344F;
+    --border-color: #3A4868;
     --primary: #1E3A78;
     --secondary: #12306B;
     --accent: #FFCB3D;
@@ -100,7 +123,11 @@
     display: inline-flex; align-items: center; padding: 3px 10px 3px 6px; border-radius: 10px;
     background: var(--fdr-badge-bg);
   }
-  .fdr-brand__badge img { display: block; height: 36px; width: auto; }
+  /* BRAND_LOGO_URL de qualquer proporção: largura limitada, sem distorcer */
+  .fdr-brand__badge img {
+    display: block; height: 36px; width: auto;
+    max-width: min(240px, 55vw); object-fit: contain; object-position: left center;
+  }
   .fdr-brand__title {
     font-family: "Alfa Slab One", Georgia, serif; font-weight: 400; font-size: 1.15rem; letter-spacing: .01em;
     color: var(--header-branding-color);
@@ -120,7 +147,7 @@
 <div id="site-name">
   <a class="fdr-brand" href="{% url 'admin:index' %}">
     <span class="fdr-brand__badge"><img src="{{ brand.logo_src }}" alt="{{ brand.logo_alt }}" width="122" height="36"></span>
-    <span class="fdr-brand__title">{{ site_header|default:"Administração" }}</span>
+    <span class="fdr-brand__title">{{ brand.name }} · Administração</span>
   </a>
 </div>
 {% if user.is_anonymous %}

@@ -5,7 +5,9 @@
   `login` do Django: troca a chave da sessão e o token CSRF. Senha errada e
   usuário inativo respondem igual (401 `invalid_credentials`).
 * `logout` encerra a sessão (POST com CSRF; sem sessão também responde `ok`).
-* Auditoria: `auth.login`, `auth.logout` e `auth.login_failed` (com o usuário digitado).
+* Auditoria: `auth.login`, `auth.logout` e `auth.login_failed` (com o usuário digitado)
+  vêm dos sinais de autenticação do Django (`observability.signals`), os mesmos do
+  login do admin: aqui nada é gravado à mão (senão sairia em dobro).
 """
 
 from __future__ import annotations
@@ -15,7 +17,6 @@ from django.middleware.csrf import get_token
 from ninja import Router
 
 from core.timeutils import iso_utc, now
-from observability import audit
 
 from .errors import error_response
 from .responses import respond
@@ -44,27 +45,18 @@ def me_user(user) -> dict:
 def login(request, data: LoginIn):
     """Exige o header `X-CSRFToken` (cookie de `GET /api/auth/me`)."""
     require_csrf(request)
+    # Falha → sinal `user_login_failed` (auditoria `auth.login_failed`).
     user = django_auth.authenticate(request, username=data.username, password=data.password)
     if user is None:  # senha errada, usuário inexistente ou inativo
-        audit.record(
-            "auth.login_failed",
-            object_type="accounts.user",
-            data={"username": data.username},
-            request=request,
-        )
         return error_response(401, "invalid_credentials", "Usuário ou senha incorretos.")
-    django_auth.login(request, user)  # nova chave de sessão e novo token CSRF
-    audit.record("auth.login", actor=user, obj=user, request=request)
+    django_auth.login(request, user)  # nova chave de sessão e novo token CSRF (+ `auth.login`)
     return respond({"user": me_user(user), "csrf_token": get_token(request)})
 
 
 @router.post("/logout", response={200: OkOut, 400: ErrorOut, 403: ErrorOut}, summary="Encerra a sessão")
 def logout(request):
     require_csrf(request)
-    user = request.user
-    if user.is_authenticated:
-        audit.record("auth.logout", actor=user, obj=user, request=request)
-    django_auth.logout(request)
+    django_auth.logout(request)  # com sessão → sinal `user_logged_out` (auditoria `auth.logout`)
     return respond({"ok": True})
 
 

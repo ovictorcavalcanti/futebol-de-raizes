@@ -148,7 +148,10 @@ for (const btn of document.querySelectorAll('[data-sg-toggle]')) {
 }
 
 /* --- Operador: lista de partidas, ações, formulário, lançamentos --------------------------- */
-const picker = $('sg-picker');
+// lista de listas, como em operator.js: <li> da competição › título + <ul> das partidas
+const pickerGroup = h('ul', { class: 'match-picker__sublist', 'aria-labelledby': 'sg-picker-group' });
+$('sg-picker').replaceChildren(h('li', { class: 'match-picker__group' },
+  h('h3', { class: 'match-picker__group-title', id: 'sg-picker-group', text: F.MATCHES.live.competition.name }), pickerGroup));
 for (const [i, m] of [F.MATCHES.live, F.MATCHES.halfTime, F.MATCHES.scheduledToday, F.MATCHES.finished].entries()) {
   const li = cloneTemplate('tpl-pick-item');
   const p = hooks(li);
@@ -163,13 +166,15 @@ for (const [i, m] of [F.MATCHES.live, F.MATCHES.halfTime, F.MATCHES.scheduledTod
   p.time.dateTime = m.kickoff_at;
   p.competition.textContent = `${m.competition.short_name} · ${m.round.name}`;
   if (i === 0) p.pick.setAttribute('aria-current', 'true');
-  picker.append(li);
+  pickerGroup.append(li);
 }
 
 $('sg-op-scoreboard').append(createMatchCard(F.summaryOf(F.MATCHES.live), { now, details: false, showRound: true, showCompetition: true }));
 
+// como em operator.js: lances de jogo primeiro; estruturais no grupo "Andamento do jogo"
 const available = new Set(F.AVAILABLE.events);
-$('sg-actions').replaceChildren(...F.CATALOG.events.filter((spec) => available.has(spec.type)).map((spec) => {
+const actionSpecs = F.CATALOG.events.filter((spec) => available.has(spec.type));
+const actionButton = (spec) => {
   const btn = cloneTemplate('tpl-action-button');
   const p = hooks(btn);
   p['action-icon'].setAttribute('href', `#i-${spec.icon}`);
@@ -181,7 +186,9 @@ $('sg-actions').replaceChildren(...F.CATALOG.events.filter((spec) => available.h
   }
   if (spec.kind === 'structural') btn.classList.add('action-btn--structural');
   return btn;
-}));
+};
+$('sg-actions').replaceChildren(...actionSpecs.filter((spec) => spec.kind !== 'structural').map(actionButton));
+$('sg-flow-actions').replaceChildren(...actionSpecs.filter((spec) => spec.kind === 'structural').map(actionButton));
 const STATUS_ICON = { postpone: 'calendar', suspend: 'pause', resume: 'play', reschedule: 'calendar', cancel: 'x-circle' };
 $('sg-status').replaceChildren(...F.CATALOG.status_actions.map((a) => {
   const btn = cloneTemplate('tpl-status-button');

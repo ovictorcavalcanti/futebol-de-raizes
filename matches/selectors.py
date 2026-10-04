@@ -576,7 +576,8 @@ def _as_day(value) -> date | None:
 def day_matches_query(day: date, now: datetime) -> QuerySet:
     """Jogos do dia (Brasília): os que começam no dia e o jogo da véspera que passa
     da meia-noite — fica enquanto ao vivo/suspenso (no dia de hoje) ou até 2 h
-    depois de `finished_at` (se terminou depois da meia-noite)."""
+    depois de `finished_at` (se terminou depois da meia-noite). Espelho em Python
+    para uma partida só: `on_day` (mude os dois juntos)."""
     start, end = timeutils.day_bounds(day)
     previous_start = timeutils.day_bounds(day - timedelta(days=1))[0]
     overnight = Q(finished_at__gte=start, finished_at__gt=now - OVERNIGHT_GRACE)
@@ -585,6 +586,23 @@ def day_matches_query(day: date, now: datetime) -> QuerySet:
     return Match.objects.filter(
         Q(kickoff_at__gte=start, kickoff_at__lt=end) | (Q(kickoff_at__gte=previous_start, kickoff_at__lt=start) & overnight)
     ).order_by("kickoff_at", "id")
+
+
+def on_day(match, day: date, now: datetime, *, kickoff_at: datetime | None = None) -> bool:
+    """A partida entra em `day_matches_query(day, now)`? Mesma regra, em Python, para uma
+    partida só — com `kickoff_at` no lugar do gravado (ex.: o valor antigo de uma edição
+    no admin, para saber se ela entrou ou saiu da home)."""
+    kickoff = kickoff_at or match.kickoff_at
+    start, end = timeutils.day_bounds(day)
+    if start <= kickoff < end:
+        return True
+    previous_start = timeutils.day_bounds(day - timedelta(days=1))[0]
+    if not previous_start <= kickoff < start:
+        return False
+    if day == timeutils.local_today(now) and match.status in CLOCK_STATUSES:
+        return True
+    finished = match.finished_at
+    return finished is not None and finished >= start and finished > now - OVERNIGHT_GRACE
 
 
 def latest_goals(day=None, now: datetime | None = None, limit: int = LATEST_GOALS_LIMIT) -> list[dict]:

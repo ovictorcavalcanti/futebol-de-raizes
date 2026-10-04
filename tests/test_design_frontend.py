@@ -37,10 +37,14 @@ def test_base_tema_marca_e_fontes(client):
     assert 'data-theme="light"' in html
     assert 'localStorage.getItem("fdr-theme")' in html  # tema antes da 1ª pintura
     assert 'name="theme-color"' in html and 'data-dark="#0C1322"' in html
-    assert (
-        html.count('rel="preload"') == 2
-        and "barlow-condensed-latin-700-normal.woff2" in html
-    )
+    # fontes pré-carregadas: texto, placar e a face dos títulos (h1 = LCP da home)
+    preloads = re.findall(r'<link rel="preload" href="/static/fonts/([\w-]+\.woff2)" as="font" type="font/woff2" crossorigin>', html)
+    assert html.count('rel="preload"') == len(preloads) == 3
+    assert set(preloads) == {
+        "barlow-latin-400-normal.woff2",
+        "barlow-condensed-latin-700-normal.woff2",
+        "alfa-slab-one-latin-400-normal.woff2",
+    }
     assert "/static/img/logo.svg" in html and "/static/img/logo-dark.svg" in html
     assert 'alt="Futebol de Raízes"' in html
     assert "data-theme-toggle" in html and 'aria-pressed="false"' in html
@@ -61,6 +65,20 @@ def test_logo_configuravel(client, settings):
         html.count('src="https://cdn.example.com/marca.svg"') == 2
     )  # sem versão escura, repete
     assert 'alt="Minha marca"' in html
+
+
+def test_previsao_do_botao_de_notificacoes_segue_alerts_js(client):
+    """O script inline da home (antes da 1ª pintura, sem layout shift) mostra o botão de
+    notificações pela mesma regra de celular de alerts.js#isMobileDevice."""
+    html = _html(client, "/")
+    inline = re.search(r"<script>\(function\(\)\{var w=window.*?</script>", html, re.S).group(0)
+    alerts = (STATIC / "js" / "alerts.js").read_text()
+    mobile_re = re.search(r"if \((/Android[^/]*/i)\.test\(ua\)\) return true;", alerts).group(1)
+    assert mobile_re in inline
+    assert "userAgentData" in inline and "maxTouchPoints" in inline and "isSecureContext" in inline
+    # roda depois do botão e do aviso (os dois já existem quando o script executa)
+    assert html.index('id="toggle-notifications"') < html.index(inline)
+    assert html.index('id="notifications-hint"') < html.index(inline)
 
 
 def test_home_regioes_e_templates(client):
@@ -503,6 +521,13 @@ COMPONENTS_JS = """async () => {
   out.themeDark = document.documentElement.dataset.theme === 'dark' && toggle.getAttribute('aria-pressed') === 'true';
   out.themeLabel = toggle.getAttribute('aria-label');
   toggle.click();
+
+  // 11) gol anulado na linha do tempo: registro factual, sem o "Oxe!" (só o aviso ao vivo tem sotaque)
+  const annulled = live.events.find((e) => e.type === 'goal_annulled');
+  const loose = { ...annulled, id: 99901, sequence: 9999, annuls_event_id: 424242, payload: { reason: 'Mão na bola' } };
+  const annulTimeline = M.renderTimeline({ ...live, events: [...live.events, loose] });
+  out.annulStruck = annulTimeline.querySelector('.tl-item--annulled')?.textContent || '';
+  out.annulTimeline = annulTimeline.textContent;
   return out;
 }"""
 
@@ -528,3 +553,7 @@ def test_componentes_no_navegador(browser_page):
     assert out["goalRingKept"] and out["goalRingCleared"]
     assert out["colorSanitized"]
     assert out["themeDark"] and out["themeLabel"] == "Tema escuro"
+    # gol anulado riscado com minuto e motivo; anulação avulsa com o motivo; nada de "Oxe!"
+    assert "Gol anulado aos 36' — Impedimento marcado pelo VAR" in out["annulStruck"]
+    assert "Mão na bola" in out["annulTimeline"]
+    assert "Oxe" not in out["annulTimeline"]

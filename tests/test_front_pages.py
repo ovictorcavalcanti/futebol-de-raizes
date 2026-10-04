@@ -1,7 +1,8 @@
 """Páginas do front (fases 7 e 8): ganchos dos templates, testes puros em node (alertas,
 reconexão do stream, minuto sugerido, cliente da API) e as três páginas no Chromium com a
 API simulada (page.route): gol pelo stream na home, rodadas na competição e o fluxo do
-operador. Sem banco."""
+operador; mais as páginas de erro, a marca no admin e o acabamento visual (nomes dos
+times, logo largo, ordem dos botões do operador). Sem banco, exceto o login do admin."""
 
 import copy
 import json
@@ -9,11 +10,16 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from django.conf import settings
+from django.core.exceptions import PermissionDenied
+from django.template.loader import render_to_string
+from django.test import RequestFactory, override_settings
+from django.views import defaults as error_views
 
 from matches.selectors import catalog_payload
 
@@ -108,6 +114,87 @@ def test_operador_ganchos(client):
         re.search(r'<form id="login-form"[^>]*>', html).group(0).count("novalidate")
         == 0
     )
+
+
+@pytest.mark.parametrize("url", ["/", "/competition.html?slug=pernambucano"])
+def test_fonte_dos_titulos_pre_carregada(client, url):
+    """Alfa Slab One é a face do h1 (LCP da home): pré-carregada, não descoberta só depois do CSS."""
+    html = _html(client, url)
+    assert re.search(
+        r'<link rel="preload" href="/static/fonts/alfa-slab-one-latin-400-normal\.woff2" as="font" type="font/woff2" crossorigin>',
+        html,
+    )
+
+
+def test_ultimos_gols_visiveis_com_esqueleto_e_focaveis(client):
+    """Sem layout shift: o bloco já aparece com um chip esqueleto e a data do dia; a lista que
+    rola para o lado recebe foco pelo teclado (axe: scrollable-region-focusable)."""
+    html = _html(client, "/")
+    section = re.search(r'<section id="latest-goals"[^>]*>', html).group(0)
+    assert " hidden" not in section
+    ol = re.search(r'<ol id="latest-goals-list"[^>]*>(.*?)</ol>', html, re.S)
+    assert 'tabindex="0"' in ol.group(0) and "aria-label=" in ol.group(0)
+    assert '<li class="skeleton" aria-hidden="true">' in ol.group(1)
+    date = re.search(r'<time id="home-date"[^>]*datetime="(\d{4}-\d\d-\d\d)"[^>]*>([^<]+)</time>', html)
+    assert date and " de " in date.group(2)
+    # menu de competições (esqueleto) nas páginas públicas
+    assert "comp-nav__placeholder" in html
+
+
+@override_settings(DEBUG=False)
+@pytest.mark.parametrize("url", ["/nao-existe", "/styleguide.html"])
+def test_pagina_404_com_a_marca_em_pt_br(client, url):
+    response = client.get(url)
+    assert response.status_code == 404
+    html = response.content.decode()
+    assert '<html lang="pt-BR"' in html
+    assert "Página não encontrada" in html and "Essa página não existe, visse?" in html
+    assert 'href="/"' in html and "Ver os jogos de hoje" in html
+    assert "#ill-sertao" in html and "/static/img/logo.svg" in html and "Futebol de Raízes" in html
+    assert "Not Found" not in html and "Guia de estilo" not in html
+    # sem `page`: nada do menu de competições que ficaria carregando para sempre
+    assert "comp-nav__placeholder" not in html and 'aria-busy="true"' not in html
+
+
+def test_pagina_500_sem_contexto_e_403_com_a_marca(settings):
+    """O server_error do Django renderiza sem request e sem context processors."""
+    html = render_to_string("500.html")
+    assert '<html lang="pt-BR"' in html and "Não deu certo agora." in html and 'href="/"' in html
+    assert "{{" not in html and "{%" not in html and "Server Error" not in html
+    request = RequestFactory().get("/qualquer")
+    response = error_views.server_error(request)
+    assert response.status_code == 500 and "Tente de novo em instantes." in response.content.decode()
+    response = error_views.permission_denied(request, PermissionDenied())
+    html = response.content.decode()
+    assert response.status_code == 403
+    assert '<html lang="pt-BR"' in html and "Acesso negado." in html and "Futebol de Raízes" in html
+    assert "comp-nav__placeholder" not in html
+
+
+@pytest.mark.django_db
+def test_admin_usa_o_nome_da_marca(client, settings):
+    settings.BRAND = {**settings.BRAND, "name": "Raízes do Agreste", "logo_alt": "Raízes do Agreste"}
+    html = client.get("/admin/login/").content.decode()
+    assert "<title>" in html and "Raízes do Agreste · Administração" in html
+    assert "Futebol de Raízes" not in html
+    # tema do admin: sincroniza com o do site antes do theme.js do Django (claro por padrão)
+    assert html.index('localStorage.getItem(k)==="dark"') < html.index("admin/js/theme.js")
+
+
+def test_brand_name_vale_para_o_alt_do_logo_e_o_cabecalho_do_admin():
+    """BRAND_NAME sozinho (sem BRAND_LOGO_ALT) chega ao alt do logo e ao admin.site."""
+    script = (
+        "import django; django.setup();"
+        "from django.conf import settings; import config.urls; from django.contrib import admin;"
+        "print(settings.BRAND['logo_alt']); print(admin.site.site_header); print(admin.site.site_title)"
+    )
+    env = {k: v for k, v in os.environ.items() if k != "BRAND_LOGO_ALT"}
+    env.update(BRAND_NAME="Raízes do Agreste", DJANGO_SETTINGS_MODULE="config.settings", PYTHONIOENCODING="utf-8")
+    out = subprocess.run(
+        [sys.executable, "-c", script], cwd=ROOT, env=env, capture_output=True, text=True, timeout=60
+    )
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.splitlines() == ["Raízes do Agreste", "Raízes do Agreste · Administração", "Raízes do Agreste"]
 
 
 def test_modulos_sem_innerhtml_e_sem_dependencias():
@@ -745,4 +832,127 @@ def test_operador_lanca_gol_com_confirmacao(open_page):
     assert (
         sum(1 for r in api.requests if r[1] == "/api/matches/12") >= 2
     )  # busca a partida de novo depois do envio
+    assert not errors, errors
+
+
+def test_operador_lista_de_partidas_e_lista_de_listas(open_page):
+    """Cada competição é um <li> com título e <ul> aninhada (axe: list); as setas atravessam os grupos."""
+    page, _, errors = open_page("/operator.html", prepare=lambda api: setattr(api, "me", api.fx["ME"]))
+    page.wait_for_selector('#picker-list li[data-match-id="12"] .pick-item')
+    out = page.evaluate("""() => {
+      const list = document.getElementById('picker-list');
+      const items = [...list.querySelectorAll('.pick-item')];
+      return {
+        children: [...list.children].map((li) => [li.tagName, li.getAttribute('role'), li.className]),
+        nested: items.every((b) => { const ul = b.closest('ul'); return ul !== list && ul.classList.contains('match-picker__sublist') && ul.parentElement.closest('ul') === list; }),
+        labelled: [...list.querySelectorAll('.match-picker__sublist')].every((ul) => document.getElementById(ul.getAttribute('aria-labelledby'))?.classList.contains('match-picker__group-title')),
+        region: (() => { const r = document.querySelector('[data-hook="picker"]'); return [r.tagName, r.getAttribute('role')]; })(),
+        asides: document.querySelectorAll('#op-app aside').length,
+        groupSizes: [...list.children].map((li) => li.querySelectorAll('.pick-item').length),
+      };
+    }""")
+    assert out["children"] and all(tag == "LI" and role is None and cls == "match-picker__group" for tag, role, cls in out["children"])
+    assert out["nested"] and out["labelled"]
+    assert out["region"] == ["DIV", "region"] and out["asides"] == 0
+    # ↓ no último jogo do 1º grupo vai para o 1º jogo do 2º grupo
+    first_group = out["groupSizes"][0]
+    page.locator("#picker-list .pick-item").nth(first_group - 1).focus()
+    page.keyboard.press("ArrowDown")
+    assert page.evaluate(
+        "[...document.querySelectorAll('#picker-list .pick-item')].indexOf(document.activeElement)"
+    ) == first_group
+    assert not errors, errors
+
+
+def test_operador_lances_primeiro_e_andamento_do_jogo_a_parte_com_confirmacao(open_page):
+    """A API manda os estruturais antes do gol (ordem do catálogo): a tela mostra os lances
+    primeiro e o andamento do jogo num grupo à parte, que sempre pede confirmação."""
+
+    def prepare(api):
+        api.me = api.fx["ME"]
+        api.fx = {**api.fx, "AVAILABLE": {"events": ["half_time", "goal", "goal_annulled", "yellow_card", "substitution"], "status": ["suspend"]}}
+
+    page, api, errors = open_page("/operator.html", prepare=prepare)
+    page.click('#picker-list li[data-match-id="12"] .pick-item')
+    page.wait_for_selector('#action-grid [data-type="goal"]')
+    types = "(sel) => [...document.querySelectorAll(sel + ' .action-btn')].map((b) => b.dataset.type)"
+    assert page.evaluate(types, "#action-grid") == ["goal", "goal_annulled", "yellow_card", "substitution"]
+    assert page.evaluate(types, "#flow-actions") == ["half_time"]
+    assert page.evaluate("""() => {
+      const block = document.getElementById('flow-block'), grid = document.getElementById('action-grid');
+      return !block.hidden && !!(grid.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING)
+        && document.querySelector('#flow-actions .action-btn').classList.contains('action-btn--structural')
+        && document.getElementById('flow-actions').getAttribute('role') === 'group';
+    }""")
+    # o <select> de tipo segue a mesma ordem: lances, depois o grupo "Andamento do jogo"
+    page.click('#flow-actions [data-type="half_time"]')
+    assert page.evaluate("document.querySelector('#flow-actions [data-type=half_time]').getAttribute('aria-pressed')") == "true"
+    assert page.evaluate("[...document.querySelectorAll('#event-type option')].map((o) => [o.value, o.parentElement.tagName])") == [
+        ["goal", "SELECT"], ["goal_annulled", "SELECT"], ["yellow_card", "SELECT"], ["substitution", "SELECT"], ["half_time", "OPTGROUP"],
+    ]
+    # enviar pede confirmação; "Voltar" não lança nada
+    page.click('[data-hook="event-submit"]')
+    page.wait_for_selector("#confirm-dialog[open]")
+    assert page.evaluate("document.querySelector('#confirm-dialog [data-hook=confirm-title]').textContent") == "Encerrar o 1º tempo?"
+    assert page.evaluate("document.querySelector('#confirm-dialog [data-hook=confirm-ok]').textContent") == "Encerrar 1º tempo"
+    page.click('#confirm-dialog button[value="cancel"]')
+    page.wait_for_selector("#confirm-dialog:not([open])", state="attached")
+    assert api.posts == []
+    # confirmado, lança (o aviso do servidor ainda passa pela confirmação de sempre)
+    page.click('[data-hook="event-submit"]')
+    page.wait_for_selector("#confirm-dialog[open]")
+    page.click('#confirm-dialog [data-hook="confirm-ok"]')
+    page.wait_for_function("() => document.querySelector('#confirm-dialog [data-hook=confirm-title]').textContent === 'Confirme o lançamento'")
+    page.click('#confirm-dialog [data-hook="confirm-ok"]')
+    page.wait_for_selector("#event-form-card[hidden]", state="attached")
+    assert [p["body"]["type"] for p in api.posts] == ["half_time", "half_time"]
+    # gol (lance de jogo) não pede a confirmação do andamento
+    page.click('#action-grid [data-type="goal"]')
+    assert page.evaluate("document.querySelector('#flow-actions [data-type=half_time]').getAttribute('aria-pressed')") == "false"
+    assert not errors, errors
+
+
+NAMES_JS = """() => [...document.querySelectorAll('.match .team__name')].map((name) => {
+  const shown = [...name.children].find((c) => getComputedStyle(c).display !== 'none');
+  const lh = parseFloat(getComputedStyle(name).lineHeight);
+  return { kind: shown.classList.contains('team__short') ? 'short' : 'full', text: shown.textContent,
+    lines: shown.getBoundingClientRect().height / lh, overflow: name.scrollWidth - name.clientWidth };
+})"""
+
+
+@pytest.mark.parametrize("width", [320, 360, 375, 1024])
+@pytest.mark.parametrize("url", ["/", "/competition.html?slug=pernambucano-raiz"])
+def test_nome_do_time_nao_quebra_letra_a_letra(open_page, url, width):
+    """Sigla em 1 linha; nome completo em no máximo 2 linhas (quebra só entre palavras)."""
+    page, _, errors = open_page(url, width=width)
+    page.wait_for_selector("article.match .team__name")
+    page.wait_for_timeout(200)
+    names = page.evaluate(NAMES_JS)
+    assert names
+    bad = [n for n in names if n["lines"] > (1.5 if n["kind"] == "short" else 2.5) or n["overflow"] > 1]
+    assert not bad, bad
+    if width <= 375:
+        assert {n["kind"] for n in names} == {"short"}
+    assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
+    assert not errors, errors
+
+
+@pytest.mark.parametrize("width", [320, 390])
+def test_logo_horizontal_largo_nao_empurra_o_cabecalho(open_page, width):
+    """BRAND_LOGO_URL de qualquer proporção (aqui 10:1): relógio e tema continuam na tela."""
+    wide = '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="60" viewBox="0 0 600 60"><rect width="600" height="60" fill="#12306B"/></svg>'
+    page, _, errors = open_page("/", width=width)
+    page.route("**/static/img/logo*.svg", lambda route: route.fulfill(body=wide, content_type="image/svg+xml"))
+    page.reload()
+    page.wait_for_selector("article.match")
+    out = page.evaluate("""() => {
+      const logo = document.querySelector('.brand__logo--light');
+      return { scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth,
+        toggle: document.querySelector('[data-theme-toggle]').getBoundingClientRect().right,
+        clock: document.getElementById('brasilia-clock').getBoundingClientRect().right,
+        logo: [logo.naturalWidth, logo.getBoundingClientRect().width, logo.getBoundingClientRect().height] };
+    }""")
+    assert out["logo"][0] == 600 and out["logo"][1] <= 240  # carregou e foi limitado
+    assert out["scroll"] <= out["client"], out
+    assert out["toggle"] <= width - 16 + 0.5 and out["clock"] < out["toggle"], out
     assert not errors, errors

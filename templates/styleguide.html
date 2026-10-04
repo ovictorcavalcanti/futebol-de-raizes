@@ -113,7 +113,7 @@
         </div>
       </div>
       <div class="goal-alert-region" aria-live="polite" data-hook="sg-goal-alert"></div>
-      <ol class="goals__list" data-hook="sg-goals"></ol>
+      <ol class="goals__list" data-hook="sg-goals" tabindex="0" aria-label="Gols mais recentes, do mais novo ao mais antigo"></ol>
     </section>
     <div class="competitions" data-hook="sg-home-competitions"></div>
   </section>
@@ -183,11 +183,11 @@
           <button type="submit" class="btn btn--primary btn--lg btn--block"><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg>Entrar</button>
         </form>
       </div>
-      <aside class="card match-picker">
+      <div class="card match-picker" role="region" aria-label="Partidas">
         <div class="card__head"><p class="card__title"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>Partidas</p><button type="button" class="btn btn--ghost btn--icon btn--sm" aria-label="Atualizar lista"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button></div>
         <div class="match-picker__filters"><input class="input" type="date" aria-label="Data"></div>
         <ul class="match-picker__list" data-hook="sg-picker"></ul>
-      </aside>
+      </div>
     </div>
     <div class="op-panel">
       <div data-hook="sg-op-scoreboard"></div>
@@ -196,6 +196,13 @@
           <section class="card card__body">
             <p class="op-section-title"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Lançar lance</p>
             <div class="action-grid" data-hook="sg-actions"></div>
+            <div class="op-flow">
+              <div class="op-flow__head">
+                <p class="op-section-title"><svg class="icon" aria-hidden="true"><use href="#i-whistle"/></svg>Andamento do jogo</p>
+                <p class="op-flow__hint">Muda o período da partida — pede confirmação.</p>
+              </div>
+              <div class="action-grid action-grid--flow" data-hook="sg-flow-actions"></div>
+            </div>
             <p class="op-section-title" style="margin-top:20px"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>Status da partida</p>
             <div class="status-actions" data-hook="sg-status"></div>
           </section>

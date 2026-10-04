@@ -216,3 +216,74 @@ def test_ops_post_checks_csrf_for_logged_in_operator(match, operator_user):
     method, path, body, headers = events
     accepted = call(client, method, path, body, {**headers, "X-CSRFToken": csrf_cookie(client)})
     assert accepted.status_code == 201
+
+
+# --- Auditoria das sessões: API e Django Admin ----------------------------------------------
+
+
+def session_rows():
+    return list(AuditLog.objects.filter(action__startswith="auth.").order_by("id"))
+
+
+def test_api_login_and_logout_write_exactly_one_row_each(operator_user):
+    """A auditoria vem dos sinais de autenticação: nada em dobro na API."""
+    client = Client(enforce_csrf_checks=True)
+    prime_csrf(client)
+    response = post_json(client, "/api/auth/login", {"username": "operador", "password": PASSWORD}, **{"X-CSRFToken": csrf_cookie(client)})
+    assert response.status_code == 200
+    response = post_json(client, "/api/auth/logout", **{"X-CSRFToken": csrf_cookie(client)})
+    assert response.status_code == 200
+    rows = session_rows()
+    assert [row.action for row in rows] == ["auth.login", "auth.logout"]
+    assert all(row.actor_id == operator_user.id and row.ip == "127.0.0.1" for row in rows)
+    assert rows[0].object_type == "accounts.user" and rows[0].object_id == str(operator_user.pk)
+
+
+def test_admin_login_failure_success_and_logout_are_audited(operator_user):
+    client = Client()
+    extra = {"REMOTE_ADDR": "10.1.2.3"}
+    failed = client.post("/admin/login/?next=/admin/", {"username": "operador", "password": "senha-errada"}, **extra)
+    assert failed.status_code == 200  # formulário de novo, com o erro
+    (row,) = session_rows()
+    assert row.action == "auth.login_failed" and row.actor_id is None and row.ip == "10.1.2.3"
+    assert row.data == {"username": "operador"}  # a senha nunca vai para a auditoria
+
+    response = client.post("/admin/login/?next=/admin/", {"username": "operador", "password": PASSWORD}, **extra)
+    assert response.status_code == 302
+    assert client.get("/admin/").status_code == 200
+    login = session_rows()[-1]
+    assert login.action == "auth.login" and login.actor_id == operator_user.id
+    assert login.actor_username == "operador" and login.ip == "10.1.2.3"
+
+    response = client.post("/admin/logout/", **extra)
+    assert response.status_code == 200
+    logout = session_rows()[-1]
+    assert logout.action == "auth.logout" and logout.actor_id == operator_user.id and logout.ip == "10.1.2.3"
+    assert [row.action for row in session_rows()] == ["auth.login_failed", "auth.login", "auth.logout"]
+
+
+def test_admin_login_failure_never_stores_the_password(operator_user):
+    Client().post("/admin/login/", {"username": "ninguem", "password": "segredo-que-nao-pode-vazar"})
+    row = AuditLog.objects.get(action="auth.login_failed")
+    assert row.data == {"username": "ninguem"}
+    assert "segredo" not in str(row.data)
+
+
+def test_admin_password_change_is_audited(operator_user):
+    client = Client()
+    client.force_login(operator_user)
+    new_password = "Outra-senha-forte-456"
+    invalid = client.post(
+        "/admin/password_change/", {"old_password": "errada", "new_password1": new_password, "new_password2": new_password}
+    )
+    assert invalid.status_code == 200
+    assert not AuditLog.objects.filter(action="auth.password_change").exists()
+    response = client.post(
+        "/admin/password_change/", {"old_password": PASSWORD, "new_password1": new_password, "new_password2": new_password}
+    )
+    assert response.status_code == 302
+    row = AuditLog.objects.get(action="auth.password_change")
+    assert row.actor_id == operator_user.id and row.object_id == str(operator_user.pk)
+    assert new_password not in str(row.data) and PASSWORD not in str(row.data)
+    operator_user.refresh_from_db()
+    assert operator_user.check_password(new_password)

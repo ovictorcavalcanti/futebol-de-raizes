@@ -38,7 +38,9 @@
 		}
 	}
 
-	# Todo o resto: compressão e proxy normal.
+	# Todo o resto: compressão e proxy normal. Os estáticos já chegam comprimidos
+	# (.br/.gz gerados no build e servidos pelo WhiteNoise); o encode só atua no
+	# que vem sem Content-Encoding (páginas e JSON).
 	handle {
 		encode zstd gzip
 		reverse_proxy {$APP_UPSTREAM:app:8000}

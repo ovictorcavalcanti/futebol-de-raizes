@@ -912,3 +912,165 @@ def test_bulk_delete_of_users_is_audited(admin_client_fdr, admin_user_fdr):
     deleted = AuditLog.objects.filter(action="admin.delete", object_type="accounts.user")
     assert set(deleted.values_list("object_id", flat=True)) == {str(first.pk), str(second.pk)}
     assert {entry.actor_id for entry in deleted} == {admin_user_fdr.pk}
+
+
+# --- Partida: jogo repetido no confronto e início editado ------------------------------------
+
+
+def test_duplicate_tie_leg_in_admin_shows_one_form_error(admin_client_fdr, league):
+    """O jogo repetido no confronto é conferido pela restrição `uniq_match_tie_leg` (a
+    mensagem aparece uma vez só) com o POST inteiro sob a trava de escrita."""
+    knockout = make_knockout(league["season"], legs=1)
+    tie = knockout["tie"]
+    (existing,) = make_tie_matches(tie)
+    response = admin_client_fdr.get(url(Match, "add"))
+    data = post_data(response)
+    data.update(
+        stage=str(tie.stage_id), round=str(tie.round_id), tie=str(tie.pk), leg="1", group="",
+        home_team=str(tie.team_b_id), away_team=str(tie.team_a_id),
+        kickoff_at_0="2026-10-10", kickoff_at_1="16:00:00",
+    )
+    response = admin_client_fdr.post(url(Match, "add"), data)
+    assert response.status_code == 200
+    page = response.content.decode()
+    assert page.count("Já existe uma partida para este jogo do confronto.") == 1
+    assert list(Match.objects.filter(tie=tie)) == [existing]
+
+
+def test_admin_kickoff_edit_that_moves_match_off_today_refreshes_latest_goals(admin_client_fdr, league, operator_user):
+    sport, nautico = league["teams"][:2]
+    today = timeutils.local_today()
+    noon = timeutils.day_bounds(today)[0] + timedelta(hours=15)
+    match = make_match(league["stage"], sport, nautico, kickoff_at=noon, round=league["rounds"][0])
+    op = Op(match, operator_user)
+    op.post("match_start")
+    op.post("goal", minute=3, team_id=sport.id, payload={"player": "Zé"})
+    data = post_data(admin_client_fdr.get(change_url(match)))
+    tomorrow = timezone.localtime(noon + timedelta(days=1))
+    data["kickoff_at_0"] = tomorrow.strftime("%Y-%m-%d")
+    mark = last_outbox_id()
+    response = admin_client_fdr.post(change_url(match), data)
+    assert response.status_code == 302, response.content.decode()[:3000]
+    topics = [row.topic for row in Outbox.objects.filter(id__gt=mark).order_by("id")]
+    assert topics == ["match", "goals"]
+    goals = Outbox.objects.filter(id__gt=mark, topic="goals").get().payload
+    assert goals == {"date": today.isoformat(), "changes": [], "latest_goals": []}
+
+
+# --- Perfis do sistema e acesso ao admin ----------------------------------------------------
+
+
+def group_url(group, view="change"):
+    return reverse(f"admin:auth_group_{view}", args=[group.pk])
+
+
+def test_system_roles_are_read_only_and_cannot_be_deleted(admin_client_fdr, roles):
+    from django.contrib.auth.models import Group as AuthGroup
+
+    operator = roles["operator"]
+    before = set(operator.permissions.values_list("pk", flat=True))
+    response = admin_client_fdr.get(group_url(operator))
+    assert response.status_code == 200
+    page = response.content.decode()
+    assert "Perfil do sistema: as permissões vêm do código" in page
+    assert 'name="permissions"' not in page and 'name="name"' not in page  # nada editável
+    assert "matches.post_event" in page  # a lista, somente leitura
+
+    dropped = Permission.objects.get(codename="delete_match")
+    response = admin_client_fdr.post(
+        group_url(operator), {"name": "Operador renomeado", "permissions": [str(pk) for pk in before - {dropped.pk}]}
+    )
+    assert response.status_code == 302
+    operator.refresh_from_db()
+    assert operator.name == "Operador"
+    assert set(operator.permissions.values_list("pk", flat=True)) == before
+
+    assert admin_client_fdr.get(group_url(operator, "delete")).status_code == 403
+    assert admin_client_fdr.post(group_url(operator, "delete"), {"post": "yes"}).status_code == 403
+    bulk = admin_client_fdr.post(
+        reverse("admin:auth_group_changelist"),
+        {"action": "delete_selected", "_selected_action": [str(operator.pk), str(roles["admin"].pk)], "post": "yes"},
+    )
+    assert bulk.status_code == 403
+    assert AuthGroup.objects.filter(name__in=["Operador", "Administrador"]).count() == 2
+    listing = admin_client_fdr.get(reverse("admin:auth_group_changelist")).content.decode()
+    assert "Perfil do sistema" in listing
+
+
+def test_custom_group_stays_editable_and_sync_roles_leaves_it_alone(admin_client_fdr, roles):
+    from django.contrib.auth.models import Group as AuthGroup
+
+    from accounts.roles import OPERATOR_PERMISSIONS, sync_roles
+
+    view_match = Permission.objects.get(codename="view_match")
+    view_team = Permission.objects.get(codename="view_team")
+    response = admin_client_fdr.post(reverse("admin:auth_group_add"), {"name": "Leitor", "permissions": [str(view_match.pk)]})
+    assert response.status_code == 302
+    reader = AuthGroup.objects.get(name="Leitor")
+    page = admin_client_fdr.get(group_url(reader)).content.decode()
+    assert 'name="permissions"' in page and "Perfil do sistema" not in page
+    response = admin_client_fdr.post(group_url(reader), {"name": "Leitor", "permissions": [str(view_match.pk), str(view_team.pk)]})
+    assert response.status_code == 302
+
+    operator = roles["operator"]
+    operator.permissions.remove(Permission.objects.get(codename="delete_match"))  # por fora do admin
+    sync_roles()
+    assert set(reader.permissions.values_list("codename", flat=True)) == {"view_match", "view_team"}
+    codes = {f"{perm.content_type.app_label}.{perm.codename}" for perm in operator.permissions.select_related("content_type")}
+    assert codes == set(OPERATOR_PERMISSIONS)  # o código continua sendo a fonte dos perfis do sistema
+    assert admin_client_fdr.get(group_url(reader, "delete")).status_code == 200
+
+
+def test_user_put_in_operator_role_through_admin_gets_admin_access(admin_client_fdr, roles):
+    User = get_user_model()
+    password = "Senha-forte-789"
+    response = admin_client_fdr.post(
+        url(User, "add"), {"username": "novo.operador", "usable_password": "true", "password1": password, "password2": password}
+    )
+    assert response.status_code == 302, response.content.decode()[:3000]
+    user = User.objects.get(username="novo.operador")
+    assert not user.is_staff
+    data = post_data(admin_client_fdr.get(change_url(user)))
+    data.pop("is_staff", None)  # "Membro da equipe" desmarcado
+    data["groups"] = [str(roles["operator"].pk)]
+    response = admin_client_fdr.post(change_url(user), data)
+    assert response.status_code == 302, response.content.decode()[:3000]
+    user.refresh_from_db()
+    assert user.is_staff and list(user.groups.values_list("name", flat=True)) == ["Operador"]
+
+    client = Client()
+    assert client.login(username="novo.operador", password=password)
+    assert client.get("/admin/").status_code == 200
+    assert client.get("/admin/competitions/competition/").status_code == 200
+
+    # desmarcar "Membro da equipe" com o perfil mantido não tranca o operador fora do admin
+    data = post_data(admin_client_fdr.get(change_url(user)))
+    data.pop("is_staff", None)
+    response = admin_client_fdr.post(change_url(user), data)
+    assert response.status_code == 302
+    user.refresh_from_db()
+    assert user.is_staff
+    page = admin_client_fdr.get(change_url(user)).content.decode()
+    assert "Operador e Administrador já dão acesso ao Django Admin" in page
+
+
+def test_joining_a_system_role_in_code_sets_is_staff(roles, django_user_model):
+    from django.contrib.auth.models import Group as AuthGroup
+
+    first = django_user_model.objects.create_user("um")
+    first.groups.add(roles["operator"])
+    assert first.is_staff and django_user_model.objects.get(pk=first.pk).is_staff
+    second = django_user_model.objects.create_user("dois")
+    roles["admin"].user_set.add(second)
+    second.refresh_from_db()
+    assert second.is_staff
+
+    custom = AuthGroup.objects.create(name="Leitor")
+    third = django_user_model.objects.create_user("tres")
+    third.groups.add(custom)
+    custom.user_set.add(django_user_model.objects.create_user("quatro"))
+    assert not django_user_model.objects.filter(username__in=["tres", "quatro"], is_staff=True).exists()
+
+    first.groups.remove(roles["operator"])  # sair do perfil não desmarca (não tranca ninguém fora)
+    first.refresh_from_db()
+    assert first.is_staff

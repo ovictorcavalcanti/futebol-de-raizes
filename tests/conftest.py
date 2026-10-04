@@ -1,8 +1,20 @@
 import pytest
 from django.contrib.auth.models import Group
+from django.core.cache import caches
 from django.test import Client
 
 from accounts.roles import ADMINISTRATOR, OPERATOR, sync_roles
+
+
+@pytest.fixture(autouse=True)
+def _read_cache_off(settings):
+    """Micro-cache das leituras (api/read.py) desligado por padrão: muitos testes mexem
+    no ORM sem publicar mensagem no outbox e leem de novo. Os testes do cache religam
+    (`settings.READ_CACHE_SECONDS = 5`)."""
+    settings.READ_CACHE_SECONDS = 0
+    caches["reads"].clear()
+    yield
+    caches["reads"].clear()
 
 
 @pytest.fixture

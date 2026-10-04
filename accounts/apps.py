@@ -1,5 +1,5 @@
 from django.apps import AppConfig, apps
-from django.db.models.signals import post_migrate
+from django.db.models.signals import m2m_changed, post_migrate
 
 
 def _sync_roles(sender, using="default", verbosity=0, **kwargs):
@@ -18,4 +18,9 @@ class AccountsConfig(AppConfig):
     verbose_name = "Usuários e permissões"
 
     def ready(self):
+        from .models import User
+        from .signals import groups_changed
+
         post_migrate.connect(_sync_roles, dispatch_uid="accounts.sync_roles")
+        # Entrar num perfil do sistema dá acesso ao Django Admin (is_staff).
+        m2m_changed.connect(groups_changed, sender=User.groups.through, dispatch_uid="accounts.staff_for_roles")

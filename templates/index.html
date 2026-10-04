@@ -20,11 +20,15 @@
       <h1>Jogos de hoje</h1>
       <span class="frevo frevo--short" aria-hidden="true"></span>
     </div>
-    <p class="page-intro__date"><time id="home-date" data-hook="home-date"></time></p>
+    {# data do dia já no HTML (Brasília; home.js reescreve com a da API): a linha não aparece depois, sem layout shift #}
+    {% now "Y-m-d" as today_iso %}{% now "l, j \d\e F" as today_long %}
+    <p class="page-intro__date"><time id="home-date" data-hook="home-date" datetime="{{ today_iso }}">{{ today_long|lower }}</time></p>
   </header>
 
   {# Últimos gols: aviso de gol (aria-live), botões de som/notificação e a lista dos 10 mais recentes. #}
-  <section id="latest-goals" class="card goals" aria-labelledby="latest-goals-title" data-hook="latest-goals" hidden>
+  {# Visível desde a 1ª pintura, com um chip esqueleto (sem layout shift quando os dados chegam);   #}
+  {# home.js esconde o bloco só no dia sem jogo (o estado vazio toma o lugar) ou no erro.           #}
+  <section id="latest-goals" class="card goals" aria-labelledby="latest-goals-title" data-hook="latest-goals">
     <div class="goals__head">
       <h2 id="latest-goals-title" class="goals__title">
         <svg class="icon" aria-hidden="true"><use href="#i-ball"/></svg>Últimos gols
@@ -41,8 +45,15 @@
       </div>
     </div>
     <p id="notifications-hint" class="goals__hint" data-hook="notifications-hint" hidden>As notificações do sistema só funcionam com HTTPS.</p>
+    {# Antes da 1ª pintura: mostra o botão de notificações (ou o aviso de HTTPS) onde alerts.js vai mostrar — #}
+    {# mesma regra de notificationSupport()/isMobileDevice(), sem o teste do construtor, que alerts.js faz   #}
+    {# depois. Sem isso o botão aparece com os módulos e empurra a página (layout shift no celular estreito). #}
+    <script>(function(){var w=window,n=w.navigator||{},ua=String(n.userAgent||"");if((n.userAgentData&&n.userAgentData.mobile===true)||/Android|iPhone|iPad|iPod|Mobile|Silk|Kindle|Opera Mini/i.test(ua)||(/Macintosh/.test(ua)&&(n.maxTouchPoints||0)>1&&"ontouchstart" in w))return;if(w.isSecureContext===false){document.getElementById("notifications-hint").hidden=false;return}if(typeof w.Notification==="function")document.getElementById("toggle-notifications").hidden=false})();</script>
     <div id="goal-alert" class="goal-alert-region" aria-live="polite" data-hook="goal-alert"></div>
-    <ol id="latest-goals-list" class="goals__list" data-hook="latest-goals-list" aria-label="Gols mais recentes, do mais novo ao mais antigo"></ol>
+    {# tabindex: a lista rola para o lado e os chips não têm foco — sem ele o teclado não chega aos gols antigos #}
+    <ol id="latest-goals-list" class="goals__list" data-hook="latest-goals-list" tabindex="0" aria-label="Gols mais recentes, do mais novo ao mais antigo" aria-busy="true">
+      <li class="skeleton" aria-hidden="true"></li>
+    </ol>
     <p id="latest-goals-empty" class="goals__empty" data-hook="latest-goals-empty" hidden>Nenhum gol hoje ainda. Paciência, que ele vem.</p>
   </section>
 

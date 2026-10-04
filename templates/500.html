@@ -1,0 +1,48 @@
+{% load static %}<!doctype html>
+{# Erro do servidor (DEBUG desligado). O server_error do Django renderiza SEM request e SEM    #}
+{# context processors: nada de `brand`, nada de extends — CSS embutido, para funcionar mesmo   #}
+{# com o resto quebrado (as fontes vêm dos estáticos se eles responderem). Cores do papel de cordel e da tinta de xilo, faixa do frevo, tema escuro #}
+{# pela preferência salva no site ("fdr-theme") ou, sem ela, claro (o padrão).                    #}
+<html lang="pt-BR" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <meta name="color-scheme" content="light dark">
+  <title>Erro no servidor</title>
+  <script>try{if(localStorage.getItem("fdr-theme")==="dark")document.documentElement.setAttribute("data-theme","dark")}catch(e){}</script>
+  <style>
+    /* fontes da marca, se os estáticos responderem; senão, as do sistema */
+    @font-face { font-family: "Alfa Slab One"; font-display: swap; src: url("{% static 'fonts/alfa-slab-one-latin-400-normal.woff2' %}") format("woff2"); }
+    @font-face { font-family: "Barlow"; font-weight: 400; font-display: swap; src: url("{% static 'fonts/barlow-latin-400-normal.woff2' %}") format("woff2"); }
+    @font-face { font-family: "Barlow"; font-weight: 600; font-display: swap; src: url("{% static 'fonts/barlow-latin-600-normal.woff2' %}") format("woff2"); }
+    :root { --paper: #FBF6EC; --surface: #FFFFFF; --ink: #1B1712; --ink-2: #4B443A; --line: #CDBFA6; --azul: #12306B; --on-azul: #FFFFFF; --focus-halo: rgb(242 183 5 / 0.55); color-scheme: light; }
+    :root[data-theme="dark"] { --paper: #0C1322; --surface: #141D31; --ink: #F2EDE2; --ink-2: #C7C0B2; --line: #3A4868; --azul: #8FB0FF; --on-azul: #0C1322; --focus-halo: rgb(255 203 61 / 0.4); color-scheme: dark; }
+    *, *::before, *::after { box-sizing: border-box; }
+    html { background: var(--paper); color: var(--ink); font-family: "Barlow", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.5; }
+    body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; }
+    .frevo { display: block; height: 4px; background: linear-gradient(90deg, #C8102E 0 25%, #F2B705 25% 50%, #0E8A4A 50% 75%, #12306B 75% 100%); }
+    main { flex: 1; display: grid; place-items: center; padding: 32px 16px; }
+    .box { width: min(520px, 100%); padding: 32px 24px; border: 1px dashed var(--line); border-radius: 14px; background: var(--surface); text-align: center; display: grid; gap: 12px; justify-items: center; }
+    .eyebrow { margin: 0; font-weight: 600; font-size: 0.8125rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+    h1 { margin: 0; font-family: "Alfa Slab One", Rockwell, "Roboto Slab", Georgia, serif; font-weight: 400; font-size: clamp(1.4rem, 1.2rem + 1vw, 1.75rem); line-height: 1.15; }
+    p { margin: 0; color: var(--ink-2); }
+    a.btn { display: inline-flex; align-items: center; min-height: 44px; padding: 0 20px; border-radius: 10px; background: var(--azul); color: var(--on-azul); font-weight: 600; text-decoration: none; }
+    a.btn:focus-visible { outline: 3px solid var(--azul); outline-offset: 2px; box-shadow: 0 0 0 6px var(--focus-halo); }
+    .sun { width: 72px; height: 72px; }
+  </style>
+</head>
+<body>
+  <span class="frevo" aria-hidden="true"></span>
+  <main>
+    <section class="box" aria-labelledby="error-title">
+      <svg class="sun" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="14" fill="#F2B705" stroke="currentColor" stroke-width="3"/><path d="M32 6v8M32 50v8M6 32h8M50 32h8M13.6 13.6l5.7 5.7M44.7 44.7l5.7 5.7M13.6 50.4l5.7-5.7M44.7 19.3l5.7-5.7" stroke="#F2B705" stroke-width="3" stroke-linecap="round"/></svg>
+      <p class="eyebrow">Erro 500</p>
+      <h1 id="error-title">Não deu certo agora.</h1>
+      <p>Tivemos um problema do nosso lado. Tente de novo em instantes.</p>
+      <p><a class="btn" href="/">Voltar para os jogos de hoje</a></p>
+    </section>
+  </main>
+  <span class="frevo" aria-hidden="true"></span>
+</body>
+</html>

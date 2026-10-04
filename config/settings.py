@@ -6,6 +6,8 @@ Tudo que varia por ambiente vem de variáveis de ambiente (ver `.env.example`).
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
@@ -24,8 +26,26 @@ def env_list(name, default=""):
     return [item.strip() for item in env(name, default).split(",") if item.strip()]
 
 
-SECRET_KEY = env("DJANGO_SECRET_KEY", "dev-insecure-futebol-de-raizes-troque-em-producao")
+# Chave só de desenvolvimento. Ela e o exemplo do .env.example são públicas (estão no
+# repositório) e assinam sessão, CSRF e redefinição de senha: com DEBUG=0 o processo
+# se recusa a subir com elas ou com qualquer chave fraca.
+DEV_SECRET_KEY = "dev-insecure-futebol-de-raizes-troque-em-producao"
+PUBLIC_SECRET_KEYS = frozenset({DEV_SECRET_KEY, "troque-por-uma-chave-longa-e-aleatoria"})
+
+
+def is_weak_secret_key(key):
+    """Chave pública ou fraca pela regra do `check --deploy` (security.W009)."""
+    return key in PUBLIC_SECRET_KEYS or len(key) < 50 or len(set(key)) < 5 or key.startswith("django-insecure-")
+
+
+SECRET_KEY = env("DJANGO_SECRET_KEY") or DEV_SECRET_KEY
 DEBUG = env_bool("DJANGO_DEBUG", True)
+if not DEBUG and is_weak_secret_key(SECRET_KEY):
+    raise ImproperlyConfigured(
+        "Defina DJANGO_SECRET_KEY (50+ caracteres aleatórios) fora do desenvolvimento: a chave atual "
+        "está vazia, é fraca ou é pública (padrão do código ou do .env.example). Gere uma com "
+        "python -c 'import secrets; print(secrets.token_urlsafe(50))'"
+    )
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,[::1],testserver")
 CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS", "https://localhost,http://localhost:8000")
 
@@ -37,6 +57,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "whitenoise.runserver_nostatic",
     "django.contrib.staticfiles",
+    "django.contrib.postgres",
     "core",
     "accounts",
     "competitions",
@@ -83,7 +104,10 @@ ASGI_APPLICATION = "config.asgi.application"
 
 # --- Banco -----------------------------------------------------------------
 # Um único PostgreSQL. Com DB_POOL=1 usa o pool do psycopg (Django 5.1+),
-# que evita abrir uma conexão nova a cada requisição no processo ASGI.
+# que evita abrir uma conexão nova a cada requisição no processo ASGI. Desligado
+# por padrão (pytest e desenvolvimento); o docker-compose.yml liga. O hub do
+# tempo real segura uma conexão do pool o tempo todo: DB_POOL_MAX >= 3. O pool
+# exige CONN_MAX_AGE=0.
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
@@ -135,7 +159,9 @@ STORAGES = {
         )
     },
 }
-WHITENOISE_MAX_AGE = 60 if DEBUG else 31536000
+# Arquivos com hash no nome já saem com cache de 10 anos + immutable (WhiteNoise);
+# este prazo vale só para URLs sem hash, que podem mudar sem trocar de nome.
+WHITENOISE_MAX_AGE = 60 if DEBUG else 3600
 WHITENOISE_USE_FINDERS = DEBUG
 WHITENOISE_AUTOREFRESH = DEBUG
 
@@ -149,15 +175,35 @@ CSRF_COOKIE_SECURE = env_bool("SECURE_COOKIES", not DEBUG)
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
+# HSTS e redirecionamento para HTTPS: desligados por padrão. No compose o Caddy já
+# redireciona http:// para https://, e HSTS com o certificado da CA interna (teste,
+# localhost) prenderia o navegador a ele. Em produção com certificado público, ligue
+# SECURE_HSTS_SECONDS (ex.: 31536000). O /health fica fora do redirecionamento (o
+# healthcheck do contêiner fala HTTP direto com o uvicorn).
+SECURE_HSTS_SECONDS = int(env("SECURE_HSTS_SECONDS", "0") or 0)
+SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", False)
+SECURE_REDIRECT_EXEMPT = [r"^health$"]
 LOGIN_URL = "/admin/login/"
 
-# --- Cache (limite de uso da API pública) --------------------------------------
+# --- Cache --------------------------------------------------------------------
+# "default": limite de uso da API pública. "reads": micro-cache das leituras mais
+# quentes (GET /api/home e /api/competitions/{slug}), separado para que as chaves
+# do limite de uso nunca sejam despejadas por ele.
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
         "LOCATION": "fdr",
-    }
+    },
+    "reads": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "fdr-reads",
+        "OPTIONS": {"MAX_ENTRIES": 500},
+    },
 }
+# Validade (s) do micro-cache das leituras, chaveado pelo cursor do outbox: toda
+# escrita que publica mensagem já invalida. Edição no admin que não publica nada
+# (nome de time/competição, escudo) aparece em até este tempo. 0 desliga.
+READ_CACHE_SECONDS = float(env("READ_CACHE_SECONDS", "5"))
 
 # --- Marca ------------------------------------------------------------------
 # Configuração do logo: troque por variáveis de ambiente, sem mexer no código.
@@ -166,13 +212,14 @@ CACHES = {
 # fundo escuro (img/logo-dark.svg); um logo próprio se repete no tema escuro.
 DEFAULT_BRAND_LOGO = "img/logo.svg"
 BRAND_LOGO = env("BRAND_LOGO_URL") or DEFAULT_BRAND_LOGO
+BRAND_NAME = env("BRAND_NAME", "Futebol de Raízes")  # também é o alt do logo e o título do admin
 BRAND = {
-    "name": env("BRAND_NAME", "Futebol de Raízes"),
+    "name": BRAND_NAME,
     "short_name": env("BRAND_SHORT_NAME", "Raízes"),
     "tagline": env("BRAND_TAGLINE", "O futebol pernambucano, lance a lance"),
     "logo_url": BRAND_LOGO,
     "logo_dark_url": env("BRAND_LOGO_DARK_URL") or ("img/logo-dark.svg" if BRAND_LOGO == DEFAULT_BRAND_LOGO else ""),
-    "logo_alt": env("BRAND_LOGO_ALT", "Futebol de Raízes"),
+    "logo_alt": env("BRAND_LOGO_ALT") or BRAND_NAME,
     "favicon_url": env("BRAND_FAVICON_URL", "img/favicon.svg"),
     "theme_color": env("BRAND_THEME_COLOR", "#12306B"),
 }
@@ -190,6 +237,7 @@ REALTIME = {
 METRICS_TOKEN = env("METRICS_TOKEN", "")
 LOG_LEVEL = env("LOG_LEVEL", "INFO")
 LOG_FORMAT = env("LOG_FORMAT", "json")
+LOGGING_CONFIG = "observability.logging.configure"  # dictConfig + avisos (warnings) no mesmo formato
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -209,6 +257,17 @@ LOGGING = {
     "loggers": {
         "django.db.backends": {"level": "WARNING"},
         "fdr": {"level": LOG_LEVEL, "propagate": True},
+        # Sem os handlers de texto do DEFAULT_LOGGING do Django (ativos com DEBUG=1):
+        # tudo sai uma vez só, pelo console acima.
+        "django": {"handlers": [], "level": LOG_LEVEL, "propagate": True},
+        "py.warnings": {"handlers": [], "propagate": True},
+        # Uvicorn (configurado antes de o Django carregar): ciclo de vida e erros no
+        # mesmo formato. "uvicorn.access" fica aqui, mudo: o dictConfig reinicia os
+        # filhos não listados de um logger configurado e o uvicorn voltaria a escrever
+        # o acesso em duplicata (o fdr.http já registra cada requisição).
+        "uvicorn": {"handlers": ["console"], "level": LOG_LEVEL, "propagate": False},
+        "uvicorn.error": {"handlers": ["console"], "level": LOG_LEVEL, "propagate": False},
+        "uvicorn.access": {"handlers": [], "level": "WARNING", "propagate": False},
     },
 }
 

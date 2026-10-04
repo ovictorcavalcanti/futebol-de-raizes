@@ -2,7 +2,12 @@
 
 O Operador faz todo o trabalho do dia a dia; o Administrador faz o mesmo e é o
 único que gerencia usuários, níveis de acesso, chaves da API pública e auditoria.
-Os grupos são recriados de forma idempotente a cada `migrate` (post_migrate).
+Os grupos são recriados de forma idempotente a cada `migrate` (post_migrate): o
+código é a fonte da verdade dos dois perfis (permissões novas de versões futuras
+chegam a eles sozinhas). Por isso o admin mostra esses dois grupos somente leitura e
+não deixa apagá-los nem renomeá-los (accounts/admin.py); nível de acesso
+personalizado é um grupo novo, que `sync_roles` não toca. Entrar num desses perfis
+marca `is_staff` (accounts/signals.py): o perfil sozinho abre o Django Admin.
 """
 
 OPERATOR = "Operador"

@@ -192,6 +192,9 @@ def test_on_stage_rules_changed_validates_recalculates_and_publishes(league):
         services.on_stage_rules_changed(stage)
     assert info.value.code == "zones_overlap"
     assert Outbox.objects.count() == count
+    # A sobreposição também é recusada pelo banco no commit (`zone_no_overlap`, DEFERRED):
+    # a zona inválida sai antes do fim do teste.
+    StandingZone.objects.filter(name="Sobreposta").delete()
 
     ko = make_knockout(league["season"])
     services.on_stage_rules_changed(ko["stage"])  # mata-mata não tem tabela: nada a publicar

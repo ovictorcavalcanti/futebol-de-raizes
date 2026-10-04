@@ -474,10 +474,108 @@ def test_outbox_messages_per_write(league, live_match, operator_user):
     assert added["match"]["competition"]["slug"] == league["competition"].slug and added["team"]["id"] == sport.id
     assert [item["event_id"] for item in goals["latest_goals"]] == [goal.event.id]
 
-    # lance que não mexe em gol: sem mensagem goals
+    # lance que não mexe em gol, placar, status nem cartão: sem goals e sem standings
+    # (a tabela não foi recalculada: a mensagem seria idêntica à anterior)
     mark = last_outbox_id()
     op.post("substitution", team_id=sport.id, minute=20, payload={"player_out": "A", "player_in": "B"})
-    assert [row.topic for row in outbox_after(mark)] == ["match", "standings"]
+    assert [row.topic for row in outbox_after(mark)] == ["match"]
+
+
+def test_standings_message_only_when_the_table_was_recomputed(league, live_match, operator_user):
+    """`standings` sai só quando status, placar ou cartão mudaram (a tabela foi recalculada);
+    lances que não mexem na tabela não reenviam a mesma classificação para todo cliente."""
+    sport = league["teams"][0]
+    op = Op(live_match, operator_user)
+    op.post("match_start")
+
+    def topics(action):
+        mark = last_outbox_id()
+        result = action()
+        return [row.topic for row in outbox_after(mark)], result
+
+    got, yellow = topics(lambda: op.post("yellow_card", team_id=sport.id, minute=10, payload={"player": "Zé"}))
+    assert got == ["match", "standings"]
+    got, sub = topics(lambda: op.post("substitution", team_id=sport.id, minute=20, payload={"player_out": "A", "player_in": "B"}))
+    assert got == ["match"]
+    got, _ = topics(lambda: op.post("stoppage_time", minute=45, payload={"minutes": 3}))
+    assert got == ["match"]
+    got, _ = topics(lambda: op.void(sub.event.id))
+    assert got == ["match"]
+    got, _ = topics(lambda: op.void(yellow.event.id))
+    assert got == ["match", "standings"]
+    got, _ = topics(lambda: op.post("half_time"))  # só o período muda (status segue "live"): tabela igual
+    assert got == ["match"]
+    got, _ = topics(lambda: op.post("second_half_start"))
+    assert got == ["match"]
+    got, _ = topics(lambda: op.status("suspend"))  # mudança de status: recalcula e publica
+    assert got == ["match", "standings"]
+    got, _ = topics(lambda: op.status("resume"))
+    assert got == ["match", "standings"]
+
+
+def test_admin_kickoff_change_on_or_off_today_publishes_latest_goals(league, operator_user):
+    """Início editado no admin que tira (ou põe) de hoje uma partida com gols válidos:
+    mensagem `goals` com `changes` vazio e `latest_goals` refeito."""
+    sport, nautico = league["teams"][:2]
+    today = timeutils.local_today()
+    noon = timeutils.day_bounds(today)[0] + timedelta(hours=15)  # 12:00 de Brasília, hoje
+    match = make_match(league["stage"], sport, nautico, kickoff_at=noon, round=league["rounds"][0])
+    op = Op(match, operator_user, start=noon)
+    op.post("match_start")
+    goal = op.goal(sport, 5, "Zé")
+
+    def edit(new_kickoff, previous):
+        Match.objects.filter(pk=match.pk).update(kickoff_at=new_kickoff)
+        mark = last_outbox_id()
+        services.on_match_edited(op.match(), previous, user=operator_user)
+        return outbox_after(mark)
+
+    msgs = edit(noon + timedelta(days=2), {"kickoff_at": noon})  # sai de hoje
+    assert [row.topic for row in msgs] == ["match", "goals"]
+    assert msgs[-1].payload == {"date": today.isoformat(), "changes": [], "latest_goals": []}
+
+    msgs = edit(noon, {"kickoff_at": noon + timedelta(days=2)})  # volta para hoje
+    assert [row.topic for row in msgs] == ["match", "goals"]
+    assert msgs[-1].payload["changes"] == []
+    assert [item["event_id"] for item in msgs[-1].payload["latest_goals"]] == [goal.event.id]
+
+    msgs = edit(noon + timedelta(hours=1), {"kickoff_at": noon})  # mesmo dia: a lista não muda
+    assert [row.topic for row in msgs] == ["match"]
+
+    # só os nomes (sem o valor antigo): publica a lista, por garantia
+    mark = last_outbox_id()
+    services.on_match_edited(op.match(), ["kickoff_at"])
+    assert [row.topic for row in outbox_after(mark)] == ["match", "goals"]
+
+    # sem gols válidos, nunca
+    op.void(goal.event.id)
+    msgs = edit(noon + timedelta(days=3), {"kickoff_at": noon + timedelta(hours=1)})
+    assert [row.topic for row in msgs] == ["match"]
+
+
+@pytest.mark.parametrize(
+    "kickoff_shift, status, finished_shift, expected",
+    [
+        (timedelta(hours=0), "scheduled", None, True),  # começa hoje
+        (timedelta(days=1), "scheduled", None, False),  # amanhã
+        (timedelta(hours=-3), "live", None, True),  # véspera, ao vivo (hoje)
+        (timedelta(hours=-3), "finished", timedelta(minutes=-30), True),  # terminou depois da meia-noite, < 2 h
+        (timedelta(hours=-3), "finished", timedelta(hours=-3), False),  # terminou antes da meia-noite
+        (timedelta(days=-2), "live", None, False),  # antevéspera
+    ],
+)
+def test_on_day_mirrors_day_matches_query(league, kickoff_shift, status, finished_shift, expected):
+    today = timeutils.local_today()
+    midnight = timeutils.day_bounds(today)[0]
+    now = midnight + timedelta(hours=1)  # 01:00 de Brasília
+    kickoff = (midnight + timedelta(hours=1, minutes=30)) if kickoff_shift == timedelta(0) else midnight + kickoff_shift
+    match = make_match(league["stage"], *league["teams"][:2], kickoff_at=kickoff)
+    finished = now + finished_shift if finished_shift is not None else None
+    Match.objects.filter(pk=match.pk).update(status=status, finished_at=finished)
+    match.refresh_from_db()
+    in_query = selectors.day_matches_query(today, now).filter(pk=match.pk).exists()
+    assert in_query is expected
+    assert selectors.on_day(match, today, now) is expected
 
 
 def test_goals_message_removed_when_goal_annulled_and_restored_when_annulment_voided(league, live_match, operator_user):
@@ -657,7 +755,7 @@ def test_on_match_edited_recomputes_groups_and_publishes(league, live_match, ope
     other = make_league(n_teams=2)
     old_group = live_match.group
     # muda a partida para outro grupo (de outra fase) no admin
-    Match.objects.filter(pk=live_match.pk).update(stage=other["stage"], group=other["group"])
+    Match.objects.filter(pk=live_match.pk).update(stage=other["stage"], group=other["group"], round=other["rounds"][0])
     from competitions.models import GroupTeam
 
     GroupTeam.objects.create(group=other["group"], team=league["teams"][0])

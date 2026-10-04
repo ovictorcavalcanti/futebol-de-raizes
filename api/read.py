@@ -4,19 +4,32 @@ Camada fina sobre `matches.selectors` e `standings.services`: os dicionários
 saem como estão (docs/CONTRACT.md §3–4). Dado ao vivo responde com
 `Cache-Control: no-store`; o menu de competições aceita um cache curto.
 Filtro com formato inválido → 400 `invalid_input` (`details.field`).
+
+Micro-cache (`settings.READ_CACHE_SECONDS`, padrão 5 s; 0 desliga) nas duas leituras
+mais quentes, home e competição, no cache `reads`: chave = (rota, parâmetros, cursor do
+outbox). O cursor é lido antes do estado, e toda escrita publica mensagem, que muda o
+cursor: o que sai do cache vale o mesmo que uma leitura nova feita naquele cursor (o
+stream entrega o resto). `server_time`/`timezone` são sempre os da requisição. Só a
+edição no admin que não publica mensagem (nome de time ou competição, escudo) espera
+o vencimento.
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import re
+from collections.abc import Callable
 
+from django.conf import settings
+from django.core.cache import caches
 from ninja import Query, Router
 from ninja.responses import codes_4xx
 
 from competitions.models import Stage
 from core import timeutils
 from matches import selectors
+from realtime.outbox import current_cursor
 from standings.services import stage_standings
 
 from .errors import ApiError, invalid_input
@@ -65,9 +78,37 @@ def stamp() -> dict:
     return {"server_time": timeutils.iso_utc(timeutils.now()), "timezone": selectors.timezone_name()}
 
 
+READ_CACHE = "reads"
+
+
+def _cache_key(kind: str, parts: tuple, cursor: int) -> str:
+    digest = hashlib.sha1(repr(parts).encode(), usedforsecurity=False).hexdigest()
+    return f"fdr:read:{kind}:{digest}:{cursor}"
+
+
+def cached_read(kind: str, parts: tuple, build: Callable[[], dict]) -> dict:
+    """Payload de `build()` (que traz `cursor`, lido antes do estado), guardado por
+    `READ_CACHE_SECONDS` sob (kind, parts, cursor). Acerto = 1 consulta (o cursor).
+    O dicionário guardado nunca é mexido: devolve uma cópia rasa com `server_time` novo.
+    Erros (ex.: 404) sobem de `build()` e não entram no cache."""
+    ttl = float(getattr(settings, "READ_CACHE_SECONDS", 0) or 0)
+    if ttl <= 0:
+        return build()
+    store = caches[READ_CACHE]
+    payload = store.get(_cache_key(kind, parts, current_cursor()))
+    if payload is None:
+        payload = build()
+        # Sob o cursor do próprio payload (≥ o da chave e lido antes do estado): o
+        # próximo pedido no mesmo cursor já acerta.
+        store.set(_cache_key(kind, parts, payload["cursor"]), payload, timeout=ttl)
+    return {**payload, **stamp()}
+
+
 @router.get("/home", response={200: HomeOut, codes_4xx: ErrorOut}, summary="Jogos do dia por competição e últimos gols")
 def home(request, date: str | None = Query(None, description="Dia de Brasília (AAAA-MM-DD); sem ele, hoje")):
-    return respond(selectors.home_payload(day=parse_day(date)))
+    # O dia é calculado a cada pedido: a virada da meia-noite muda a chave do cache.
+    day = parse_day(date) or timeutils.local_today()
+    return respond(cached_read("home", (day.isoformat(),), lambda: selectors.home_payload(day=day)))
 
 
 @router.get("/competitions", response=CompetitionsOut, summary="Competições em ordem, para o menu")
@@ -86,7 +127,13 @@ def competition(
     stage_id: int | None = Query(None, alias="stage", description="Fase exibida (padrão: a atual)"),
     round_id: int | None = Query(None, alias="round", description="Rodada exibida (padrão: a atual)"),
 ):
-    return respond(selectors.competition_payload(slug, stage_id=stage_id, round_id=round_id))
+    return respond(
+        cached_read(
+            "competition",
+            (slug, stage_id, round_id),
+            lambda: selectors.competition_payload(slug, stage_id=stage_id, round_id=round_id),
+        )
+    )
 
 
 @router.get(

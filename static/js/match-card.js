@@ -49,6 +49,18 @@ export function safeHref(url) {
     return null;
   }
 }
+/**
+ * Linha do gol anulado na linha do tempo — registro factual, sem sotaque (IDENTIDADE §5:
+ * o "Oxe!" é do aviso ao vivo, createGoalAlert, nunca dos dados).
+ * @param {{minute_label?: string, payload?: {reason?: string}}|null} annulment  o goal_annulled
+ * @returns {string} "Gol anulado aos 60' — Impedimento (VAR)"
+ */
+export function annulledGoalNote(annulment) {
+  const when = annulment?.minute_label ? ` aos ${annulment.minute_label}` : '';
+  const reason = annulment?.payload?.reason;
+  return `Gol anulado${when}${reason ? ` — ${reason}` : ''}`;
+}
+
 // cor do time vira variável CSS: só #RRGGBB (um valor livre como url(...) iria parar num `background`)
 const HEX = /^#[0-9a-f]{6}$/i;
 const hexOr = (color, fallback) => (HEX.test(color || '') ? color : fallback);
@@ -586,9 +598,7 @@ export function renderTimeline(match, newIds = null) {
         if (!annulled && e.score_after) score = formatScore(e.score_after.home, e.score_after.away);
         const sub = [];
         if (annulled) {
-          const reason = annul?.payload?.reason;
-          const when = annul?.minute_label ? ` aos ${annul.minute_label}` : '';
-          sub.push(h('span', { class: 'tl-item__sub tl-item__sub--alert', text: `Oxe! Gol anulado${when}${reason ? ` — ${reason}` : ''}` }));
+          sub.push(h('span', { class: 'tl-item__sub tl-item__sub--alert', text: annulledGoalNote(annul) }));
         } else {
           const origin = e.payload?.origin;
           if (origin && origin !== 'open_play') sub.push(ORIGIN_LABEL[origin]);
@@ -603,7 +613,8 @@ export function renderTimeline(match, newIds = null) {
       }
       case 'goal_annulled': {
         if (annulments.get(e.annuls_event_id) === e) break; // já mostrado no gol riscado
-        list.append(timelineItem(e, side, { title: 'Gol anulado', sub: [e.payload?.reason ? `Oxe! ${e.payload.reason}` : 'Oxe! Gol anulado.'], isNew }));
+        // dado, não emoção: o título já diz "Gol anulado"; a linha de baixo traz o motivo
+        list.append(timelineItem(e, side, { title: 'Gol anulado', sub: [e.payload?.reason || 'Gol anulado'], isNew }));
         break;
       }
       case 'substitution': {

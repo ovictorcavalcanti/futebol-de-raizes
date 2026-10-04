@@ -18,7 +18,7 @@ import { liveMinuteLabel } from './clock.js';
 const STATE = new WeakMap();
 let seq = 0;
 
-const POSITION_SHORT = { GK: 'GOL', DF: 'DEF', MF: 'MEI', FW: 'ATA' };
+const POSITION_SHORT = { GK: 'GOL', LAD: 'LAD', DF: 'ZAG', LAE: 'LAE', VOL: 'VOL', MF: 'MEI', FW: 'ATA' };
 const ORIGIN_TAG = { penalty: 'pên.', own_goal: 'contra' };
 const ORIGIN_LABEL = { open_play: 'Jogada', penalty: 'De pênalti', own_goal: 'Gol contra' };
 const MISS_LABEL = { saved: 'Defendido', off_target: 'Para fora', woodwork: 'Na trave' };
@@ -30,7 +30,7 @@ const SEPARATORS = {
   penalties_start: { label: 'Disputa de pênaltis', icon: 'ball-penalty', score: true },
   match_end: { label: 'Fim de jogo', icon: 'flag', score: true, end: true },
 };
-const STATUS_EVENTS = new Set(['postponed', 'suspended', 'resumed', 'rescheduled', 'cancelled']);
+const STATUS_EVENTS = new Set(['delayed', 'postponed', 'suspended', 'resumed', 'rescheduled', 'cancelled']);
 const TABS = [
   { key: 'events', label: 'Lances', icon: 'list' },
   { key: 'lineups', label: 'Escalações', icon: 'shirt' },
@@ -217,8 +217,12 @@ function statusPill(match) {
     return h('span', { class: 'pill pill--scheduled' }, icon('clock'), h('span', { class: 'visually-hidden', text: 'Agendado para ' }), time || 'A definir');
   }
   if (status === 'live') {
+    if (match.partial_info) return h('span', { class: 'pill pill--partial', text: 'Informações parciais' });
     if (match.period === 'half_time') return h('span', { class: 'pill pill--interval', text: 'Intervalo' });
     return h('span', { class: 'pill pill--live', text: match.period === 'penalties' ? 'Pênaltis' : 'Ao vivo' });
+  }
+  if (status === 'delayed') {
+    return h('span', { class: 'pill pill--delayed', title: match.status_note || '' }, icon('clock'), 'Atrasado');
   }
   const cls = { finished: 'finished', postponed: 'postponed', suspended: 'suspended', cancelled: 'cancelled' }[status] || 'scheduled';
   return h('span', { class: `pill pill--${cls}`, text: match.status_label || status });
@@ -236,7 +240,7 @@ function roundLabel(match) {
 function renderMeta(meta, match, now, opts) {
   const parts = [];
   const status = h('span', { class: 'match__status' }, statusPill(match));
-  if (match.status === 'live' && match.period !== 'half_time' && match.period !== 'penalties') {
+  if (match.status === 'live' && !match.partial_info && match.period !== 'half_time' && match.period !== 'penalties') {
     status.append(h('span', { class: 'match__minute' },
       match.period_short ? h('span', { class: 'match__minute-period', text: match.period_short }) : null,
       h('span', { 'data-hook': 'minute', text: liveMinuteLabel(match, now) }),
@@ -289,7 +293,8 @@ function boardLabel(match, now) {
   const away = displayName(match.away);
   if (!hasScore(match)) {
     const when = match.kickoff_at ? `, ${formatWhen(match.kickoff_at, now).replace(' · ', ' às ').toLowerCase()}` : '';
-    return `${home} contra ${away}${when}. ${match.status_label || ''}`.trim();
+    const note = match.status === 'delayed' && match.status_note ? `: ${match.status_note}` : '';
+    return `${home} contra ${away}${when}. ${match.status_label || ''}${note}`.trim();
   }
   let label = `${home} ${match.home_score ?? 0} a ${match.away_score ?? 0} ${away}`;
   if (match.home_penalties != null && match.away_penalties != null) label += `, pênaltis ${match.home_penalties} a ${match.away_penalties}`;
@@ -310,6 +315,9 @@ function renderBoard(board, match, now) {
     }
   } else {
     center.append(h('span', { class: 'score__vs', 'aria-hidden': 'true', text: '×' }));
+    if (match.status === 'delayed' && match.status_note) {
+      center.append(h('span', { class: 'score__delay', 'aria-hidden': 'true', text: match.status_note }));
+    }
   }
   board.replaceChildren(teamBlock(match.home, 'home'), center, teamBlock(match.away, 'away'));
   board.setAttribute('aria-label', boardLabel(match, now));
@@ -338,13 +346,13 @@ function flashScore(el, prev, match) {
 }
 
 /* ==========================================================================
-   Resumo (gols e vermelhos sem abrir) e linha do confronto
+   Resumo (só os gols, sem abrir) e linha do confronto
    ========================================================================== */
 
 function renderSummary(summary, match) {
+  // Fora do acordeão, só os gols; cartões ficam nos lances.
   const goals = Array.isArray(match.goals) ? match.goals : [];
-  const reds = Array.isArray(match.red_cards) ? match.red_cards : [];
-  if (!goals.length && !reds.length) {
+  if (!goals.length) {
     summary.hidden = true;
     summary.replaceChildren();
     return;
@@ -360,11 +368,7 @@ function renderSummary(summary, match) {
         tag ? h('span', { class: 'facts-line__tag', text: `(${tag})` }) : null,
       );
     });
-    for (const r of reds.filter((c) => c.team_side === side)) {
-      items.push(h('li', { class: 'facts-line__item facts-line__item--red' },
-        icon('card-red', { label: 'Cartão vermelho' }), r.player || 'Expulsão', h('span', { class: 'facts-line__min', text: r.minute_label || '' })));
-    }
-    return h('ul', { class: `facts-line facts-line--${side}`, 'aria-label': `Destaques de ${displayName(match[side])}` }, ...items);
+    return h('ul', { class: `facts-line facts-line--${side}`, 'aria-label': `Gols de ${displayName(match[side])}` }, ...items);
   };
   summary.replaceChildren(column('home'), column('away'));
 }
@@ -650,6 +654,8 @@ export function renderTimeline(match, newIds = null) {
         list.append(timelineItem(e, side, { title: 'Revisão do VAR', sub: [incident, decision ? `Decisão: ${decision}` : null], isNew }));
         break;
       }
+      case 'clock_adjust':
+        break; // ajuste interno do relógio: não aparece nos lances do público
       case 'stoppage_time': {
         const minutes = e.payload?.minutes;
         list.append(timelineItem(e, null, { title: minutes ? `+${minutes} min de acréscimo` : 'Acréscimos', isNew, minuteText: '' }));

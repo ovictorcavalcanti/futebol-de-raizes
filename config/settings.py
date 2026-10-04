@@ -162,6 +162,9 @@ USE_TZ = True
 
 # --- Estáticos --------------------------------------------------------------
 STATIC_URL = "/static/"
+# Arquivos enviados (escudos). Servidos pelo próprio app em /media/ (poucos e pequenos).
+MEDIA_URL = "/media/"
+MEDIA_ROOT = Path(env("MEDIA_ROOT") or str(BASE_DIR / "media"))
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STORAGES = {

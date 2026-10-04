@@ -784,3 +784,30 @@ def test_publish_match_enqueues_detail(live_match):
     row = services.publish_match(live_match)
     assert row.topic == "match" and row.id > mark
     assert row.payload["match"]["id"] == live_match.id and row.payload["match"]["events"] == []
+
+
+def test_operator_clock_stop_start_and_set_minute(live_match, operator_user):
+    t0 = timeutils.now() - timedelta(minutes=40)
+    op = Op(live_match, operator_user, start=t0 - timedelta(minutes=1))
+    assert op.post("match_start").match.period_started_at == t0
+
+    stopped = op.post("clock_adjust", after=10, payload={"action": "stop"}).match
+    assert stopped.status == "live" and stopped.clock_paused_at == t0 + timedelta(minutes=10)
+    clock = selectors.serialize_match(Match.objects.select_related(*selectors.MATCH_RELATED).get(pk=stopped.pk))["clock"]
+    assert clock["running"] is False and clock["paused_at"] == timeutils.iso_utc(t0 + timedelta(minutes=10))
+
+    started = op.post("clock_adjust", after=4, payload={"action": "start"}).match
+    assert started.clock_paused_at is None and started.period_started_at == t0 + timedelta(minutes=4)
+
+    # Início lançado com atraso: o operador acerta o relógio para mostrar 20' agora.
+    fixed = op.post("clock_adjust", after=1, payload={"action": "set", "minute": 20}).match
+    now = t0 + timedelta(minutes=15)
+    assert fixed.period_started_at == now - timedelta(minutes=19)
+
+
+def test_partial_info_match_has_no_clock(live_match, operator_user):
+    op = Op(live_match, operator_user, start=timeutils.now() - timedelta(minutes=30))
+    op.post("match_start")
+    Match.objects.filter(pk=live_match.pk).update(partial_info=True)
+    data = selectors.serialize_match(Match.objects.select_related(*selectors.MATCH_RELATED).get(pk=live_match.pk))
+    assert data["partial_info"] is True and data["clock"] is None

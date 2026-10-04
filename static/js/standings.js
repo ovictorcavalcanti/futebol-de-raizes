@@ -72,17 +72,16 @@ function groupCaption(standings, group, multiple, anyPlaying) {
   );
 }
 
-function teamCell(row, previousZone) {
+function teamCell(row) {
   const team = row.team || {};
+  // A zona aparece só na cor da linha e na legenda; o nome fica para leitor de tela.
   const zoneName = row.zone?.name || '';
-  const showZone = zoneName && zoneName !== previousZone;
   return h('td', { class: 'col-team' },
     h('div', { class: 'team-cell' },
       createCrest(team, { size: 22 }),
       h('span', { class: 'team-cell__text' },
         h('span', { class: 'team-cell__name', title: team.name, text: team.name || team.short_name || '' }),
         h('abbr', { class: 'team-cell__short', title: team.name, text: team.short_name || team.name || '' }),
-        showZone ? h('span', { class: 'team-cell__zone', 'aria-hidden': 'true', text: zoneName }) : null,
         zoneName ? h('span', { class: 'visually-hidden', text: `, zona: ${zoneName}` }) : null,
       ),
       row.playing ? h('span', { class: 'live-dot', title: 'Em jogo agora' }) : null,
@@ -100,23 +99,21 @@ function groupTable(standings, group, opts, multiple) {
     h('th', { scope: 'col', class: 'col-team', text: 'Time' }),
     ...COLUMNS.map((c) => h('th', { scope: 'col', class: c.cls }, h('abbr', { title: c.title, text: c.label }))),
   ));
-  let previousZone = '';
   const tbody = h('tbody', null, ...rows.map((row) => {
     const zone = row.zone && HEX.test(row.zone.color || '') ? row.zone.color : null;
     const tr = h('tr', {
       class: [row.playing && 'is-playing', highlight?.has(row.team?.id) && 'is-highlight'],
       'data-team-id': row.team?.id,
     },
-      h('td', { class: 'col-pos', style: zone ? { '--zone': zone } : null },
+      h('td', { class: 'col-pos', style: zone ? { '--zone': zone } : null, title: row.zone?.name || null },
         String(row.position),
         row.tied ? h('abbr', { class: 'tied-mark', title: 'Empate não desfeito pelos critérios (ordem alfabética)', text: '=' }) : null,
       ),
-      teamCell(row, previousZone),
+      teamCell(row),
       ...COLUMNS.map((c) => (c.key === 'points'
         ? pointsCell(row, c)
         : h('td', { class: c.cls, text: c.key === 'goal_difference' ? signed(row[c.key] ?? 0) : (row[c.key] ?? 0) }))),
     );
-    previousZone = row.zone?.name || '';
     return tr;
   }));
   const table = h('table', { class: 'table' }, groupCaption(standings, group, multiple, anyPlaying), thead, tbody);

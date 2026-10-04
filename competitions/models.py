@@ -9,8 +9,16 @@ no Django Admin. O código só conhece o catálogo de critérios (standings/doma
 from django.contrib.postgres.constraints import ExclusionConstraint
 from django.contrib.postgres.fields import IntegerRangeField, RangeOperators
 from django.core.exceptions import ValidationError
-from django.core.validators import RegexValidator
+from django.core.validators import FileExtensionValidator, RegexValidator
 from django.db import models
+
+CREST_MAX_BYTES = 512 * 1024
+
+
+def validate_crest_size(file):
+    if file.size > CREST_MAX_BYTES:
+        raise ValidationError("O escudo pode ter no máximo 512 KB.")
+
 
 HEX_COLOR = RegexValidator(r"^#[0-9A-Fa-f]{6}$", "Use o formato #RRGGBB.")
 
@@ -196,6 +204,14 @@ class Team(models.Model):
     color_primary = models.CharField("cor principal", max_length=7, default="#12306B", validators=[HEX_COLOR])
     color_secondary = models.CharField("cor secundária", max_length=7, default="#FFFFFF", validators=[HEX_COLOR])
     crest_url = models.URLField("escudo (URL)", blank=True)
+    # Upload tem prioridade sobre a URL. Sem SVG: arquivo enviado não pode levar script.
+    crest_file = models.FileField(
+        "escudo (arquivo)",
+        upload_to="escudos/",
+        blank=True,
+        validators=[FileExtensionValidator(["png", "jpg", "jpeg", "webp"]), validate_crest_size],
+        help_text="PNG, JPG ou WebP, até 512 KB. Se enviado, vale no lugar da URL.",
+    )
 
     class Meta:
         db_table = "teams"
@@ -205,6 +221,13 @@ class Team(models.Model):
 
     def __str__(self):
         return self.name
+
+    @property
+    def crest_src(self) -> str:
+        """Escudo para as páginas: o arquivo enviado, senão a URL (vazio sem escudo)."""
+        if self.crest_file:
+            return self.crest_file.url
+        return self.crest_url
 
 
 class GroupTeam(models.Model):

@@ -619,6 +619,8 @@
     animation: pulse 1.4s var(--ease) infinite;
   }
   .pill--interval { background: var(--amarelo); color: var(--on-amarelo); }
+  .pill--partial { background: var(--surface-2); color: var(--ink); border: 2px dashed var(--vermelho); }
+  .pill--delayed { background: var(--surface); color: var(--ink); border: 2px solid var(--amarelo); }
   .pill--finished { background: var(--ink); color: var(--on-ink); }
   .pill--scheduled {
     background: var(--azul-tint);
@@ -851,6 +853,7 @@
   }
   .score__vs { font-family: var(--font-num); font-weight: 500; font-size: 1.75rem; color: var(--ink-3); line-height: 1; }
   .score__kickoff { font-family: var(--font-num); font-weight: 700; font-size: 1.5rem; color: var(--azul); line-height: 1; }
+  .score__delay { max-width: 16ch; font-size: 0.75rem; line-height: 1.3; text-align: center; color: var(--ink-2); }
   .score__note { font-family: var(--font-num); font-weight: 600; font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); }
 
   /* vencedor em destaque, perdedor esmaecido (ao fim) */
@@ -913,7 +916,6 @@
   .facts-line__item .icon { width: 13px; height: 13px; color: var(--ink-3); }
   .facts-line__min { font-family: var(--font-num); font-weight: 600; color: var(--ink-3); }
   .facts-line__tag { font-size: 0.75rem; color: var(--ink-3); }
-  .facts-line__item--red .icon { width: 12px; height: 14px; }
 
   @container match (min-width: 520px) {
     .match__summary { font-size: 0.875rem; padding-inline: var(--s-5); }
@@ -1274,7 +1276,6 @@
   .team-cell__text { display: grid; min-width: 0; }
   .team-cell__name { overflow: hidden; text-overflow: ellipsis; font-family: var(--font-ui); font-weight: 600; font-size: 0.875rem; color: var(--ink); }
   .team-cell__short { display: none; font-family: var(--font-num); font-weight: 700; letter-spacing: 0.04em; color: var(--ink); }
-  .team-cell__zone { font-family: var(--font-num); font-weight: 600; font-size: 0.6875rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); line-height: 1.1; }
   .team-cell .live-dot { margin-left: 2px; }
   .table .col-pts { font-weight: 700; color: var(--ink); background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
   .table th.col-pts { color: var(--ink); }
@@ -1746,7 +1747,7 @@
   }
 
   .op-timeline { display: grid; margin: 0; padding: 0; list-style: none; }
-  .op-event { display: grid; grid-template-columns: 44px 22px minmax(0, 1fr) auto; align-items: center; gap: var(--s-2); padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--line); }
+  .op-event { display: grid; grid-template-columns: 44px 22px minmax(0, 1fr) auto auto; align-items: center; gap: var(--s-2); padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--line); }
   .op-event:last-child { border-bottom: 0; }
   .op-event__min { font-family: var(--font-num); font-weight: 700; color: var(--ink-2); text-align: right; }
   .op-event__icon { width: 20px; height: 20px; color: var(--ink-2); }
@@ -1757,6 +1758,7 @@
   .op-event--annulled .op-event__title { text-decoration: line-through; color: var(--ink-3); }
   .op-event--structural { background: color-mix(in srgb, var(--surface-2) 50%, transparent); }
   .op-event__void { color: var(--vermelho-ink); }
+  .op-tools { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-3); }
 
   /* --- Guia de estilo (QA visual) ------------------------------------------------------- */
   .sg-section { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-4); padding-top: var(--s-6); }

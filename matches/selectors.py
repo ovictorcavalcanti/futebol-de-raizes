@@ -42,6 +42,7 @@ SUMMARY_EVENT_TYPES = (
     EventType.RED_CARD,
     EventType.STOPPAGE_TIME,
     EventType.SUSPENDED,
+    EventType.DELAYED,
 )
 DETAIL_PREFETCH = (
     Prefetch(
@@ -83,7 +84,7 @@ def serialize_team(team) -> dict:
         "city": team.city,
         "color_primary": team.color_primary,
         "color_secondary": team.color_secondary,
-        "crest_url": team.crest_url,
+        "crest_url": team.crest_src,
     }
 
 
@@ -309,20 +310,29 @@ def _clock(match, timeline: Timeline) -> dict | None:
         return None
     spec = domain.PERIOD_CLOCK[match.period]
     announced = None
-    suspended_at = None
     for row in timeline.rows:
         if row.type == EventType.STOPPAGE_TIME and row.period == match.period:
             minutes = _payload(row).get("minutes")
             announced = minutes if isinstance(minutes, int) else announced
-        elif row.type == EventType.SUSPENDED:
-            suspended_at = row.created_at
+    # Parado: suspensão ou relógio parado pelo operador (`clock_paused_at`, cache do serviço).
     return {
-        "running": match.status == Status.LIVE,
+        "running": match.status == Status.LIVE and match.clock_paused_at is None,
         "offset": spec["offset"],
         "regular_end": spec["regular_end"],
         "stoppage_announced": announced,
-        "paused_at": iso_utc(suspended_at) if match.status == Status.SUSPENDED else None,
+        "paused_at": iso_utc(match.clock_paused_at),
     }
+
+
+def _status_note(match, timeline: Timeline) -> str | None:
+    """Observação do atraso (texto do operador), só com o jogo atrasado."""
+    if match.status != Status.DELAYED:
+        return None
+    note = None
+    for row in timeline.rows:
+        if row.type == EventType.DELAYED:
+            note = _payload(row).get("reason") or note
+    return note
 
 
 def match_winner(match) -> str | None:
@@ -429,11 +439,13 @@ def serialize_match(match, detail: bool = False, events: Iterable[MatchEvent] | 
         "city": match.city,
         "status": match.status,
         "status_label": domain.STATUS_LABELS.get(match.status, match.status),
+        "status_note": _status_note(match, timeline),
+        "partial_info": match.partial_info,
         "period": period,
         "period_label": domain.PERIOD_LABELS.get(period) if period else None,
         "period_short": domain.PERIOD_SHORT.get(period) if period else None,
         "period_started_at": iso_utc(match.period_started_at),
-        "clock": _clock(match, timeline),
+        "clock": None if match.partial_info else _clock(match, timeline),
         "home": serialize_team(match.home_team),
         "away": serialize_team(match.away_team),
         "home_score": match.home_score,

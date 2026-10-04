@@ -5,7 +5,9 @@ pela API e pelos testes. As assinaturas são estáveis; campos novos só entram 
 
 Convenções
 ----------
-* Status (6): scheduled, live, finished, postponed, suspended, cancelled.
+* Status (7): scheduled, delayed, live, finished, postponed, suspended, cancelled.
+  `delayed` = início atrasado (com observação obrigatória); dele o jogo começa,
+  é adiado, reagendado ou cancelado.
 * Período (5): first_half, half_time, second_half, extra_time, penalties.
   `period` só existe com status live ou suspended (em suspenso, guarda onde parou).
 * Minuto é ABSOLUTO no jogo (45+2 = minute 45, stoppage 2; 90+3; 105+1; 120+2).
@@ -70,6 +72,7 @@ from functools import lru_cache
 
 class Status(StrEnum):
     SCHEDULED = "scheduled"
+    DELAYED = "delayed"
     LIVE = "live"
     FINISHED = "finished"
     POSTPONED = "postponed"
@@ -103,8 +106,10 @@ class EventType(StrEnum):
     YELLOW_CARD = "yellow_card"
     RED_CARD = "red_card"
     STOPPAGE_TIME = "stoppage_time"
+    CLOCK_ADJUST = "clock_adjust"  # operador para, retoma ou acerta o relógio do período
     SHOOTOUT_KICK = "shootout_kick"
     # status (ações do operador, também registradas como fatos)
+    DELAYED = "delayed"
     POSTPONED = "postponed"
     SUSPENDED = "suspended"
     RESUMED = "resumed"
@@ -113,6 +118,7 @@ class EventType(StrEnum):
 
 
 class StatusAction(StrEnum):
+    DELAY = "delay"
     POSTPONE = "postpone"
     SUSPEND = "suspend"
     RESUME = "resume"
@@ -121,6 +127,7 @@ class StatusAction(StrEnum):
 
 
 STATUS_ACTION_EVENT: dict[str, str] = {
+    StatusAction.DELAY: EventType.DELAYED,
     StatusAction.POSTPONE: EventType.POSTPONED,
     StatusAction.SUSPEND: EventType.SUSPENDED,
     StatusAction.RESUME: EventType.RESUMED,
@@ -143,6 +150,7 @@ class DecidedBy(StrEnum):
 
 STATUS_LABELS = {
     Status.SCHEDULED: "Agendado",
+    Status.DELAYED: "Atrasado",
     Status.LIVE: "Ao vivo",
     Status.FINISHED: "Encerrado",
     Status.POSTPONED: "Adiado",
@@ -174,6 +182,7 @@ DECIDED_BY_LABELS = {
 
 # Rótulos dos botões de status (GET /api/ops/catalog → status_actions).
 STATUS_ACTION_LABELS = {
+    StatusAction.DELAY: "Marcar atraso",
     StatusAction.POSTPONE: "Adiar",
     StatusAction.SUSPEND: "Suspender",
     StatusAction.RESUME: "Retomar",
@@ -250,6 +259,8 @@ class EventSpec:
 
 
 _CLOCK_PERIODS = frozenset({Period.FIRST_HALF, Period.SECOND_HALF, Period.EXTRA_TIME})
+# Ajuste do relógio (início ou reinício lançado com atraso, relógio parado à parte da suspensão).
+CLOCK_ACTION_LABELS = {"stop": "Parar o relógio", "start": "Retomar o relógio", "set": "Acertar o minuto"}
 _PLAY_AND_INTERVAL = _CLOCK_PERIODS | {Period.HALF_TIME}
 _ANY_PERIOD = frozenset(Period)
 
@@ -323,6 +334,14 @@ CATALOG: dict[str, EventSpec] = {
         _game(EventType.RED_CARD, "Cartão vermelho", "card-red", _ANY_PERIOD, _F_TEAM, _F_PLAYER),
         _game(EventType.STOPPAGE_TIME, "Acréscimos", "clock", _CLOCK_PERIODS,
               FieldSpec("payload.minutes", "int", "Minutos de acréscimo")),
+        EventSpec(
+            EventType.CLOCK_ADJUST.value, "Relógio do jogo", "game",
+            (
+                FieldSpec("payload.action", "choice", "Ação", choices=tuple(CLOCK_ACTION_LABELS.items())),
+                FieldSpec("payload.minute", "int", "Minuto que o relógio deve mostrar", required=False),
+            ),
+            _CLOCK_PERIODS, minute="none", public=False, icon="clock",
+        ),
         _game(
             EventType.SHOOTOUT_KICK, "Cobrança de pênalti", "target", frozenset({Period.PENALTIES}),
             _F_TEAM,
@@ -330,6 +349,7 @@ CATALOG: dict[str, EventSpec] = {
             FieldSpec("payload.scored", "bool", "Convertida"),
             minute="optional",
         ),
+        _status(EventType.DELAYED, "Atrasado", "clock", FieldSpec("payload.reason", "text", "Observação")),
         _status(EventType.POSTPONED, "Adiado", "calendar", _F_REASON_OPTIONAL),
         _status(EventType.SUSPENDED, "Suspenso", "pause", _F_REASON_OPTIONAL),
         _status(EventType.RESUMED, "Retomado", "play"),
@@ -466,6 +486,8 @@ class MatchState:
     # None enquanto suspenso). O serviço desconta esses intervalos do relógio
     # (created_at): period_started_at = abertura do período + tempo parado.
     period_pauses: tuple[tuple[int, int | None], ...] = ()
+    # ajustes do relógio no período corrente: (sequence, "stop"|"start"|"set", minuto|None)
+    clock_marks: tuple[tuple[int, str, int | None], ...] = ()
     # minutos de acréscimo anunciados por período
     stoppage_announced: Mapping[str, int] = field(default_factory=dict)
     # nova data/hora pedida no último reagendamento (ISO 8601), se houver
@@ -732,7 +754,7 @@ def available_actions(state: MatchState, ctx: MatchContext, events: Sequence[Eve
     reservado (as regras atuais dependem só do estado e do contexto).
     """
     allowed: list[str] = []
-    if state.status in (Status.SCHEDULED, Status.LIVE):
+    if state.status in (Status.SCHEDULED, Status.DELAYED, Status.LIVE):
         allowed.extend(
             event_type.value
             for event_type in _STRUCTURAL_ORDER
@@ -763,7 +785,7 @@ def status_action_event(action: str, *, kickoff_at: str | None = None, reason: s
         if kickoff_at is None or kickoff_at == "":
             raise DomainError("invalid_payload", "Informe a nova data e hora do jogo.", {"field": "kickoff_at"})
         payload["kickoff_at"] = _iso_datetime(kickoff_at, "kickoff_at")
-    text = _text({"reason": reason}, "reason", "payload.reason", required=False)
+    text = _text({"reason": reason}, "reason", "payload.reason", required=event_type == EventType.DELAYED, missing=_DELAY_MISSING)
     if text:
         payload["reason"] = text
     return NewEvent(type=event_type, payload=payload)
@@ -866,15 +888,19 @@ _GAME_ORDER = (
     EventType.VAR_REVIEW,
     EventType.STOPPAGE_TIME,
     EventType.GOAL_ANNULLED,
+    EventType.CLOCK_ADJUST,
 )
 _STATUS_ORDER = (
+    StatusAction.DELAY,
     StatusAction.RESUME,
     StatusAction.SUSPEND,
     StatusAction.POSTPONE,
     StatusAction.RESCHEDULE,
     StatusAction.CANCEL,
 )
+_DELAY_MISSING = "Escreva a razão do atraso."
 _STATUS_VERBS = {
+    EventType.DELAYED: "marcar atraso em",
     EventType.POSTPONED: "adiar",
     EventType.SUSPENDED: "suspender",
     EventType.RESUMED: "retomar",
@@ -1059,7 +1085,7 @@ def _plan_structural(state: MatchState, event_type: str, ctx: MatchContext) -> _
     live = state.status == Status.LIVE
     period = state.period
     if event_type == EventType.MATCH_START:
-        if state.status != Status.SCHEDULED:
+        if state.status not in (Status.SCHEDULED, Status.DELAYED):
             return _transition_error(state, event_type)
         return _Transition(Status.LIVE, Period.FIRST_HALF, Period.FIRST_HALF, 0)
     if event_type == EventType.HALF_TIME:
@@ -1119,15 +1145,17 @@ def _plan_structural(state: MatchState, event_type: str, ctx: MatchContext) -> _
 
 def _plan_status(state: MatchState, event_type: str) -> _Transition | DomainError:
     current = state.status
-    if event_type == EventType.POSTPONED and current == Status.SCHEDULED:
+    if event_type == EventType.DELAYED and current in (Status.SCHEDULED, Status.DELAYED):
+        return _Transition(Status.DELAYED, None, None)  # de novo em atrasado: atualiza a observação
+    if event_type == EventType.POSTPONED and current in (Status.SCHEDULED, Status.DELAYED):
         return _Transition(Status.POSTPONED, None, None)
     if event_type == EventType.SUSPENDED and current == Status.LIVE:
         return _Transition(Status.SUSPENDED, state.period, state.period)
     if event_type == EventType.RESUMED and current == Status.SUSPENDED:
         return _Transition(Status.LIVE, state.period, state.period)
-    if event_type == EventType.RESCHEDULED and current in (Status.SCHEDULED, Status.POSTPONED):
+    if event_type == EventType.RESCHEDULED and current in (Status.SCHEDULED, Status.DELAYED, Status.POSTPONED):
         return _Transition(Status.SCHEDULED, None, None)
-    if event_type == EventType.CANCELLED and current in (Status.SCHEDULED, Status.POSTPONED, Status.SUSPENDED):
+    if event_type == EventType.CANCELLED and current in (Status.SCHEDULED, Status.DELAYED, Status.POSTPONED, Status.SUSPENDED):
         return _Transition(Status.CANCELLED, None, state.period)
     message = f"Não é possível {_STATUS_VERBS[event_type]} um jogo {STATUS_LABELS.get(current, current).lower()}."
     if event_type == EventType.CANCELLED and current == Status.LIVE:
@@ -1151,7 +1179,46 @@ def _step(
         return _step_structural(state, new, spec, ctx, sequence, collect)
     if spec.kind == "status":
         return _step_status(state, new, spec, sequence)
+    if spec.type == EventType.CLOCK_ADJUST:
+        return _step_clock(state, new, spec, sequence)
     return _step_game(state, new, spec, ctx, history, sequence, collect)
+
+
+def clock_frozen(state: MatchState) -> bool:
+    """Relógio parado pelo operador (sem contar a suspensão)."""
+    frozen = False
+    for _, action, _minute in state.clock_marks:
+        if action in ("stop", "start"):
+            frozen = action == "stop"
+    return frozen
+
+
+def _step_clock(state: MatchState, new: NewEvent, spec: EventSpec, sequence: int) -> _Step:
+    if state.status != Status.LIVE:
+        raise _error("match_not_live", "O relógio só é ajustado com o jogo ao vivo.", status=state.status)
+    if state.period not in _CLOCK_PERIODS:
+        raise _error("invalid_period_for_event", "O relógio só corre no 1º e 2º tempos e na prorrogação.", period=state.period)
+    raw = new.payload or {}
+    action = raw.get("action")
+    if action not in CLOCK_ACTION_LABELS:
+        raise _error("invalid_payload", "Escolha: parar, retomar ou acertar o minuto.", field="payload.action")
+    frozen = clock_frozen(state)
+    if action == "stop" and frozen:
+        raise _error("invalid_payload", "O relógio já está parado.", field="payload.action")
+    if action == "start" and not frozen:
+        raise _error("invalid_payload", "O relógio já está correndo.", field="payload.action")
+    payload: dict = {"action": action}
+    minute = None
+    if action == "set":
+        minute = raw.get("minute")
+        clock = PERIOD_CLOCK[state.period]
+        low, high = clock["offset"] + 1, clock["regular_end"] + MAX_STOPPAGE
+        if not _is_int(minute) or not low <= minute <= high:
+            raise _error("invalid_minute", f"Informe o minuto atual entre {low} e {high}.", field="payload.minute", minute=minute)
+        payload["minute"] = minute
+    marks = (*state.clock_marks, (sequence, action, minute))
+    event = Event(sequence, spec.type, state.period, payload=payload)
+    return _Step(replace(state, clock_marks=marks), event)
 
 
 def _normalized_stoppage(stoppage) -> int | None:
@@ -1205,6 +1272,7 @@ def _step_structural(
         "period": plan.period,
         "period_started_seq": sequence if plan.period is not None else None,
         "period_pauses": (),
+        "clock_marks": (),
     }
     if spec.type == EventType.PENALTIES_START:
         changes.update(home_penalties=0, away_penalties=0)
@@ -1222,7 +1290,7 @@ def _step_status(state: MatchState, new: NewEvent, spec: EventSpec, sequence: in
     payload: dict[str, str] = {}
     changes: dict = {"status": plan.status, "period": plan.period}
     if plan.period is None:
-        changes.update(period_started_seq=None, period_pauses=())
+        changes.update(period_started_seq=None, period_pauses=(), clock_marks=())
     elif spec.type == EventType.SUSPENDED:
         changes["period_pauses"] = (*state.period_pauses, (sequence, None))
     elif spec.type == EventType.RESUMED and state.period_pauses and state.period_pauses[-1][1] is None:
@@ -1233,7 +1301,7 @@ def _step_status(state: MatchState, new: NewEvent, spec: EventSpec, sequence: in
             raise _error("invalid_payload", "Informe a nova data e hora do jogo.", field="payload.kickoff_at")
         payload["kickoff_at"] = changes["rescheduled_to"] = _iso_datetime(value, "payload.kickoff_at")
     if spec.type != EventType.RESUMED:
-        reason = _text(raw, "reason", "payload.reason", required=False)
+        reason = _text(raw, "reason", "payload.reason", required=spec.type == EventType.DELAYED, missing=_DELAY_MISSING)
         if reason:
             payload["reason"] = reason
     event = Event(sequence, spec.type, plan.event_period, payload=payload)

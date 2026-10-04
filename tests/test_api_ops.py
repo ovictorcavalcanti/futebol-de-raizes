@@ -469,9 +469,9 @@ def test_catalog_lists_every_type_and_labels(operator_client):
     goal = next(spec for spec in data["events"] if spec["type"] == "goal")
     assert goal["minute"] == "required" and goal["kind"] == "game"
     assert {"name": "team_id", "kind": "team", "label": "Time beneficiado", "required": True, "choices": []} in goal["fields"]
-    assert {item["action"] for item in data["status_actions"]} == {"postpone", "suspend", "resume", "reschedule", "cancel"}
+    assert {item["action"] for item in data["status_actions"]} == {"delay", "postpone", "suspend", "resume", "reschedule", "cancel"}
     assert [item["key"] for item in data["periods"]] == ["first_half", "half_time", "second_half", "extra_time", "penalties"]
-    assert {item["key"] for item in data["statuses"]} == {"scheduled", "live", "finished", "postponed", "suspended", "cancelled"}
+    assert {item["key"] for item in data["statuses"]} == {"scheduled", "delayed", "live", "finished", "postponed", "suspended", "cancelled"}
 
 
 def test_ops_responses_are_not_cached(match, op, operator_client):
@@ -488,3 +488,68 @@ def test_config_error_maps_to_422(rf):
     response = api.on_exception(rf.get("/api/stages/1/standings"), ConfigError("zones_overlap", "Faixas de zona sobrepostas."))
     assert response.status_code == 422
     assert json.loads(response.content) == {"code": "zones_overlap", "message": "Faixas de zona sobrepostas.", "details": {}}
+
+
+def test_status_delay_with_note_then_start(league, operator_client):
+    sport, nautico = league["teams"][0], league["teams"][1]
+    match = make_match(league["stage"], sport, nautico, kickoff_at=timeutils.now(), round=league["rounds"][0])
+    op = ApiOp(operator_client, match)
+
+    assert_error(op.status("delay", expect=422), "invalid_payload")
+    delayed = op.status("delay", reason="Chuva forte")
+    assert delayed["match"]["status"] == "delayed" and delayed["match"]["status_label"] == "Atrasado"
+    assert delayed["match"]["status_note"] == "Chuva forte"
+    assert "match_start" in delayed["available"]["events"]
+    # A observação também aparece nas listas (resumo) e some quando o jogo começa.
+    listed = operator_client.get(f"/api/matches?roundId={league['rounds'][0].id}").json()["matches"]
+    assert next(m for m in listed if m["id"] == match.id)["status_note"] == "Chuva forte"
+    started = op.post("match_start")
+    assert started["match"]["status"] == "live" and started["match"]["status_note"] is None
+
+
+def test_edit_event_corrects_scorer_minute_and_team(league, operator_client):
+    from observability.models import AuditLog
+
+    sport, nautico = league["teams"][0], league["teams"][1]
+    match = make_match(league["stage"], sport, nautico, kickoff_at=timeutils.now(), round=league["rounds"][0])
+    op = ApiOp(operator_client, match)
+    op.post("match_start")
+    goal = op.goal(sport, 18, "Zé")["event"]
+    op.post("half_time")
+    op.post("second_half_start")  # já no 2T: a correção mantém o gol no 1T
+
+    edited = op._post(
+        f"/api/ops/matches/{match.id}/events/{goal['id']}/edit",
+        {"type": "goal", "minute": 20, "team_id": nautico.id, "payload": {"player": "Kieza"}},
+        expect=200,
+    )
+    assert edited["event"]["id"] == goal["id"] and edited["event"]["period"] == "first_half"
+    assert edited["event"]["minute"] == 20 and edited["event"]["player"]["name"] == "Kieza"
+    assert (edited["match"]["home_score"], edited["match"]["away_score"]) == (0, 1)
+    log = AuditLog.objects.get(action="event.edit")
+    assert log.data["before"]["payload"]["player"] == "Zé" and log.data["after"]["minute"] == 20
+
+    # Minuto fora do período do lance é recusado; andamento não se edita; o tipo não muda.
+    bad = op._post(f"/api/ops/matches/{match.id}/events/{goal['id']}/edit",
+                   {"type": "goal", "minute": 70, "team_id": nautico.id, "payload": {"player": "Kieza"}}, expect=422)
+    assert bad["code"] == "invalid_minute"
+    start_id = next(e["id"] for e in edited["match"]["events"] if e["type"] == "match_start")
+    assert op._post(f"/api/ops/matches/{match.id}/events/{start_id}/edit", {"type": "match_start"}, expect=422)["code"] == "event_not_editable"
+    assert op._post(f"/api/ops/matches/{match.id}/events/{goal['id']}/edit",
+                    {"type": "yellow_card", "team_id": sport.id, "payload": {"player": "X"}}, expect=422)["code"] == "event_not_editable"
+
+
+def test_edit_event_requires_void_permission(league, operator_user, client):
+    from django.contrib.auth.models import Permission
+
+    sport, nautico = league["teams"][0], league["teams"][1]
+    match = make_match(league["stage"], sport, nautico, kickoff_at=timeutils.now(), round=league["rounds"][0])
+    operator_user.groups.clear()
+    operator_user.user_permissions.add(Permission.objects.get(codename="post_event"))
+    client.force_login(operator_user)
+    op = ApiOp(client, match)
+    op.post("match_start")
+    goal = op.goal(sport, 10, "Zé")["event"]
+    denied = op._post(f"/api/ops/matches/{match.id}/events/{goal['id']}/edit",
+                      {"type": "goal", "minute": 11, "team_id": sport.id, "payload": {"player": "Zé"}}, expect=403)
+    assert denied["code"] == "permission_denied"

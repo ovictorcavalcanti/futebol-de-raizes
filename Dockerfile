@@ -37,7 +37,7 @@ COPY static ./static
 # .br), servidos pelo WhiteNoise. Com DEBUG=0 o settings exige uma chave forte:
 # o collectstatic recebe uma aleatória, gerada aqui e descartada (variável só
 # deste RUN, não fica na imagem). Em execução a chave vem do ambiente.
-RUN install -d -o app -g app /app/staticfiles
+RUN install -d -o app -g app /app/staticfiles /app/media
 USER app
 RUN DJANGO_DEBUG=0 \
     DJANGO_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(50))')" \

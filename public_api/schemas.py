@@ -182,7 +182,7 @@ class MatchOut(Schema):
     finished_at: str | None = None
     venue: str
     city: str
-    status: str = Field(..., description="scheduled | live | finished | postponed | suspended | cancelled")
+    status: str = Field(..., description="scheduled | delayed | live | finished | postponed | suspended | cancelled")
     status_label: str
     period: str | None = Field(None, description="first_half | half_time | second_half | extra_time | penalties")
     period_label: str | None = None

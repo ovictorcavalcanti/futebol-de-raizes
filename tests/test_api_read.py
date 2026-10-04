@@ -192,7 +192,7 @@ def test_match_detail_shape_and_404(client):
     data = response.json()
     assert set(data) == {"server_time", "timezone", "cursor", "match", "available"}
     assert data["available"]["events"] == ["match_start"]
-    assert set(data["available"]["status"]) == {"postpone", "reschedule", "cancel"}
+    assert set(data["available"]["status"]) == {"delay", "postpone", "reschedule", "cancel"}
     assert {"events", "lineups", "officials", "broadcasts", "stats", "attendance", "revenue_cents"} <= set(data["match"])
     missing = client.get("/api/matches/999999")
     assert missing.status_code == 404

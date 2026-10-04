@@ -19,7 +19,7 @@
  * exportadas e testadas com node --test; a tela só liga quando há #op-app.
  */
 import { h, hooks, cloneTemplate, showToast } from './render.js';
-import { eventIconName } from './icons.js';
+import { eventIconName, icon } from './icons.js';
 import { createCrest } from './crest.js';
 import { ServerClock, mountClock, liveMinute } from './clock.js';
 import { formatTime, formatWhen, dayKey, TIME_ZONE } from './format.js';
@@ -34,7 +34,7 @@ import * as api from './api.js';
 export const CLOCK_PERIODS = new Set(['first_half', 'second_half', 'extra_time']);
 /** Eventos estruturais que fecham um período (aceitam acréscimo no minuto final). */
 const CLOSING_EVENTS = new Set(['half_time', 'match_end']);
-const POSITION_SHORT = { GK: 'GOL', DF: 'DEF', MF: 'MEI', FW: 'ATA' };
+const POSITION_SHORT = { GK: 'GOL', LAD: 'LAD', DF: 'ZAG', LAE: 'LAE', VOL: 'VOL', MF: 'MEI', FW: 'ATA' };
 
 /**
  * Exigência do minuto agora (espelha domain.minute_mode): lance de jogo com minuto
@@ -159,7 +159,18 @@ export function structuralConfirm(type, match, label = '') {
   }
 }
 
-/** Partidas agrupadas por competição, na ordem em que a API devolveu. */
+const LIVE_GROUP = new Set(['live', 'delayed', 'suspended']);
+const UPCOMING_GROUP = new Set(['scheduled', 'postponed']);
+
+/** Mesma ordem da página Jogos do admin: ao vivo > agendado > encerrado
+ * (encerrados do mais recente para o mais antigo). */
+export function sortByStatus(matches = []) {
+  const rank = (m) => (LIVE_GROUP.has(m.status) ? 0 : UPCOMING_GROUP.has(m.status) ? 1 : 2);
+  const time = (m) => Date.parse(m.kickoff_at || '') || 0;
+  return matches.slice().sort((a, b) => rank(a) - rank(b) || (rank(a) === 2 ? time(b) - time(a) : time(a) - time(b)) || a.id - b.id);
+}
+
+/** Partidas agrupadas por competição (na ordem da API), cada grupo ordenado por status. */
 export function groupByCompetition(matches = []) {
   const groups = new Map();
   for (const match of matches) {
@@ -167,7 +178,7 @@ export function groupByCompetition(matches = []) {
     if (!groups.has(key)) groups.set(key, { competition: match.competition || { name: 'Outras' }, matches: [] });
     groups.get(key).matches.push(match);
   }
-  return [...groups.values()];
+  return [...groups.values()].map((group) => ({ ...group, matches: sortByStatus(group.matches) }));
 }
 
 /** Jogadores da escalação para o <datalist> (time escolhido; gol contra → adversário). */
@@ -363,7 +374,7 @@ function pickPill(match) {
   if (match.status === 'live') {
     cls = match.period === 'half_time' ? 'interval' : 'live';
     if (match.period === 'half_time') text = 'Intervalo';
-  } else if (['finished', 'postponed', 'suspended', 'cancelled'].includes(match.status)) {
+  } else if (['finished', 'postponed', 'suspended', 'cancelled', 'delayed'].includes(match.status)) {
     cls = match.status;
   }
   return h('span', { class: `pill pill--sm pill--${cls}`, text });
@@ -505,13 +516,14 @@ function applyMatch(match, available) {
   }
   els.placeholder.hidden = true;
   els.scoreboard.hidden = false;
+  paintTools(match);
   els.work.hidden = false;
 
   paintActions();
   paintTimeline();
   updatePickItem(match);
 
-  if (state.formType) {
+  if (state.formType && !state.editing) {
     if (!state.available.events.includes(state.formType)) {
       closeForm({ restoreFocus: false });
       showToast('Este lance não está mais disponível para a partida.', { kind: 'warn' });
@@ -519,6 +531,23 @@ function applyMatch(match, available) {
       refreshFormOptions();
     }
   }
+}
+
+/** Atalhos para o Django Admin: escalação de cada time e público e renda (nova aba). */
+function paintTools(match) {
+  if (!els.tools) return;
+  if (!can('admin_site')) {
+    els.tools.hidden = true;
+    return;
+  }
+  const link = (href, iconName, text) => h('a', { class: 'btn btn--secondary btn--sm', href, target: '_blank', rel: 'noopener' },
+    icon(iconName), h('span', { text }));
+  els.tools.replaceChildren(
+    link(`/admin/escalacao/${match.id}/home/`, 'shirt', `Escalação ${teamShort(match.home)}`),
+    link(`/admin/escalacao/${match.id}/away/`, 'shirt', `Escalação ${teamShort(match.away)}`),
+    link(`/admin/matches/match/${match.id}/change/`, 'people', 'Público e renda'),
+  );
+  els.tools.hidden = false;
 }
 
 /* --- Botões de lance e de status ----------------------------------------------------------- */
@@ -640,6 +669,11 @@ function teamControl() {
       home.checked = away.checked = false;
       none.checked = !required;
     },
+    write(value) {
+      home.checked = value != null && home.value === String(value);
+      away.checked = value != null && away.value === String(value);
+      none.checked = value == null && !required;
+    },
     focusTarget: () => [home, away, none].find((input) => input.checked && !input.disabled) || home,
   };
   return control;
@@ -677,6 +711,9 @@ function playerControl() {
     reset() {
       p.input.value = '';
     },
+    write(value) {
+      p.input.value = value == null ? '' : String(value);
+    },
     focusTarget: () => p.input,
   };
 }
@@ -699,6 +736,9 @@ function inputControl(templateId, { parse = (v) => v.trim() || null, setup = nul
     read: () => parse(p.input.value),
     reset() {
       p.input.value = '';
+    },
+    write(value) {
+      p.input.value = value == null ? '' : String(value);
     },
     focusTarget: () => p.input,
   };
@@ -737,6 +777,9 @@ function boolControl() {
     read: () => p.input.checked,
     reset() {
       p.input.checked = false;
+    },
+    write(value) {
+      p.input.checked = value === true || value === 'true';
     },
     focusTarget: () => p.input,
   };
@@ -810,6 +853,11 @@ function minuteControl() {
       p.input.value = p.stoppage.value = '';
       control.dirty = false;
     },
+    write(value) {
+      p.input.value = value?.minute != null ? String(value.minute) : '';
+      p.stoppage.value = value?.stoppage ? String(value.stoppage) : '';
+      control.dirty = true; // não deixa a sugestão do relógio sobrescrever
+    },
     focusTarget: () => p.input,
   };
   for (const input of control.inputs) input.addEventListener('input', () => { control.dirty = true; });
@@ -880,7 +928,9 @@ function openForm(type, { focus = true } = {}) {
   hideFormMessages();
 
   els.formIcon.setAttribute('href', `#i-${spec.icon || 'info'}`);
-  els.formTitle.textContent = spec.label;
+  els.formTitle.textContent = state.editing ? `Editar · ${spec.label}` : spec.label;
+  els.eventSubmitLabel.textContent = state.editing ? 'Salvar correção' : 'Lançar';
+  els.eventType.disabled = !!state.editing;
   paintTypeSelect();
 
   // campos do tipo, na ordem do catálogo; os demais ficam escondidos (hidden) e desligados
@@ -932,6 +982,11 @@ function closeForm({ restoreFocus = true } = {}) {
   const type = state.formType;
   state.formType = null;
   state.formKey = null;
+  state.editing = null;
+  if (els) {
+    els.eventSubmitLabel.textContent = 'Lançar';
+    els.eventType.disabled = false;
+  }
   if (!els) return;
   els.formCard.hidden = true;
   hideFormMessages();
@@ -981,8 +1036,56 @@ async function onSubmitEvent(event) {
     const ok = await askConfirm(structuralConfirm(spec.type, state.match, spec.label));
     if (!ok) return;
   }
+  if (state.editing) {
+    await sendEdit(state.editing, body, false);
+    return;
+  }
   state.formKey = state.formKey || api.newIdempotencyKey();
   await sendEvent(body, state.formKey, false);
+}
+
+/** "Editar": abre o formulário do tipo do lance já preenchido com os dados dele. */
+function openEditForm(event) {
+  if (!state.match || !can('post_event') || !can('void_event')) return;
+  resetFormValues();
+  state.editing = event;
+  openForm(event.type, { focus: false });
+  state.minute?.write({ minute: event.minute, stoppage: event.stoppage });
+  for (const [field, control] of activeControls()) {
+    let value = null;
+    if (field.name === 'team_id') value = event.team_id;
+    else if (field.name === 'annuls_event_id') value = event.annuls_event_id;
+    else if (field.name.startsWith('payload.')) value = event.payload?.[field.name.slice(8)];
+    control.write?.(value);
+  }
+  refreshDependencies();
+  (state.minute && !state.minute.el.hidden ? state.minute.focusTarget() : els.eventType).focus();
+  els.formCard.scrollIntoView?.({ block: 'nearest' });
+}
+
+async function sendEdit(original, body, confirm) {
+  const matchId = state.matchId;
+  setSending(true);
+  try {
+    const result = await api.editEvent(matchId, original.id, { ...body, type: original.type, confirm });
+    if (state.matchId !== matchId) return;
+    showToast(`Corrigido: ${eventSummary(result?.event) || specFor(original.type).label}.`, { kind: 'ok' });
+    resetFormValues();
+    closeForm();
+    applyMatch(result?.match, result?.available);
+    refreshMatch();
+  } catch (error) {
+    if (state.matchId !== matchId) return;
+    if (error?.code === 'confirmation_required') {
+      const ok = await askConfirm({ title: 'Confirmar a correção?', text: error.message, items: (error.warnings || []).map((w) => w.message), ok: 'Corrigir mesmo assim' });
+      if (ok) await sendEdit(original, body, true);
+      return;
+    }
+    if (error?.status === 401) return sessionExpired();
+    showToast(genericError(error), { kind: 'error' });
+  } finally {
+    setSending(false);
+  }
 }
 
 async function sendEvent(body, key, confirm) {
@@ -1079,13 +1182,16 @@ async function openStatusDialog(item) {
   if (!match) return;
   const p = hooks(els.statusDialog);
   const reschedule = item.action === 'reschedule';
-  p['status-title'].textContent = `${item.label} a partida?`;
+  const delay = item.action === 'delay';
+  p['status-title'].textContent = delay ? 'Marcar a partida como atrasada?' : `${item.label} a partida?`;
   p['status-text'].textContent = `${teamName(match.home)} × ${teamName(match.away)} · ${formatWhen(match.kickoff_at, now())} · ${match.status_label || ''}`;
   p['status-kickoff-field'].hidden = !reschedule;
   p['status-kickoff'].required = reschedule;
   p['status-kickoff'].disabled = !reschedule;
   p['status-kickoff'].value = reschedule ? toBrasiliaInput(match.kickoff_at) : '';
-  p['status-reason'].value = '';
+  p['status-reason'].value = delay ? match.status_note || '' : '';
+  p['status-reason'].required = delay;
+  p['status-reason-label'].textContent = delay ? 'Observação: razão do atraso (obrigatória)' : 'Motivo (opcional)';
   p['status-ok'].textContent = item.label;
   p['status-ok'].classList.toggle('btn--danger', item.action === 'cancel');
   p['status-ok'].classList.toggle('btn--primary', item.action !== 'cancel');
@@ -1203,6 +1309,13 @@ function paintTimeline() {
     li.classList.toggle('op-event--goal', event.type === 'goal');
     li.classList.toggle('op-event--annulled', !!event.annulled);
     li.classList.toggle('op-event--structural', event.kind === 'structural');
+    const editable = event.kind === 'game' && !event.derived && can('post_event') && can('void_event');
+    if (!editable) {
+      p.edit.remove();
+    } else {
+      p.edit.setAttribute('aria-label', `Editar lance: ${title}${event.minute_label ? `, ${event.minute_label}` : ''}`);
+      p.edit.addEventListener('click', () => openEditForm(event));
+    }
     if (!can('void_event')) {
       p.void.remove();
     } else {
@@ -1279,6 +1392,7 @@ function bindElements() {
     panel: $('op-panel'),
     placeholder: $('op-placeholder'),
     scoreboard: $('op-scoreboard'),
+    tools: $('op-match-tools'),
     work: $('op-work'),
     actionsCard: document.querySelector('[data-hook="actions-card"]'),
     actionsBlock: document.querySelector('[data-hook="actions-block"]'),
@@ -1298,6 +1412,7 @@ function bindElements() {
     eventFields: fh['event-fields'],
     eventCancel: fh['event-cancel'],
     eventSubmit: fh['event-submit'],
+    eventSubmitLabel: fh['event-submit-label'],
     timeline: $('op-timeline'),
     timelineEmpty: $('op-timeline-empty'),
     timelineCount: document.querySelector('[data-hook="timeline-count"]'),

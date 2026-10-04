@@ -79,6 +79,8 @@ services:
         condition: service_healthy
     expose:
       - "8000"
+    volumes:
+      - media:/app/media  # escudos enviados pelo admin
     # O healthcheck (GET /health) vem do Dockerfile.
     stop_grace_period: 10s
     restart: unless-stopped
@@ -103,5 +105,6 @@ services:
 
 volumes:
   pgdata:
+  media:
   caddy_data:
   caddy_config:

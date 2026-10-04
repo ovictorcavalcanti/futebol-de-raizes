@@ -29,8 +29,8 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass, field, replace
+from datetime import datetime, timedelta
 from typing import Any
 
 from competitions.models import Group
@@ -58,6 +58,7 @@ CACHE_FIELDS = [
     "status",
     "period",
     "period_started_at",
+    "clock_paused_at",
     "home_score",
     "away_score",
     "home_penalties",
@@ -325,6 +326,89 @@ def _post(match_id, user, build: Callable[[], NewEvent], *, key, source, confirm
     return PostResult(event=rows[0], derived=rows[1:], match=work.match, created=True, warnings=list(result.warnings))
 
 
+def edit_event(match_id: int, event_id: int, user, new: NewEvent, *, confirm: bool = False, request=None) -> PostResult:
+    """Corrige os dados de um lance já lançado (minuto, time, jogador, detalhes).
+
+    O lance continua no mesmo lugar da sequência e no mesmo período: o domínio refaz a
+    partida com o lance corrigido e recusa a correção se ela quebrar o que veio depois.
+    O tipo não muda; andamento e status não se editam (cancele e lance de novo), nem
+    lance ligado a vermelho automático. Os valores antigos vão para a auditoria.
+    """
+    return _counting_rejections(lambda: _edit(match_id, event_id, user, new, confirm=confirm, request=request))
+
+
+def _edit(match_id, event_id, user, new: NewEvent, *, confirm, request) -> PostResult:
+    _check_write(user, None, None)
+    _check_no_player_ids(new)
+    with locked_atomic():
+        work = _Work.load(match_id)
+        target = next((row for row in work.rows if row.id == event_id), None)
+        if target is None:
+            raise DomainError("event_not_found", "Lançamento não encontrado nesta partida.", {"event_id": event_id})
+        if target.voided_at is not None:
+            raise DomainError("already_voided", "Este lançamento foi cancelado.", {"event_id": event_id})
+        spec = domain.CATALOG.get(target.type)
+        if spec is None or spec.kind != "game" or (new.type and new.type != target.type):
+            raise DomainError(
+                "event_not_editable",
+                "Só lances (gol, cartão, substituição...) podem ser editados, sem mudar o tipo. "
+                "Para andamento e status, cancele e lance de novo.",
+                {"event_id": event_id, "type": target.type},
+            )
+        linked = domain.derived_from(context.to_domain_event(target)) is not None or any(
+            row.voided_at is None and isinstance(row.payload, dict) and row.payload.get("derived_from_sequence") == target.sequence
+            for row in work.rows
+        )
+        if linked:
+            raise DomainError(
+                "event_not_editable",
+                "Este cartão está ligado a um vermelho automático: cancele e lance de novo.",
+                {"event_id": event_id},
+            )
+        events = work.domain_events()
+        index = next(i for i, event in enumerate(events) if event.id == event_id)
+        before = events[:index]
+        state_before = domain.derive_state(before, work.ctx)
+        result = domain.apply_event(
+            state_before, before, replace(new, type=target.type), work.ctx, confirm=confirm, next_sequence=target.sequence
+        )
+        if result.derived:
+            raise DomainError(
+                "event_not_editable",
+                "A correção geraria um vermelho automático: cancele e lance de novo.",
+                {"event_id": event_id},
+            )
+        edited = replace(result.event, id=target.id, created_at=target.created_at)
+        state_now = domain.derive_state(events, work.ctx)
+        state_after = domain.derive_state([*before, edited, *events[index + 1:]], work.ctx)
+        work.check_tie_lock(state_now, state_after, target.type)
+        old = {
+            "minute": target.minute, "stoppage": target.stoppage, "team_id": target.team_id,
+            "payload": target.payload, "annuls_event_id": target.annuls_event_id,
+        }
+        target.minute, target.stoppage, target.team_id = edited.minute, edited.stoppage, edited.team_id
+        target.payload, target.annuls_event_id = dict(edited.payload), edited.annuls_event_id
+        target.save(update_fields=["minute", "stoppage", "team", "payload", "annuls_event"])
+        goals_before = dict(work.goals_before)
+        work.apply_state(state_after)
+        work.finish(changed_types={target.type}, created_ids=set(), removed_reason="edited")
+        goals_after = selectors.goal_snapshots(work.match, work.rows)
+        if goals_after.keys() == goals_before.keys() and goals_after != goals_before:
+            work.enqueue_latest_goals()  # mesmo gol com autor/minuto corrigido: só a lista muda
+        audit.record(
+            "event.edit",
+            actor=user,
+            obj=target,
+            match_id=work.match.id,
+            data={"type": target.type, "before": old, "after": {
+                "minute": target.minute, "stoppage": target.stoppage, "team_id": target.team_id,
+                "payload": target.payload, "annuls_event_id": target.annuls_event_id,
+            }},
+            request=request,
+        )
+    return PostResult(event=target, derived=[], match=work.match, created=True, warnings=list(result.warnings))
+
+
 def _void(match_id, event_id, user, *, reason, request, at) -> VoidOutcome:
     _check_write(user, None, None)
     with locked_atomic():
@@ -441,7 +525,7 @@ class _Work:
         by_seq = {row.sequence: row for row in self.rows}
         match.status = str(state.status)
         match.period = _text(state.period)
-        match.period_started_at = _period_started_at(state, by_seq)
+        match.period_started_at, match.clock_paused_at = _period_clock(state, by_seq)
         match.home_score = state.home_score
         match.away_score = state.away_score
         match.home_penalties = state.home_penalties
@@ -477,7 +561,7 @@ class _Work:
         match = self.match
         by_seq = {row.sequence: row for row in self.rows}
         match.status, match.period = str(state.status), _text(state.period)
-        match.period_started_at = _period_started_at(state, by_seq)
+        match.period_started_at, match.clock_paused_at = _period_clock(state, by_seq)
         match.home_score, match.away_score = state.home_score, state.away_score
         match.home_penalties, match.away_penalties = state.home_penalties, state.away_penalties
         match.finished_at = self._finished_at(state)
@@ -603,17 +687,47 @@ def _kickoff_after(state: domain.MatchState, rescheduled: MatchEvent | None, voi
     return _aware(previous) if previous else None
 
 
-def _period_started_at(state: domain.MatchState, by_seq: Mapping[int, MatchEvent]) -> datetime | None:
-    """Abertura do período + tempo parado nas suspensões já retomadas (o relógio do
-    front desconta a parada). Suspensão aberta não entra: o front para no `paused_at`."""
+def _period_clock(state: domain.MatchState, by_seq: Mapping[int, MatchEvent]) -> tuple[datetime | None, datetime | None]:
+    """(início efetivo do período, relógio parado desde) para o front calcular o minuto.
+
+    Parte da abertura do período e percorre, em ordem, as suspensões e os ajustes do
+    operador (`clock_adjust`): enquanto o relógio está parado (suspensão ou "parar"),
+    o tempo não corre — ao voltar, o início anda o tempo parado. "Acertar o minuto" M
+    redefine o início para o relógio mostrar M naquele instante (ou no instante em que
+    parou, se estiver parado). Devolve `paused_at` quando o relógio está parado agora.
+    """
+    if state.status != domain.Status.LIVE and state.status != domain.Status.SUSPENDED:
+        return None, None
     if state.period_started_seq is None or state.period_started_seq not in by_seq:
-        return None
+        return None, None
     started = by_seq[state.period_started_seq].created_at
+    offset = domain.PERIOD_CLOCK.get(state.period, {}).get("offset", 0)
+    marks: list[tuple[int, str, int | None]] = []
     for suspended_seq, resumed_seq in state.period_pauses:
-        if resumed_seq is None or suspended_seq not in by_seq or resumed_seq not in by_seq:
+        marks.append((suspended_seq, "suspend", None))
+        if resumed_seq is not None:
+            marks.append((resumed_seq, "resume", None))
+    marks.extend(state.clock_marks)
+    holds: set[str] = set()
+    frozen_at: datetime | None = None
+    for seq, action, minute in sorted(marks):
+        row = by_seq.get(seq)
+        if row is None:
             continue
-        started += by_seq[resumed_seq].created_at - by_seq[suspended_seq].created_at
-    return started
+        at = row.created_at
+        if action in ("suspend", "stop"):
+            if not holds:
+                frozen_at = at
+            holds.add("suspend" if action == "suspend" else "stop")
+        elif action in ("resume", "start"):
+            holds.discard("suspend" if action == "resume" else "stop")
+            if not holds and frozen_at is not None:
+                started += at - frozen_at
+                frozen_at = None
+        elif action == "set" and minute is not None:
+            # minuto exibido = offset + minutos decorridos + 1 (CONTRACT §3, "clock")
+            started = (frozen_at or at) - timedelta(minutes=minute - offset - 1)
+    return started, frozen_at
 
 
 def _kickoff_utc(value: str | datetime, field_name: str) -> str:

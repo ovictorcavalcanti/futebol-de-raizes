@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import connection
+from django.views.static import serve
 from django.http import Http404, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_safe
@@ -50,3 +51,12 @@ def health(request):
     except Exception:  # pragma: no cover - depende do banco cair
         return JsonResponse({"status": "error", "database": "unavailable"}, status=503)
     return JsonResponse({"status": "ok", "database": "ok"})
+
+
+@require_safe
+def media(request, path):
+    """Arquivos enviados (escudos), lidos de MEDIA_ROOT a cada requisição."""
+    response = serve(request, path, document_root=settings.MEDIA_ROOT)
+    response["Cache-Control"] = "public, max-age=86400"
+    response["X-Content-Type-Options"] = "nosniff"
+    return response

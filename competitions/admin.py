@@ -1045,15 +1045,15 @@ class TeamAdmin(BaseAdmin):
     readonly_fields = ("crest_preview",)
     fieldsets = (
         (None, {"fields": ("name", "short_name", "city")}),
-        ("Identidade", {"fields": (("color_primary", "color_secondary"), "crest_url", "crest_preview")}),
+        ("Identidade", {"fields": (("color_primary", "color_secondary"), "crest_file", "crest_url", "crest_preview")}),
     )
 
     @staticmethod
     def _crest(obj, size: int):
-        if obj.crest_url:
+        if obj.crest_src:
             return format_html(
                 '<img src="{}" alt="" width="{}" height="{}" style="object-fit:contain;vertical-align:middle">',
-                obj.crest_url,
+                obj.crest_src,
                 size,
                 size,
             )

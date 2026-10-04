@@ -29,7 +29,7 @@ GOAL_KEYS = {
 }
 MATCH_KEYS = {
     "id", "competition", "stage", "group", "round", "kickoff_at", "finished_at", "venue", "city", "status",
-    "status_label", "period", "period_label", "period_short", "period_started_at", "clock", "home", "away",
+    "status_label", "status_note", "partial_info", "period", "period_label", "period_short", "period_started_at", "clock", "home", "away",
     "home_score", "away_score", "home_penalties", "away_penalties", "winner", "version", "tie", "goals", "cards",
     "red_cards",
 }
@@ -257,7 +257,7 @@ def test_catalog_payload():
         "name": "payload.origin", "kind": "choice", "label": "Origem", "required": False,
         "choices": [["open_play", "Jogada"], ["penalty", "Pênalti"], ["own_goal", "Contra"]],
     }
-    assert catalog["status_actions"][0] == {"action": "postpone", "label": "Adiar"}
+    assert catalog["status_actions"][0] == {"action": "delay", "label": "Marcar atraso"}
     assert {"key": "half_time", "label": "Intervalo", "short": "INT"} in catalog["periods"]
     assert {"key": "suspended", "label": "Suspenso"} in catalog["statuses"]
     reschedule = next(spec for spec in catalog["events"] if spec["type"] == "rescheduled")

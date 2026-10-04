@@ -95,6 +95,7 @@
         </div>
 
         <div id="op-scoreboard" data-hook="scoreboard" hidden></div>
+        <nav id="op-match-tools" class="op-tools" aria-label="Atalhos da partida" hidden></nav>
 
         <div id="op-work" class="op-work" data-hook="work" hidden>
           <div class="stack" style="--stack-gap:16px">
@@ -187,7 +188,7 @@
         <input id="status-kickoff" class="input" type="datetime-local" name="kickoff_at" data-hook="status-kickoff">
       </div>
       <div class="field">
-        <label class="field__label" for="status-reason">Motivo (opcional)</label>
+        <label class="field__label" for="status-reason" data-hook="status-reason-label">Motivo (opcional)</label>
         <textarea id="status-reason" class="textarea" name="reason" maxlength="280" rows="2" data-hook="status-reason"></textarea>
       </div>
     </div>

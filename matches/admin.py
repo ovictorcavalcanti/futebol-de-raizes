@@ -477,7 +477,7 @@ class MatchAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, WriteLockedPostMixin
     inlines = [MatchEventInline, MatchOfficialInline, MatchBroadcastInline, MatchStatInline]
     parent_params = (("round", Round), ("stage", Stage))
     fieldsets = (
-        (None, {"fields": ("stage", ("group", "round"), ("tie", "leg"), ("home_team", "away_team"), "kickoff_at", ("venue", "city"))}),
+        (None, {"fields": ("stage", ("group", "round"), ("tie", "leg"), ("home_team", "away_team"), "kickoff_at", ("venue", "city"), "partial_info")}),
         (
             "Situação e placar (calculados pelos lances)",
             {
@@ -497,13 +497,14 @@ class MatchAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, WriteLockedPostMixin
         day = timezone.localtime(obj.kickoff_at).date().isoformat()
         return f"{reverse('operator')}?date={day}&match={obj.pk}"
 
-    def object_tools(self, request, obj):
+    def operator_tool(self, request, obj):
         if obj is None or obj.pk is None or not any(request.user.has_perm(perm) for perm in OPS_PERMISSIONS):
             return []
-        return [{"label": "Lançar lances na tela do operador", "url": self.operator_url(obj), "class": "fdr-tool-primary"}]
+        return [{"label": "Lançar lances na tela do operador", "url": self.operator_url(obj)}]
 
     def render_change_form(self, request, context, add=False, change=False, form_url="", obj=None):
-        tools = self.object_tools(request, obj) if obj is not None else []
+        # O atalho para o operador fica só no aviso do topo (não ao lado de "Histórico").
+        tools = self.operator_tool(request, obj) if obj is not None else []
         if tools:
             context["fdr_callout"] = {
                 "text": "Gols, cartões, substituições, VAR e o andamento do jogo são lançados na tela do operador, "
@@ -637,13 +638,95 @@ class MatchLineupPlayerInline(Inline):
     ordering = ("-starter", "order", "id")
 
 
+LINEUP_JSON_HELP = (
+    "Opcional. Cole a escalação em JSON para SUBSTITUIR a lista de jogadores abaixo. "
+    "Formato: uma lista de jogadores, cada um com \"nome\" (obrigatório), \"posicao\" "
+    "(GOL, LAD, ZAG, LAE, VOL, MEI ou ATA), \"numero\" e \"titular\" (true/false; padrão true). "
+    "Também aceita um objeto com \"esquema\", \"tecnico\" e \"jogadores\". Exemplo: "
+    '{"esquema": "4-3-3", "tecnico": "Fulano", "jogadores": ['
+    '{"nome": "Ivan", "posicao": "GOL", "numero": 1, "titular": true}, '
+    '{"nome": "Biel", "posicao": "VOL", "numero": 5, "titular": true}, '
+    '{"nome": "Kayo", "posicao": "ATA", "numero": 19, "titular": false}]}'
+)
+# Sigla do JSON → posição gravada (aceita também o código interno e o nome por extenso).
+LINEUP_JSON_POSITIONS = {"GOL": "GK", "LAD": "LAD", "ZAG": "DF", "LAE": "LAE", "VOL": "VOL", "MEI": "MF", "ATA": "FW"}
+
+
+def parse_lineup_json(raw: str) -> dict:
+    """{"formation", "coach", "players": [{name, position, number, starter}]} ou ValidationError."""
+    import json
+
+    from django.core.exceptions import ValidationError
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValidationError(f"JSON inválido (linha {exc.lineno}, coluna {exc.colno}).") from None
+    formation = coach = None
+    if isinstance(data, dict):
+        formation, coach = data.get("esquema"), data.get("tecnico")
+        data = data.get("jogadores")
+    if not isinstance(data, list) or not data:
+        raise ValidationError("Envie uma lista de jogadores (ou um objeto com \"jogadores\").")
+    positions = {**LINEUP_JSON_POSITIONS, **{code: code for code in MatchLineupPlayer.Position.values}}
+    positions.update({label.casefold(): code for code, label in MatchLineupPlayer.Position.choices})
+    players = []
+    for index, item in enumerate(data, start=1):
+        where = f"Jogador {index}"
+        if not isinstance(item, dict):
+            raise ValidationError(f"{where}: use um objeto com nome, posicao, numero e titular.")
+        name = item.get("nome")
+        if not isinstance(name, str) or not name.strip():
+            raise ValidationError(f"{where}: \"nome\" é obrigatório.")
+        position = item.get("posicao") or ""
+        if position:
+            code = positions.get(str(position).strip().upper()) or positions.get(str(position).strip().casefold())
+            if code is None:
+                raise ValidationError(f"{where}: posição \"{position}\" desconhecida. Use GOL, LAD, ZAG, LAE, VOL, MEI ou ATA.")
+            position = code
+        number = item.get("numero")
+        if number is not None and (isinstance(number, bool) or not isinstance(number, int) or not 0 <= number <= 99):
+            raise ValidationError(f"{where}: \"numero\" deve ser um inteiro de 0 a 99.")
+        starter = item.get("titular", True)
+        if not isinstance(starter, bool):
+            raise ValidationError(f"{where}: \"titular\" deve ser true ou false.")
+        players.append({"name": name.strip()[:80], "position": position, "number": number, "starter": starter})
+    return {"formation": formation, "coach": coach, "players": players}
+
+
+class MatchLineupForm(forms.ModelForm):
+    lineup_json = forms.CharField(
+        label="Escalação em JSON", required=False, help_text=LINEUP_JSON_HELP,
+        widget=forms.Textarea(attrs={"rows": 6, "style": "font-family: monospace; width: 100%"}),
+    )
+
+    class Meta:
+        model = MatchLineup
+        fields = ("match", "team", "formation", "coach")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        match = self.instance.match if self.instance.match_id else None
+        match_id = self.data.get("match") or self.initial.get("match")
+        if match is None and match_id:
+            match = Match.objects.filter(pk=getattr(match_id, "pk", match_id)).first()
+        # Só os dois times do jogo (sem jogo escolhido ainda: nenhum).
+        ids = [match.home_team_id, match.away_team_id] if match else []
+        self.fields["team"].queryset = self.fields["team"].queryset.filter(pk__in=ids)
+
+    def clean_lineup_json(self):
+        raw = (self.cleaned_data.get("lineup_json") or "").strip()
+        return parse_lineup_json(raw) if raw else None
+
+
 @admin.register(MatchLineup)
 class MatchLineupAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, BaseAdmin):
+    form = MatchLineupForm
     list_display = ("match", "team", "formation", "coach", "match_kickoff")
     list_filter = ("match__stage__season__competition",)
     search_fields = ("team__name", "coach", "match__home_team__name", "match__away_team__name")
     list_select_related = ("match__home_team", "match__away_team", "team")
-    autocomplete_fields = ("match", "team")
+    autocomplete_fields = ("match",)
     inlines = [MatchLineupPlayerInline]
     parent_params = (("match", Match),)
 
@@ -658,6 +741,18 @@ class MatchLineupAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, BaseAdmin):
 
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
+        imported = form.cleaned_data.get("lineup_json")
+        if imported:
+            lineup = form.instance
+            lineup.entries.all().delete()
+            MatchLineupPlayer.objects.bulk_create(
+                MatchLineupPlayer(lineup=lineup, order=order, **player) for order, player in enumerate(imported["players"], start=1)
+            )
+            updates = {key: value for key, value in (("formation", imported["formation"]), ("coach", imported["coach"])) if value}
+            if updates:
+                limits = {"formation": 12, "coach": 80}
+                MatchLineup.objects.filter(pk=lineup.pk).update(**{k: str(v)[: limits[k]] for k, v in updates.items()})
+            messages.info(request, f"Escalação importada do JSON: {len(imported['players'])} jogadores.")
         services.publish_match(form.instance.match)
         previous = form.initial.get("match")
         if change and "match" in form.changed_data and previous:

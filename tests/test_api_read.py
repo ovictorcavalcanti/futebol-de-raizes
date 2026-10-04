@@ -131,6 +131,13 @@ def test_home_orders_matches_live_then_finished_then_scheduled_by_time(operator_
     home = get_home(operator_client)
     matches = home["competitions"][0]["stages"][0]["matches"]
     assert [m["id"] for m in matches] == [ids[("live", 18)], ids[("finished", 14)], ids[("finished", 16)], ids[("scheduled", 20)]]
+    # o jogo ao vivo termina: sem nenhum ao vivo, agendados > encerrados
+    Match.objects.filter(pk=ids[("live", 18)]).update(status="finished")
+    from django.core.cache import caches
+
+    caches["default"].clear()
+    matches = get_home(operator_client)["competitions"][0]["stages"][0]["matches"]
+    assert [m["id"] for m in matches] == [ids[("scheduled", 20)], ids[("finished", 14)], ids[("finished", 16)], ids[("live", 18)]]
 
 
 def test_home_rejects_invalid_date(client):

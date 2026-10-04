@@ -657,17 +657,19 @@ def latest_goals(day=None, now: datetime | None = None, limit: int = LATEST_GOAL
     return [serialize_latest_goal(row, match, timeline) for row, match, timeline in goals[:limit]]
 
 
-# Home: ao vivo (com atrasado e suspenso) > encerrados > agendados > adiados/cancelados.
-HOME_STATUS_RANK = {
-    Status.LIVE: 0, Status.DELAYED: 0, Status.SUSPENDED: 0,
-    Status.FINISHED: 1,
-    Status.SCHEDULED: 2,
-}
+# Ordem dos jogos na home e na página da competição (static/js/match-card.js faz igual):
+# com jogo ao vivo (ou atrasado, ou suspenso): ao vivo > encerrados > agendados; sem
+# nenhum: agendados > encerrados. Adiados e cancelados por último; a hora desempata.
+LIVE_GROUP = frozenset({Status.LIVE, Status.DELAYED, Status.SUSPENDED})
+RANK_WITH_LIVE = {**dict.fromkeys(LIVE_GROUP, 0), Status.FINISHED: 1, Status.SCHEDULED: 2}
+RANK_WITHOUT_LIVE = {Status.SCHEDULED: 0, Status.FINISHED: 1}
 
 
-def _home_order(match: dict) -> tuple:
-    """Jogos de cada fase na home: pelo status (HOME_STATUS_RANK) e, dentro dele, pela hora."""
-    return (HOME_STATUS_RANK.get(match["status"], 3), match["kickoff_at"] or "", match["id"])
+def sort_for_display(matches: list[dict]) -> list[dict]:
+    """Ordena (no lugar) MatchOuts pela regra acima e devolve a mesma lista."""
+    rank = RANK_WITH_LIVE if any(m["status"] in LIVE_GROUP for m in matches) else RANK_WITHOUT_LIVE
+    matches.sort(key=lambda m: (rank.get(m["status"], 3), m["kickoff_at"] or "", m["id"]))
+    return matches
 
 
 def home_payload(day=None, now: datetime | None = None) -> dict:
@@ -720,7 +722,7 @@ def home_payload(day=None, now: datetime | None = None) -> dict:
         entry["stages"].sort(key=lambda block: block["_order"])
         for block in entry["stages"]:
             block.pop("_order")
-            block["matches"].sort(key=_home_order)
+            sort_for_display(block["matches"])
     return {
         "date": day.isoformat(),
         **_stamp(),

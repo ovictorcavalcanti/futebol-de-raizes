@@ -595,6 +595,23 @@ function separator(def, e, score) {
   return h('li', { class: ['tl-sep', def.end && 'tl-sep--end'], 'data-event-id': e.id }, label);
 }
 
+const LIVE_GROUP = new Set(['live', 'delayed', 'suspended']);
+const RANK_WITH_LIVE = { live: 0, delayed: 0, suspended: 0, finished: 1, scheduled: 2 };
+const RANK_WITHOUT_LIVE = { scheduled: 0, finished: 1 };
+
+/**
+ * Ordem dos jogos na home e na competição (igual a selectors.sort_for_display): com
+ * jogo ao vivo (ou atrasado, ou suspenso), ao vivo > encerrados > agendados; sem
+ * nenhum, agendados > encerrados. Adiados e cancelados por último; a hora desempata.
+ * @param {object[]} matches MatchOut
+ * @returns {object[]} cópia ordenada
+ */
+export function sortMatchesForDisplay(matches = []) {
+  const rank = matches.some((m) => LIVE_GROUP.has(m.status)) ? RANK_WITH_LIVE : RANK_WITHOUT_LIVE;
+  const r = (m) => rank[m.status] ?? 3;
+  return matches.slice().sort((a, b) => r(a) - r(b) || String(a.kickoff_at || '').localeCompare(String(b.kickoff_at || '')) || a.id - b.id);
+}
+
 const PERIOD_ORDER = {
   first_half: 1, half_time: 2, second_half: 3, extra_time: 4, extra_half_time: 5, extra_second_half: 6, penalties: 7,
 };

@@ -10,7 +10,7 @@
  */
 import { renderCompetitionNav, showToast } from './render.js';
 import { ServerClock, mountClock } from './clock.js';
-import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createTieCard, createTieGroup, tiesFromMatches, refreshMatchCards } from './match-card.js';
+import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createTieCard, createTieGroup, tiesFromMatches, refreshMatchCards, sortMatchesForDisplay } from './match-card.js';
 import { createStandings, updateStandings } from './standings.js';
 import { getCompetitions, getCompetition, listMatches, getMatch } from './api.js';
 import { createStream, liveStatusIndicator } from './stream.js';
@@ -121,7 +121,7 @@ function renderMatches(matches, ties = null) {
   } else {
     state.ties = new Map();
     state.tieCards = new Map();
-    blocks = matches.map((match) => cardFor(match, next));
+    blocks = sortMatchesForDisplay(matches).map((match) => cardFor(match, next)); // mesma ordem da home
   }
   state.cards = next;
   els.matches.classList.toggle('tie-groups', knockout);
@@ -302,11 +302,19 @@ async function reload() {
 
 /* --- Stream ------------------------------------------------------------------------------------ */
 
+/** Status mudou ao vivo: reordena os cards da rodada (a ordem depende do status). */
+function reorderCards() {
+  const matches = [...state.cards.values()].map(getCardMatch).filter(Boolean);
+  els.matches.replaceChildren(...sortMatchesForDisplay(matches).map((m) => state.cards.get(m.id)));
+}
+
 function onMatch(message) {
   const match = message?.match;
   if (!match) return;
   const card = state.cards.get(match.id);
+  const before = card ? getCardMatch(card)?.status : null;
   if (card) updateMatchCard(card, match, { flash: true });
+  if (card && before && before !== match.status && state.stage?.format !== 'knockout') reorderCards();
   // confronto do mata-mata: agregado e vencedor vêm no TieOut da partida (o jogo pode
   // ser de outra rodada, sem card na página)
   if (match.tie && state.ties.has(match.tie.id)) {

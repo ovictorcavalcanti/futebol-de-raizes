@@ -709,8 +709,8 @@ def test_home_sem_jogo(open_page, fixtures):
 
 def test_competicao_rodadas_fase_e_slug_inexistente(open_page):
     page, api, errors = open_page("/competition.html?slug=copa-pernambuco", width=390)
-    page.wait_for_selector("#stage-ties .tie")
-    state = "() => ({label: document.getElementById('round-label').textContent, prev: document.getElementById('round-prev').disabled, next: document.getElementById('round-next').disabled, url: location.search, ties: document.querySelectorAll('#stage-ties .tie').length, standings: !document.getElementById('stage-standings').hidden, cards: document.querySelectorAll('#round-matches .match').length})"
+    page.wait_for_selector("#round-matches .tie-group .tie")
+    state = "() => ({label: document.getElementById('round-label').textContent, prev: document.getElementById('round-prev').disabled, next: document.getElementById('round-next').disabled, url: location.search, ties: document.querySelectorAll('#round-matches .tie-group .tie').length, standings: !document.getElementById('stage-standings').hidden, cards: document.querySelectorAll('#round-matches .match').length})"
     first = page.evaluate(state)
     assert (
         first["label"] == "Semifinal"

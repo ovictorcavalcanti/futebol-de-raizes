@@ -8,7 +8,7 @@ import { icon, ICONS, eventIconName } from './icons.js';
 import { createCrest } from './crest.js';
 import { ServerClock, mountClock } from './clock.js';
 import { formatTime } from './format.js';
-import { createMatchCard, updateMatchCard, tickMatchCards, createTieCard, createLatestGoal, createGoalAlert } from './match-card.js';
+import { createMatchCard, updateMatchCard, tickMatchCards, createTieCard, createTieGroup, tiesFromMatches, createLatestGoal, createGoalAlert } from './match-card.js';
 import { createStandings } from './standings.js';
 import * as F from './fixtures.js';
 
@@ -117,12 +117,21 @@ function renderCompetitionSection(comp) {
     const b = hooks(block);
     b['stage-name'].textContent = stage.name;
     b['stage-name'].hidden = comp.stages.length === 1 && stage.format !== 'knockout';
-    b.matches.replaceChildren(...stage.matches.map((m) => {
+    const card = (m) => {
       const full = Object.values(F.MATCHES).find((x) => x.id === m.id);
       return createMatchCard(m, { now, onExpand: () => new Promise((resolve) => setTimeout(() => { if (full?.events) updateMatchCard(cardOf(m.id), full); resolve(); }, 600)) });
-    }));
-    if (stage.standings) b.standings.append(createStandings(stage.standings));
-    else b.standings.remove(); // como na home: coluna da direita reservada
+    };
+    if (stage.format === 'knockout') { // como na home: um bloco por confronto, agregado à direita
+      b.matches.classList.add('tie-groups');
+      b.matches.replaceChildren(...tiesFromMatches(stage.matches).map((tie) =>
+        createTieGroup(tie, tie.matches.map(card), createTieCard(tie, { now, legs: false }), { title: false })));
+      b.standings.remove();
+      b['stage-grid'].classList.add('split--no-aside');
+    } else {
+      b.matches.replaceChildren(...stage.matches.map(card));
+      if (stage.standings) b.standings.append(createStandings(stage.standings));
+      else b.standings.remove();
+    }
     parts.stages.append(block);
   }
   return section;

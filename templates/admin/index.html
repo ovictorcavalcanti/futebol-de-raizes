@@ -7,5 +7,12 @@
   dentro de cada uma ficam as temporadas, as fases (grupos, classificação e punições), as rodadas
   e os jogos. Os lances são lançados na <a href="{% url 'operator' %}">tela do operador</a>.
 </p>
+<div class="module" style="margin-bottom:16px">
+  <table style="width:100%">
+    <caption>Atalhos</caption>
+    {% if perms.matches.view_match %}<tr><th scope="row"><a href="{% url 'admin_games' %}">Jogos</a></th><td>Jogos de cada competição</td></tr>{% endif %}
+    <tr><th scope="row"><a href="{% url 'operator' %}">Tela do operador</a></th><td>Lançar lances ao vivo</td></tr>
+  </table>
+</div>
 {{ block.super }}
 {% endblock %}

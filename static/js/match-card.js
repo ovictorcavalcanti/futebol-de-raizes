@@ -278,10 +278,9 @@ function teamBlock(team, side) {
     h('span', { class: 'team__full', text: displayName(team) }),
     h('span', { class: 'team__short', 'aria-hidden': 'true', text: team?.short_name || displayName(team) }),
   );
-  const win = icon('check', { className: 'team__win', label: 'Vencedor' });
   const crest = createCrest(team, { size: 48 });
   const band = h('span', { class: 'team__band', 'aria-hidden': 'true' });
-  const children = side === 'home' ? [band, win, name, crest] : [band, crest, name, win];
+  const children = side === 'home' ? [band, name, crest] : [band, crest, name];
   return h('div', { class: `team team--${side}`, style: teamStyle(team) }, ...children);
 }
 
@@ -400,7 +399,7 @@ function renderTie(p, match) {
     if (!parts.length) parts.push(icon('trophy'));
     else parts.push(h('span', { class: 'divider-dot', 'aria-hidden': 'true', text: '·' }));
     const how = tie.decided_by && (tie.legs === 2 || tie.decided_by !== 'aggregate') ? ` ${tie.decided_by_label || ''}` : '';
-    parts.push(h('span', null, h('strong', { text: displayName(winner) }), ` avança${how}`));
+    parts.push(h('span', null, h('strong', { text: displayName(winner) }), ' ', h('span', { class: 'tie__adv' }, icon('check'), `avança${how}`)));
   }
   p.hidden = parts.length === 0;
   p.replaceChildren(...parts);
@@ -551,14 +550,18 @@ function timelineItem(e, side, { title, sub = [], score = null, extraClass = '',
       h('span', { class: 'tl-item__title', text: title }),
       ...sub.filter(Boolean).map((sline) => (typeof sline === 'string' ? h('span', { class: 'tl-item__sub', text: sline }) : sline)),
     ),
-    score ? h('span', { class: 'tl-item__score', text: score }) : null,
   );
-  const min = h('span', { class: ['tl-item__min', !minute && 'tl-item__min--dot'], text: minute });
-  if (!minute) min.setAttribute('aria-hidden', 'true');
+  // O placar do gol fica junto do minuto: "11' — 0 × 1" (empilhado em cards estreitos).
+  const min = h('span', { class: ['tl-item__min', !minute && !score && 'tl-item__min--dot', score && 'tl-item__min--score'] },
+    minute ? h('span', { text: minute }) : null,
+    score && minute ? h('span', { class: 'tl-item__min-sep', 'aria-hidden': 'true', text: '—' }) : null,
+    score ? h('span', { class: 'tl-item__min-score', text: score }) : null,
+  );
+  if (!minute && !score) min.setAttribute('aria-hidden', 'true');
   return h('li', {
     class: ['tl-item', side ? `tl-item--${side}` : 'tl-item--neutral', extraClass, isNew && 'is-new'],
     'data-event-id': e.id,
-  }, min, body, score && side ? h('span', { class: 'tl-item__score tl-item__score--rail', 'aria-hidden': 'true', text: score }) : null);
+  }, min, body);
 }
 
 function separator(def, e, score) {

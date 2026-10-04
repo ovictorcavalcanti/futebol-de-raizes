@@ -861,11 +861,6 @@
   .match[data-winner="home"] .team--away .crest,
   .match[data-winner="away"] .team--home .crest { opacity: 0.7; }
   /* fora do fluxo (no canto de cima, junto da faixa do time): não aperta o nome */
-  .team__win { display: none; position: absolute; top: 2px; color: var(--verde-ink); }
-  .team--home .team__win { left: 10px; }
-  .team--away .team__win { right: 10px; }
-  .match[data-winner="home"] .team--home .team__win,
-  .match[data-winner="away"] .team--away .team__win { display: inline-block; }
 
   /* card estreito (celular até ~400 px): escudo, vão e coluna do placar menores */
   @container match (max-width: 379px) {
@@ -1088,17 +1083,8 @@
   .tl-item__sub { font-size: 0.75rem; line-height: 1.3; color: var(--ink-3); overflow-wrap: anywhere; }
   .tl-item__sub--in { color: var(--verde-ink); }
   .tl-item__sub--alert { color: var(--vermelho-ink); font-weight: 600; }
-  .tl-item__score {
-    flex: none;
-    padding: 1px 6px;
-    border-radius: var(--radius-s);
-    background: var(--surface-2);
-    font-family: var(--font-num);
-    font-weight: 700;
-    font-size: 0.8125rem;
-    color: var(--ink);
-    white-space: nowrap;
-  }
+  .tl-item__min-sep { display: none; }
+  .tl-item__min-score { display: block; font-size: 0.75rem; white-space: nowrap; }
   .tl-item--goal .tl-item__min { background: var(--vermelho); border-color: var(--vermelho); color: var(--on-vermelho); }
   .tl-item--goal .tl-item__icon { color: var(--ink); }
   .tl-item--goal .tl-item__title { font-weight: 700; }
@@ -1153,28 +1139,17 @@
   .timeline-legend { margin-top: var(--s-3); font-size: 0.75rem; color: var(--ink-3); text-align: center; }
 
   @container match (min-width: 520px) {
-    .tl-item { grid-template-columns: minmax(0, 1fr) 60px minmax(0, 1fr); min-height: 44px; }
+    .tl-item { grid-template-columns: minmax(0, 1fr) 104px minmax(0, 1fr); min-height: 44px; }
+    .tl-item__min--score { white-space: nowrap; }
+    .tl-item__min-sep { display: inline; margin-inline: 4px; }
+    .tl-item__min-score { display: inline; font-size: inherit; }
     .tl-item__title { font-size: 0.9375rem; }
     .tl-item__sub { font-size: 0.8125rem; }
     .tl-item__min { font-size: 0.875rem; min-width: 46px; }
     .tl-item__body { padding: 6px var(--s-3); }
   }
-  .tl-item__score--rail { display: none; }
   @container match (max-width: 400px) {
     .tl-item__body { padding-inline: 4px; gap: 6px; }
-    .tl-item__body > .tl-item__score { display: none; }
-    .tl-item__score--rail {
-      display: block;
-      grid-column: 2;
-      grid-row: 2;
-      justify-self: center;
-      z-index: 1;
-      margin-top: 2px;
-      padding: 0 4px;
-      font-size: 0.75rem;
-      line-height: 1.3;
-    }
-    .tl-item__body { grid-row: 1 / span 2; }
     .tl-item__icon { width: 18px; height: 18px; }
   }
 

@@ -403,3 +403,33 @@ def test_stage_with_adjustments_cannot_become_knockout(admin_client_fdr, league)
     response = admin_client_fdr.post(change_url(stage), data)
     assert response.status_code == 200
     assert "punições em pontos" in response.content.decode()
+
+
+# --- Atalhos: Jogos por competição e tela do operador --------------------------
+
+
+def test_index_shows_games_and_operator_shortcuts(operator_client):
+    html = operator_client.get(reverse("admin:index")).content.decode()
+    assert reverse("admin_games") in html
+    assert reverse("operator") in html
+
+
+def test_games_lists_only_matches_of_the_chosen_competition(operator_client):
+    first = make_league(2, name="Pernambucano", slug="pe")
+    second = make_league(2, name="Copa", slug="copa")
+    mine = make_match(first["stage"], *first["teams"], round=first["rounds"][0])
+    other = make_match(second["stage"], *second["teams"], round=second["rounds"][0])
+
+    index = operator_client.get(reverse("admin_games")).content.decode()
+    assert "Pernambucano" in index and "Copa" in index
+
+    page = operator_client.get(reverse("admin_games_competition", args=["pe"]))
+    assert page.status_code == 200
+    html = page.content.decode()
+    assert reverse("admin:matches_match_change", args=[mine.pk]) in html
+    assert reverse("admin:matches_match_change", args=[other.pk]) not in html
+
+
+def test_games_pages_require_permission(client, plain_user):
+    client.force_login(plain_user)
+    assert client.get(reverse("admin_games")).status_code in {302, 403}

@@ -87,7 +87,9 @@ class CompetitionsOut(Schema):
 
 class SeasonOut(Schema):
     id: int
-    year: int
+    year: int = Field(..., description="Ano de início")
+    end_year: int | None = Field(None, description="Ano final da temporada que cruza o ano (2027 em 2026/2027); null = ano único")
+    label: str = Field(..., description='"2026" ou "2026/2027"')
 
 
 class StageDetailOut(Schema):

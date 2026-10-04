@@ -298,10 +298,11 @@ nada é gravado e o comando aponta o item e o motivo. Um CSV com as mesmas colun
 (vírgula ou ponto e vírgula) também é aceito. O escudo em arquivo é enviado pelo admin.
 
 **Tabela de jogos em JSON (pontos corridos e grupos).** Na página da fase no admin (ao criar ou editar),
-a seção "Tabela de jogos (JSON)" recebe as rodadas e os jogos da fase:
+a seção "Tabela de jogos (JSON)" recebe os participantes e as rodadas com os jogos da fase:
 
 ```json
-{"rodadas": [
+{"times": ["SPT", "NAU", "SCZ", "RET"],
+ "rodadas": [
   {"numero": 1, "nome": "1ª rodada", "jogos": [
     {"mandante": "SPT", "visitante": "NAU", "data": "2027-01-15 19:00", "local": "Ilha do Retiro", "cidade": "Recife"},
     {"mandante": "Santa Cruz", "visitante": {"id": 42}, "data": "2027-01-16 16:00"}
@@ -309,17 +310,21 @@ a seção "Tabela de jogos (JSON)" recebe as rodadas e os jogos da fase:
 ]}
 ```
 
-O time vai pela sigla, pelo nome ou por `{"id": N}`; a sigla é procurada primeiro entre os
-times da fase e, se for de mais de um time, o import recusa e lista os candidatos. `data` é o
-horário de Brasília; `local` e `cidade` são opcionais. Rodada que já existe (pelo número)
-recebe os jogos, jogo repetido (mesmos mandante e visitante na rodada) é pulado e o time que
-joga e ainda não está na tabela da fase entra nela. Com qualquer erro, nada é gravado e o
-campo mostra rodada, jogo e motivo.
+Na fase de grupos, os participantes vão em `"grupos": {"A": ["SPT", "NAU"], "B": ["SCZ", "RET"]}`
+(grupo novo é criado). `times`/`grupos` só precisam listar quem ainda não está na fase. O time vai
+pela sigla, pelo nome ou por `{"id": N}`; a sigla é procurada primeiro entre os times da fase e,
+se for de mais de um time, o import recusa e lista os candidatos. `data` é o horário de Brasília;
+`local` e `cidade` são opcionais.
 
-Na fase de grupos, o jogo vai para o grupo em que os dois times já estão. Se os times ainda não
-estão em grupo, o jogo diz qual com `"grupo": "A"` (o grupo é criado se não existir e os times
-entram nele; nas rodadas seguintes, basta mandante e visitante). Times de grupos diferentes, ou
-um time em dois grupos, são recusados. Mata-mata ainda não é aceito.
+São recusados: time que não está no campeonato (nem na fase nem em `times`/`grupos`), time em
+dois jogos da mesma rodada e time em dois grupos. Times de grupos diferentes podem se enfrentar
+(como na Copa do Nordeste): o jogo fica no grupo do mandante. Rodada que já existe (pelo número)
+recebe os jogos e jogo repetido (mesmos mandante e visitante na rodada) é pulado. Com qualquer
+erro, nada é gravado e o campo mostra onde e por quê. Mata-mata ainda não é aceito.
+
+**Temporada que cruza o ano.** A temporada tem "ano" (início) e "ano final" (opcional): vazio, é
+de ano único (2026); preenchido, cruza o ano, como as europeias (2026/2027). As páginas e as APIs
+mostram o rótulo (`season.label`).
 
 O seed lança tudo pelos serviços de escrita, com origem `script` e horários reais:
 

@@ -1,28 +1,36 @@
 """Tabela de jogos em JSON para uma fase com tabela: pontos corridos ou grupos (admin da fase).
 
-Formato — as rodadas da fase, cada uma com os seus jogos:
+Formato — os participantes (opcional: os que ainda não estão na fase) e as rodadas:
 
-    {"rodadas": [
-      {"numero": 1, "nome": "1ª rodada",
-       "jogos": [
+    Pontos corridos:
+    {"times": ["SPT", "NAU", "SCZ", "RET"],
+     "rodadas": [
+       {"numero": 1, "nome": "1ª rodada", "jogos": [
          {"mandante": "SPT", "visitante": "NAU", "data": "2027-01-15 19:00",
           "local": "Ilha do Retiro", "cidade": "Recife"},
          {"mandante": "Santa Cruz", "visitante": {"id": 42}, "data": "2027-01-16 16:00"}
        ]}
-    ]}
+     ]}
 
-(Uma lista de rodadas direto também vale; chaves em inglês também: rounds, number,
-name, matches, home, away, kickoff, venue, city.) `data` é o horário de Brasília.
+    Grupos:
+    {"grupos": {"A": ["SPT", "NAU"], "B": ["SCZ", "RET"]},
+     "rodadas": [{"numero": 1, "jogos": [{"mandante": "SPT", "visitante": "SCZ", "data": "..."}]}]}
+
+(Uma lista de rodadas direto também vale; chaves em inglês também: teams, groups,
+rounds, number, name, matches, home, away, kickoff, venue, city.) `data` é o horário
+de Brasília.
 
 Time: `{"id": N}`, o nome completo ou a sigla. A sigla é procurada primeiro entre os
-times da fase (grupo "Tabela"), depois no cadastro; sigla ou nome com mais de um time
-é recusado, com os candidatos. Rodada que já existe (pelo número) recebe os jogos;
-jogo que já existe na rodada (mesmos mandante e visitante) é pulado. Time que joga e
-ainda não está na tabela da fase entra nela.
+times da fase, depois no cadastro; sigla ou nome com mais de um time é recusado, com
+os candidatos.
 
-Fase de grupos: o jogo vai para o grupo em que os dois times já estão; se ainda não
-estão em grupo, o jogo diz qual com `"grupo": "A"` (o grupo é criado se não existir e
-os times entram nele). Times de grupos diferentes, ou um time em dois grupos, é recusado.
+Participantes = times que já estão na fase + os de `times`/`grupos` (que entram na
+tabela; grupo novo é criado). Jogo com time fora dos participantes, ou time em dois
+jogos da mesma rodada, é recusado. Na fase de grupos, times de grupos diferentes
+podem se enfrentar (ex.: Copa do Nordeste); o jogo fica no grupo do mandante.
+
+Rodada que já existe (pelo número) recebe os jogos; jogo que já existe na rodada
+(mesmos mandante e visitante) é pulado.
 
 `parse_table` só lê e confere (nada gravado: dá para usar no clean do formulário);
 `apply_table` grava o plano. Erros: `TableImportError` com uma mensagem por problema.
@@ -41,6 +49,8 @@ from core import timeutils
 from .models import Group, GroupTeam, Round, Stage, Team
 
 KEYS = {
+    "times": "teams", "teams": "teams",
+    "grupos": "groups", "groups": "groups",
     "rodadas": "rounds", "rounds": "rounds",
     "numero": "number", "número": "number", "number": "number",
     "nome": "name", "name": "name",
@@ -50,11 +60,12 @@ KEYS = {
     "data": "kickoff", "kickoff": "kickoff",
     "local": "venue", "estadio": "venue", "estádio": "venue", "venue": "venue",
     "cidade": "city", "city": "city",
-    "grupo": "group", "group": "group",
 }
+TOP_KEYS = {"teams", "groups", "rounds"}
 ROUND_KEYS = {"number", "name", "matches"}
-MATCH_KEYS = {"home", "away", "kickoff", "venue", "city", "group"}
+MATCH_KEYS = {"home", "away", "kickoff", "venue", "city"}
 DATE_FORMATS = ("%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S")
+LEAGUE_GROUP = "Tabela"
 
 
 class TableImportError(Exception):
@@ -70,7 +81,6 @@ class MatchPlan:
     kickoff: datetime
     venue: str = ""
     city: str = ""
-    group: str = ""  # fase de grupos: nome do grupo (como gravado, ou o novo)
 
 
 @dataclass
@@ -83,6 +93,7 @@ class RoundPlan:
 @dataclass
 class TablePlan:
     rounds: list[RoundPlan]
+    entries: dict[int, tuple[Team, str]] = field(default_factory=dict)  # time novo na fase → (time, grupo)
 
     @property
     def match_count(self) -> int:
@@ -115,8 +126,10 @@ class _Teams:
     def __init__(self, stage: Stage | None):
         self.all = list(Team.objects.all())
         self.by_id = {team.id: team for team in self.all}
-        in_stage = set(GroupTeam.objects.filter(group__stage=stage).values_list("team_id", flat=True)) if stage and stage.pk else set()
-        self.stage_teams = [team for team in self.all if team.id in in_stage]
+        self.group_of: dict[int, str] = {}  # times que já estão na fase → grupo
+        if stage and stage.pk:
+            self.group_of = dict(GroupTeam.objects.filter(group__stage=stage).values_list("team_id", "group__name"))
+        self.stage_teams = [team for team in self.all if team.id in self.group_of]
 
     @staticmethod
     def _label(teams: list[Team]) -> str:
@@ -176,60 +189,59 @@ def _text(value, limit: int, label: str, where: str, errors: list[str]) -> str:
     return value.strip()
 
 
-class _Groups:
-    """Fase de grupos: em que grupo cada time está (gravado ou já decidido no arquivo)."""
-
-    def __init__(self, stage: Stage | None):
-        self.names: dict[str, str] = {}  # nome normalizado → nome como gravado
-        self.of_team: dict[int, str] = {}  # time → grupo (normalizado)
-        if stage and stage.pk:
-            for group in Group.objects.filter(stage=stage):
-                self.names[group.name.casefold()] = group.name
-            for team_id, name in GroupTeam.objects.filter(group__stage=stage).values_list("team_id", "group__name"):
-                self.of_team[team_id] = name.casefold()
-
-    def label(self, key: str) -> str:
-        return self.names.get(key, key)
-
-    def place(self, home: Team, away: Team, raw, where: str, errors: list[str]) -> str | None:
-        """Grupo do jogo; decide também o grupo dos times que ainda não têm."""
-        if raw is not None and (not isinstance(raw, str) or not raw.strip()):
-            errors.append(f"{where}: grupo precisa ser o nome do grupo (ex.: \"A\").")
-            return None
-        wanted = raw.strip().casefold() if raw else None
-        home_group, away_group = self.of_team.get(home.id), self.of_team.get(away.id)
-        if wanted is None:
-            if home_group and home_group == away_group:
-                return self.label(home_group)
-            if home_group and away_group:
-                errors.append(f"{where}: {home.name} ({self.label(home_group)}) e {away.name} ({self.label(away_group)}) são de grupos diferentes.")
-            else:
-                errors.append(f'{where}: informe o grupo do jogo (ex.: "grupo": "A"); {home.name if not home_group else away.name} ainda não está em grupo.')
-            return None
-        for team, current in ((home, home_group), (away, away_group)):
-            if current and current != wanted:
-                errors.append(f"{where}: {team.name} está no grupo {self.label(current)}, não no {raw.strip()}.")
-                return None
-        self.names.setdefault(wanted, raw.strip())
-        self.of_team[home.id] = self.of_team[away.id] = wanted
-        return self.label(wanted)
+def _participants(top: dict, fmt: str, teams: _Teams, errors: list[str]) -> dict[int, tuple[Team, str]]:
+    """Times declarados em `times` (pontos corridos) ou `grupos` (grupos) que ainda não
+    estão na fase → {time: (time, grupo)}. Time já em outro grupo da fase é recusado."""
+    declared: list[tuple[str, object, str]] = []  # (onde, referência, grupo)
+    if fmt == Stage.Format.LEAGUE:
+        if "groups" in top:
+            errors.append('Pontos corridos não tem grupos: use "times" para os participantes.')
+        raw = top.get("teams", [])
+        if not isinstance(raw, list):
+            errors.append('"times" precisa ser uma lista de times.')
+            raw = []
+        declared = [(f"Times, item {n}", ref, LEAGUE_GROUP) for n, ref in enumerate(raw, start=1)]
+    else:
+        if "teams" in top:
+            errors.append('Fase de grupos: use "grupos" ({"A": [...], "B": [...]}) para os participantes.')
+        raw = top.get("groups", {})
+        if not isinstance(raw, dict) or not all(isinstance(v, list) for v in raw.values()):
+            errors.append('"grupos" precisa ser um objeto: {"A": ["SPT", "NAU"], "B": [...]}.')
+            raw = {}
+        for name, refs in raw.items():
+            if not str(name).strip() or len(str(name).strip()) > Group._meta.get_field("name").max_length:
+                errors.append(f'Grupo "{name}": nome vazio ou longo demais.')
+                continue
+            declared += [(f"Grupo {name}, item {n}", ref, str(name).strip()) for n, ref in enumerate(refs, start=1)]
+    entries: dict[int, tuple[Team, str]] = {}
+    for where, ref, group in declared:
+        team = teams.resolve(ref, where, errors)
+        if team is None:
+            continue
+        current = teams.group_of.get(team.id) or (entries[team.id][1] if team.id in entries else None)
+        if current is not None and current.casefold() != group.casefold():
+            errors.append(f"{where}: {team.name} já está no grupo {current}.")
+        elif current is None:
+            entries[team.id] = (team, group)
+    return entries
 
 
 def parse_table(text: str, stage: Stage | None, fmt: str | None = None) -> TablePlan:
     """Lê e confere o JSON (sem gravar). `stage` pode ser None (fase ainda não salva);
     `fmt` = formato da fase (padrão: o da fase; sem fase, pontos corridos)."""
     fmt = fmt or (stage.format if stage else Stage.Format.LEAGUE)
-    groups = _Groups(stage) if fmt == Stage.Format.GROUPS else None
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
         raise TableImportError([f"JSON inválido (linha {exc.lineno}, coluna {exc.colno}): {exc.msg}."]) from exc
     errors: list[str] = []
-    if isinstance(data, dict):
-        data = _normalize(data, {"rounds"}, "Tabela", errors).get("rounds")
+    teams = _Teams(stage)
+    top = _normalize(data, TOP_KEYS, "Tabela", errors) if isinstance(data, dict) else {"rounds": data}
+    entries = _participants(top, fmt, teams, errors)
+    in_championship = set(teams.group_of) | set(entries)
+    data = top.get("rounds")
     if not isinstance(data, list) or not data:
         raise TableImportError(errors or ['A tabela deve ter a lista "rodadas", cada uma com os seus "jogos".'])
-    teams = _Teams(stage)
     rounds: list[RoundPlan] = []
     seen_numbers: set[int] = set()
     for index, raw_round in enumerate(data, start=1):
@@ -252,7 +264,6 @@ def parse_table(text: str, stage: Stage | None, fmt: str | None = None) -> Table
         if not isinstance(matches, list) or not matches:
             errors.append(f"{where}: informe os jogos da rodada.")
             continue
-        pairs: set[tuple[int, int]] = set()
         playing: set[int] = set()
         for m_index, raw_match in enumerate(matches, start=1):
             m_where = f"{where}, jogo {m_index}"
@@ -267,36 +278,30 @@ def parse_table(text: str, stage: Stage | None, fmt: str | None = None) -> Table
             city = _text(entry.get("city"), 80, "cidade", m_where, errors)
             if not (home and away and kickoff):
                 continue
-            group_name = ""
-            if groups is not None and home.id != away.id:
-                group_name = groups.place(home, away, entry.get("group"), m_where, errors)
-                if group_name is None:
-                    continue
-            elif groups is None and entry.get("group") not in (None, ""):
-                errors.append(f"{m_where}: pontos corridos não tem grupos (tire a chave grupo).")
-                continue
             if home.id == away.id:
                 errors.append(f"{m_where}: mandante e visitante são o mesmo time ({home.name}).")
                 continue
-            if (home.id, away.id) in pairs:
-                errors.append(f"{m_where}: {home.name} × {away.name} repetido na rodada.")
+            outside = [team.name for team in (home, away) if team.id not in in_championship]
+            if outside:
+                where_to = '"times"' if fmt == Stage.Format.LEAGUE else '"grupos"'
+                verb = "estão" if len(outside) > 1 else "está"
+                errors.append(f"{m_where}: {' e '.join(outside)} não {verb} no campeonato (inclua em {where_to} ou na tabela da fase).")
                 continue
-            twice = {home.id, away.id} & playing
+            twice = [team.name for team in (home, away) if team.id in playing]
+            playing.update((home.id, away.id))  # mesmo recusado: uma 3ª aparição também é apontada
             if twice:
-                name = home.name if home.id in twice else away.name
-                errors.append(f"{m_where}: {name} joga duas vezes na rodada.")
+                errors.append(f"{m_where}: {' e '.join(twice)} já {'jogam' if len(twice) > 1 else 'joga'} nesta rodada.")
                 continue
-            pairs.add((home.id, away.id))
-            playing.update((home.id, away.id))
-            plan.matches.append(MatchPlan(home, away, kickoff, venue, city, group_name))
+            plan.matches.append(MatchPlan(home, away, kickoff, venue, city))
         rounds.append(plan)
     if errors:
         raise TableImportError(errors)
-    return TablePlan(rounds)
+    return TablePlan(rounds, entries)
 
 
 def apply_table(stage: Stage, plan: TablePlan) -> TableResult:
-    """Grava o plano na fase: rodadas, grupos (fase de grupos), times na tabela e jogos."""
+    """Grava o plano na fase: participantes novos (e grupos novos), rodadas e jogos.
+    O jogo fica no grupo do mandante."""
     from matches.models import Match
 
     if not stage.has_table:
@@ -304,10 +309,22 @@ def apply_table(stage: Stage, plan: TablePlan) -> TableResult:
     result = TableResult()
     with transaction.atomic():
         groups = {group.name.casefold(): group for group in Group.objects.filter(stage=stage)}
-        single = None
-        if stage.format == Stage.Format.LEAGUE:
-            single = Group.objects.filter(stage=stage).order_by("id").first() or Group.objects.create(stage=stage, name="Tabela")
-        in_table = set(GroupTeam.objects.filter(group__stage=stage).values_list("team_id", flat=True))
+        if stage.format == Stage.Format.LEAGUE and not groups:
+            groups[LEAGUE_GROUP.casefold()] = Group.objects.create(stage=stage, name=LEAGUE_GROUP)
+        group_of = {item.team_id: item.group for item in GroupTeam.objects.filter(group__stage=stage).select_related("group")}
+        for team, group_name in plan.entries.values():
+            if team.id in group_of:
+                continue
+            if stage.format == Stage.Format.LEAGUE:
+                group = next(iter(groups.values()))  # o grupo único da fase
+            else:
+                group = groups.get(group_name.casefold())
+                if group is None:
+                    group = groups[group_name.casefold()] = Group.objects.create(stage=stage, name=group_name)
+                    result.groups_created.append(group_name)
+            GroupTeam.objects.create(group=group, team=team)
+            group_of[team.id] = group
+            result.teams_added.append(team.name)
         rounds = {rnd.number: rnd for rnd in Round.objects.filter(stage=stage)}
         for round_plan in plan.rounds:
             rnd = rounds.get(round_plan.number)
@@ -323,19 +340,8 @@ def apply_table(stage: Stage, plan: TablePlan) -> TableResult:
                 if (item.home.id, item.away.id) in existing:
                     result.matches_skipped += 1
                     continue
-                group = single
-                if group is None:
-                    group = groups.get(item.group.casefold())
-                    if group is None:
-                        group = groups[item.group.casefold()] = Group.objects.create(stage=stage, name=item.group)
-                        result.groups_created.append(item.group)
-                for team in (item.home, item.away):
-                    if team.id not in in_table:
-                        GroupTeam.objects.create(group=group, team=team)
-                        in_table.add(team.id)
-                        result.teams_added.append(team.name)
                 match = Match(
-                    stage=stage, group=group, round=rnd, home_team=item.home, away_team=item.away,
+                    stage=stage, group=group_of[item.home.id], round=rnd, home_team=item.home, away_team=item.away,
                     kickoff_at=item.kickoff, venue=item.venue, city=item.city,
                 )
                 match.full_clean()

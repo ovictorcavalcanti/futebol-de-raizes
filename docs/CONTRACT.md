@@ -386,7 +386,7 @@ usado volta no `X-Request-ID` da resposta e vai nos logs e na auditoria.
   (está ao vivo/suspenso e o dia pedido é hoje) ou (`finished_at` ≥ meia-noite do dia e `now` < `finished_at` + 2 h).
   Fases de cada competição em `position`; jogos por `kickoff_at`. `latest_goals`: os 10 gols válidos mais
   recentes (`created_at` desc) desses jogos — sem anulados, cancelados nem cobranças da disputa.
-* CompetitionOut: `{"server_time","timezone","cursor","competition": {...},"season": {"id","year"},"stages": [{"id","name","format","position","rounds": [{"id","number","name"}]}],"current_stage_id","current_round_id","stage": {"id","name","format","standings": StageStandingsOut|null,"matches": [MatchOut da rodada],"ties": [TieDetailOut da rodada] (mata-mata; `[]` nas outras)}}`.
+* CompetitionOut: `{"server_time","timezone","cursor","competition": {...},"season": {"id","year","end_year","label"},"stages": [{"id","name","format","position","rounds": [{"id","number","name"}]}],"current_stage_id","current_round_id","stage": {"id","name","format","standings": StageStandingsOut|null,"matches": [MatchOut da rodada],"ties": [TieDetailOut da rodada] (mata-mata; `[]` nas outras)}}`.
   `current_stage_id`/`current_round_id` = fase/rodada exibidas (as pedidas ou as atuais); `season`/`stage` null sem temporada.
   Rodada de uma partida = a dela ou, no mata-mata sem rodada própria, a do confronto (`selectors.match_round`):
   vale para `MatchOut.round`, a rodada atual, `stage.matches` e o filtro `roundId` (também na API pública).

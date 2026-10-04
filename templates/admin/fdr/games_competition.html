@@ -10,7 +10,7 @@
   <tbody>
   {% for m in matches %}
     <tr>
-      <td>{{ m.stage.season.year }} · {{ m.stage.name }}</td>
+      <td>{{ m.stage.season.label }} · {{ m.stage.name }}</td>
       <td>{{ m.round.label|default:"—" }}</td>
       <td>{{ m.kickoff_at|date:"d/m/Y H:i" }}</td>
       <td><a href="{% url 'admin:matches_match_change' m.pk %}">{{ m.home_team.name }} × {{ m.away_team.name }}</a></td>

@@ -197,7 +197,7 @@ function render(data, requestedRoundId = null) {
   state.data = data;
   const comp = data.competition || {};
   els.name.textContent = comp.name || '';
-  els.season.textContent = data.season?.year ? String(data.season.year) : '';
+  els.season.textContent = data.season ? data.season.label || String(data.season.year || '') : ''; // "2026" ou "2026/2027"
   if (els.eyebrow) els.eyebrow.textContent = comp.short_name && comp.short_name !== comp.name ? comp.short_name : 'Competição';
   document.title = `${BRAND} · ${comp.name || 'Competição'}`;
 

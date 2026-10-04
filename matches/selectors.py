@@ -829,7 +829,7 @@ def competition_payload(slug: str, stage_id: int | None = None, round_id: int | 
             "short_name": competition.short_name,
             "position": competition.position,
         },
-        "season": {"id": season.id, "year": season.year} if season else None,
+        "season": {"id": season.id, "year": season.year, "end_year": season.end_year, "label": season.label} if season else None,
         "stages": [
             {
                 "id": item.id,

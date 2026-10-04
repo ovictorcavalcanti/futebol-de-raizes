@@ -1,4 +1,4 @@
-"""Tabela de jogos em JSON na fase de pontos corridos (competitions.table_import + admin da fase)."""
+"""Tabela de jogos em JSON na fase com tabela (competitions.table_import + admin da fase)."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-from competitions.models import GroupTeam, Round, Stage, Team
-from competitions.table_import import TableImportError, parse_table
+from competitions.models import Group, GroupTeam, Round, Stage, Team
+from competitions.table_import import TableImportError, apply_table, parse_table
 from core import timeutils
 from matches.models import Match
 from realtime.models import Outbox
@@ -26,53 +26,67 @@ def teams():
     }
 
 
-def table(*rounds):
-    return json.dumps({"rodadas": list(rounds)})
+def table(*rounds, **top):
+    return json.dumps({**top, "rodadas": list(rounds)})
+
+
+def game(home, away, when="2027-01-15 19:00", **extra):
+    return {"mandante": home, "visitante": away, "data": when, **extra}
+
+
+ALL = ["SPT", "Náutico", "Santa Cruz", "Retrô"]
 
 
 def test_parse_resolves_sigla_name_and_id(teams):
     plan = parse_table(table({"numero": 1, "nome": "1ª rodada", "jogos": [
-        {"mandante": "spt", "visitante": "Náutico", "data": "2027-01-15 19:00", "local": "Ilha do Retiro", "cidade": "Recife"},
-        {"mandante": "Santa Cruz", "visitante": {"id": teams["cli"].id}, "data": "2027-01-16T16:00"},
-    ]}), None)
+        game("spt", "Náutico", local="Ilha do Retiro", cidade="Recife"),
+        game("Santa Cruz", {"id": teams["cli"].id}, "2027-01-16T16:00"),
+    ]}, times=[*ALL, {"id": teams["cli"].id}]), None)
     (rnd,) = plan.rounds
     assert (rnd.number, rnd.name) == (1, "1ª rodada")
     first, second = rnd.matches
     assert (first.home, first.away, first.venue) == (teams["spt"], teams["nau"], "Ilha do Retiro")
     assert first.kickoff.tzinfo == timeutils.app_tz() and (first.kickoff.hour, first.kickoff.minute) == (19, 0)
     assert (second.home, second.away) == (teams["scz"], teams["cli"])
+    assert len(plan.entries) == 5
 
 
 def test_parse_errors_point_to_round_and_match(teams):
     with pytest.raises(TableImportError) as info:
         parse_table(table(
             {"numero": 1, "jogos": [
-                {"mandante": "CEN", "visitante": "SPT", "data": "2027-01-15 19:00"},  # sigla ambígua
-                {"mandante": "XYZ", "visitante": "NAU", "data": "15/01/2027"},  # time e data
-                {"mandante": "SPT", "visitante": "SPT", "data": "2027-01-15 19:00"},
+                game("CEN", "SPT"),  # sigla ambígua
+                game("XYZ", "NAU", "15/01/2027"),  # time e data
+                game("SPT", "SPT"),
+                game("Central", "RET"),  # Central fora do campeonato
             ]},
             {"numero": 2, "jogos": [
-                {"mandante": "SPT", "visitante": "NAU", "data": "2027-01-22 19:00", "juiz": "Fulano"},
-                {"mandante": "NAU", "visitante": "SCZ", "data": "2027-01-22 21:00"},
+                game("SPT", "NAU", "2027-01-22 19:00", juiz="Fulano"),
+                game("NAU", "SCZ", "2027-01-22 21:00"),
+                game("RET", "SCZ", "2027-01-22 21:00"),
             ]},
-            {"numero": 2, "jogos": [{"mandante": "SPT", "visitante": "NAU", "data": "2027-01-29 19:00"}]},
+            {"numero": 2, "jogos": [game("SPT", "NAU", "2027-01-29 19:00")]},
+            times=ALL,
         ), None)
-    messages = info.value.messages
-    assert any("Rodada 1, jogo 1 (mandante): a sigla CEN é de mais de um time (Central" in m for m in messages)
-    assert 'Rodada 1, jogo 2 (mandante): time "XYZ" não cadastrado' in "\n".join(messages)
-    assert any('Rodada 1, jogo 2: data "15/01/2027" fora do formato' in m for m in messages)
-    assert any("Rodada 1, jogo 3: mandante e visitante são o mesmo time (Sport)" in m for m in messages)
+    messages = "\n".join(info.value.messages)
+    assert "Rodada 1, jogo 1 (mandante): a sigla CEN é de mais de um time (Central" in messages
+    assert 'Rodada 1, jogo 2 (mandante): time "XYZ" não cadastrado' in messages
+    assert 'Rodada 1, jogo 2: data "15/01/2027" fora do formato' in messages
+    assert "Rodada 1, jogo 3: mandante e visitante são o mesmo time (Sport)" in messages
+    assert 'Rodada 1, jogo 4: Central não está no campeonato (inclua em "times" ou na tabela da fase).' in messages
     assert "Rodada 2, jogo 1: chave desconhecida juiz." in messages
-    assert any("Rodada 2, jogo 2: Náutico joga duas vezes na rodada" in m for m in messages)
+    assert "Rodada 2, jogo 2: Náutico já joga nesta rodada." in messages
+    assert "Rodada 2, jogo 3: Santa Cruz já joga nesta rodada." in messages
     assert "Rodada 2: rodada repetida no arquivo." in messages
 
 
-def test_sigla_prefers_the_stage_teams(teams):
+def test_sigla_prefers_the_stage_teams_and_stage_teams_need_no_declaration(teams):
     comp, season = make_competition()
     stage = make_stage(season)
-    GroupTeam.objects.create(group=stage.groups.get(), team=teams["cli"])  # só o Centro Limoeirense na fase
-    plan = parse_table(table({"numero": 1, "jogos": [{"mandante": "CEN", "visitante": "SPT", "data": "2027-01-15 19:00"}]}), stage)
-    assert plan.rounds[0].matches[0].home == teams["cli"]
+    for key in ("cli", "spt"):  # Centro Limoeirense e Sport já na fase
+        GroupTeam.objects.create(group=stage.groups.get(), team=teams[key])
+    plan = parse_table(table({"numero": 1, "jogos": [game("CEN", "SPT")]}), stage)
+    assert plan.rounds[0].matches[0].home == teams["cli"] and plan.entries == {}
 
 
 def test_admin_creates_stage_with_rounds_matches_and_table(admin_client_fdr, teams):
@@ -80,11 +94,9 @@ def test_admin_creates_stage_with_rounds_matches_and_table(admin_client_fdr, tea
     response = admin_client_fdr.get(url(Stage, "add") + f"?season={season.pk}")
     data = post_data(response)
     data.update(season=str(season.pk), name="1ª fase", position="1", format="league", table_json=table(
-        {"numero": 1, "jogos": [
-            {"mandante": "SPT", "visitante": "NAU", "data": "2027-01-15 19:00"},
-            {"mandante": "SCZ", "visitante": "RET", "data": "2027-01-16 16:00"},
-        ]},
-        {"numero": 2, "nome": "2ª rodada", "jogos": [{"mandante": "NAU", "visitante": "SCZ", "data": "2027-01-22 19:00"}]},
+        {"numero": 1, "jogos": [game("SPT", "NAU"), game("SCZ", "RET", "2027-01-16 16:00")]},
+        {"numero": 2, "nome": "2ª rodada", "jogos": [game("NAU", "SCZ", "2027-01-22 19:00")]},
+        times=ALL,
     ))
     response = admin_client_fdr.post(url(Stage, "add") + f"?season={season.pk}", data, follow=True)
     assert response.status_code == 200, response.content.decode()[:2000]
@@ -100,17 +112,19 @@ def test_admin_error_saves_nothing_and_rerun_skips_existing(admin_client_fdr, te
     comp, season = make_competition()
     stage = make_stage(season)
     data = post_data(admin_client_fdr.get(change_url(stage)))
-    data["table_json"] = table({"numero": 1, "jogos": [{"mandante": "CEN", "visitante": "SPT", "data": "2027-01-15 19:00"}]})
+    data["table_json"] = table({"numero": 1, "jogos": [game("SPT", "NAU")]})  # ninguém na fase ainda
     response = admin_client_fdr.post(change_url(stage), data)
-    assert response.status_code == 200 and "a sigla CEN é de mais de um time" in response.content.decode()
+    assert response.status_code == 200 and "Sport e Náutico não estão no campeonato" in response.content.decode()
     assert not Round.objects.filter(stage=stage).exists() and not Match.objects.filter(stage=stage).exists()
+    assert not GroupTeam.objects.filter(group__stage=stage).exists()
 
-    good = table({"numero": 1, "jogos": [{"mandante": "SPT", "visitante": "NAU", "data": "2027-01-15 19:00"}]})
-    for _ in range(2):  # a segunda vez pula o jogo que já existe
+    good = table({"numero": 1, "jogos": [game("SPT", "NAU")]}, times=["SPT", "NAU"])
+    for _ in range(2):  # a segunda vez pula o jogo e os times que já existem
         data = post_data(admin_client_fdr.get(change_url(stage)))
         data["table_json"] = good
         assert admin_client_fdr.post(change_url(stage), data).status_code == 302
     assert Match.objects.filter(stage=stage).count() == 1 and stage.rounds.count() == 1
+    assert GroupTeam.objects.filter(group__stage=stage).count() == 2
 
 
 def test_admin_refuses_table_for_knockout(admin_client_fdr, teams):
@@ -118,72 +132,54 @@ def test_admin_refuses_table_for_knockout(admin_client_fdr, teams):
     response = admin_client_fdr.get(url(Stage, "add") + f"?season={season.pk}")
     data = post_data(response)
     data.update(season=str(season.pk), name="Mata-mata", position="2", format="knockout",
-                table_json=table({"numero": 1, "jogos": [{"mandante": "SPT", "visitante": "NAU", "data": "2027-01-15 19:00"}]}))
+                table_json=table({"numero": 1, "jogos": [game("SPT", "NAU")]}))
     response = admin_client_fdr.post(url(Stage, "add") + f"?season={season.pk}", data)
     assert response.status_code == 200 and "só para fase de pontos corridos ou de grupos" in response.content.decode()
     assert not Stage.objects.filter(season=season).exists()
 
 
-def groups_stage(teams, with_teams=True):
-    from competitions.models import Group
-
+def groups_stage():
     comp, season = make_competition()
-    stage = make_stage(season, Stage.Format.GROUPS, name="Grupos")
-    a, b = Group.objects.create(stage=stage, name="A"), Group.objects.create(stage=stage, name="B")
-    if with_teams:
-        for team in (teams["spt"], teams["nau"]):
-            GroupTeam.objects.create(group=a, team=team)
-        for team in (teams["scz"], teams["ret"]):
-            GroupTeam.objects.create(group=b, team=team)
-    return stage, a, b
+    return make_stage(season, Stage.Format.GROUPS, name="Grupos")
 
 
-def test_groups_stage_infers_the_group_of_each_match(teams):
-    from competitions.table_import import apply_table
-
-    stage, a, b = groups_stage(teams)
-    plan = parse_table(table({"numero": 1, "jogos": [
-        {"mandante": "SPT", "visitante": "NAU", "data": "2027-01-15 19:00"},
-        {"mandante": "SCZ", "visitante": "RET", "data": "2027-01-15 21:00"},
-    ]}), stage)
+def test_groups_stage_declares_groups_and_allows_cross_group_matches(teams):
+    stage = groups_stage()
+    plan = parse_table(table(
+        {"numero": 1, "jogos": [game("SPT", "SCZ"), game("NAU", "RET", "2027-01-15 21:00")]},  # A × B (Copa do Nordeste)
+        {"numero": 2, "jogos": [game("SPT", "NAU", "2027-01-22 19:00")]},
+        grupos={"A": ["SPT", "NAU"], "B": ["SCZ", "RET"]},
+    ), stage)
     result = apply_table(stage, plan)
-    assert result.matches_created == 2 and result.groups_created == [] and result.teams_added == []
-    assert dict(Match.objects.filter(stage=stage).values_list("home_team__short_name", "group__name")) == {"SPT": "A", "SCZ": "B"}
+    assert sorted(result.groups_created) == ["A", "B"] and len(result.teams_added) == 4
+    assert result.matches_created == 3
+    by_home = dict(Match.objects.filter(stage=stage, round__number=1).values_list("home_team__short_name", "group__name"))
+    assert by_home == {"SPT": "A", "NAU": "A"}  # o jogo fica no grupo do mandante
 
 
-def test_groups_stage_new_teams_need_the_group_and_conflicts_are_refused(teams):
-    from competitions.table_import import apply_table
-
-    stage, a, b = groups_stage(teams)
+def test_groups_stage_refuses_team_in_two_groups_and_outsiders(teams):
+    stage = groups_stage()
+    GroupTeam.objects.create(group=Group.objects.create(stage=stage, name="A"), team=teams["spt"])
     with pytest.raises(TableImportError) as info:
-        parse_table(table({"numero": 1, "jogos": [
-            {"mandante": "SPT", "visitante": "SCZ", "data": "2027-01-15 19:00"},  # A × B
-            {"mandante": "Central", "visitante": "NAU", "data": "2027-01-15 19:00"},  # Central sem grupo
-            {"mandante": "Central", "visitante": "RET", "data": "2027-01-16 19:00", "grupo": "A"},  # Retrô é do B
-        ]}), stage)
+        parse_table(table(
+            {"numero": 1, "jogos": [game("SPT", "SCZ"), game("Central", "NAU")]},
+            grupos={"B": ["SPT", "SCZ", "NAU"], "C": ["NAU"]},
+        ), stage)
     messages = "\n".join(info.value.messages)
-    assert "Rodada 1, jogo 1: Sport (A) e Santa Cruz (B) são de grupos diferentes." in messages
-    assert 'Rodada 1, jogo 2: informe o grupo do jogo (ex.: "grupo": "A"); Central ainda não está em grupo.' in messages
-    assert "Rodada 1, jogo 3: Retrô está no grupo B, não no A." in messages
-
-    plan = parse_table(table({"numero": 1, "jogos": [
-        {"mandante": "Central", "visitante": "Centro Limoeirense", "data": "2027-01-15 19:00", "grupo": "C"},
-        {"mandante": "SPT", "visitante": "NAU", "data": "2027-01-16 19:00"},
-    ]}, {"numero": 2, "jogos": [{"mandante": {"id": teams["cen"].id}, "visitante": "Centro Limoeirense", "data": "2027-01-22 19:00"}]}), stage)
-    result = apply_table(stage, plan)  # a 2ª rodada já sabe que os dois são do C
-    assert result.groups_created == ["C"] and sorted(result.teams_added) == ["Central", "Centro Limoeirense"]
-    assert Match.objects.filter(stage=stage, group__name="C").count() == 2
-
-
-def test_league_refuses_group_key(teams):
-    with pytest.raises(TableImportError, match="pontos corridos não tem grupos"):
-        parse_table(table({"numero": 1, "jogos": [{"mandante": "SPT", "visitante": "NAU", "data": "2027-01-15 19:00", "grupo": "A"}]}), None)
+    assert "Grupo B, item 1: Sport já está no grupo A." in messages
+    assert "Grupo C, item 1: Náutico já está no grupo B." in messages
+    assert 'Rodada 1, jogo 2: Central não está no campeonato (inclua em "grupos" ou na tabela da fase).' in messages
+    with pytest.raises(TableImportError, match='use "grupos"'):
+        parse_table(table({"numero": 1, "jogos": [game("SPT", "SCZ")]}, times=["SCZ"]), stage)
+    with pytest.raises(TableImportError, match="Pontos corridos não tem grupos"):
+        parse_table(table({"numero": 1, "jogos": [game("SPT", "SCZ")]}, grupos={"A": ["SPT", "SCZ"]}), None)
 
 
 def test_admin_groups_stage_import(admin_client_fdr, teams):
-    stage, a, b = groups_stage(teams)
+    stage = groups_stage()
     data = post_data(admin_client_fdr.get(change_url(stage)))
-    data["table_json"] = table({"numero": 1, "jogos": [{"mandante": "SPT", "visitante": "NAU", "data": "2027-01-15 19:00"}]})
+    data["table_json"] = table({"numero": 1, "jogos": [game("SPT", "RET")]}, grupos={"A": ["SPT"], "B": ["RET"]})
     response = admin_client_fdr.post(change_url(stage), data, follow=True)
-    assert "Tabela em JSON: 1 rodada(s) e 1 jogo(s) criados" in response.content.decode()
-    assert Match.objects.get(stage=stage).group == a
+    content = response.content.decode()
+    assert "Tabela em JSON: 1 rodada(s) e 1 jogo(s) criados" in content and "grupos criados: A, B" in content
+    assert Match.objects.get(stage=stage).group.name == "A"

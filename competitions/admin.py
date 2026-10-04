@@ -210,7 +210,7 @@ def hierarchy(obj) -> list[dict]:
     if name == "competition":
         return [{"label": obj.name, "url": change_url_of(obj)}]
     if name == "season":
-        return [*hierarchy(obj.competition), {"label": f"Temporada {obj.year}", "url": change_url_of(obj)}]
+        return [*hierarchy(obj.competition), {"label": f"Temporada {obj.label}", "url": change_url_of(obj)}]
     if name == "stage":
         return [*hierarchy(obj.season), {"label": obj.name, "url": change_url_of(obj)}]
     if name in ("group", "round"):
@@ -619,7 +619,7 @@ class PointAdjustmentInline(Inline):
 
 class SeasonInline(Inline):
     model = Season
-    fields = ("year", "open")
+    fields = ("year", "end_year", "open")
     readonly_fields = ("open",)
     ordering = ("-year",)
     verbose_name_plural = "temporadas"
@@ -659,7 +659,7 @@ class CompetitionAdmin(HierarchyAdminMixin, StandingCacheDeletionMixin, BaseAdmi
 
     @admin.display(description="temporadas")
     def seasons_list(self, obj):
-        return ", ".join(str(season.year) for season in obj.seasons.all()) or "—"
+        return ", ".join(season.label for season in obj.seasons.all()) or "—"
 
     @admin.display(description="fases")
     def stages_panel(self, obj):
@@ -679,7 +679,7 @@ class CompetitionAdmin(HierarchyAdminMixin, StandingCacheDeletionMixin, BaseAdmi
             )
             rows.append(
                 (
-                    admin_link(season, f"Temporada {season.year}"),
+                    admin_link(season, f"Temporada {season.label}"),
                     links or "nenhuma fase ainda",
                     format_html('<a href="{}?season={}">+ adicionar fase</a>', add_url, season.pk),
                 )
@@ -730,12 +730,13 @@ class StageFormatMixin:
 
 
 TABLE_JSON_HELP = (
-    'Opcional (pontos corridos ou grupos): as rodadas e os jogos da fase. Ex.: {"rodadas": [{"numero": 1, '
-    '"jogos": [{"mandante": "SPT", "visitante": "NAU", "data": "2027-01-15 19:00", "local": "Ilha do Retiro", '
-    '"cidade": "Recife"}]}]}. Time pela sigla, pelo nome ou {"id": N}; data no horário de Brasília. '
-    "Rodada existente recebe os jogos; jogo repetido é pulado; quem joga e não está na tabela entra nela. "
-    'Fase de grupos: o jogo vai para o grupo dos dois times; times ainda sem grupo pedem "grupo": "A" no jogo. '
-    "Com qualquer erro, nada é gravado."
+    'Opcional (pontos corridos ou grupos): as rodadas e os jogos da fase. Ex.: {"times": ["SPT", "NAU"], '
+    '"rodadas": [{"numero": 1, "jogos": [{"mandante": "SPT", "visitante": "NAU", "data": "2027-01-15 19:00", '
+    '"local": "Ilha do Retiro", "cidade": "Recife"}]}]}. Na fase de grupos, os participantes vão em '
+    '"grupos": {"A": [...], "B": [...]}. "times"/"grupos" só precisam dos times que ainda não estão na fase. '
+    'Time pela sigla, pelo nome ou {"id": N}; data no horário de Brasília. Time fora do campeonato, ou em dois '
+    "jogos da mesma rodada, é recusado; times de grupos diferentes podem se enfrentar (o jogo fica no grupo do "
+    "mandante). Rodada existente recebe os jogos; jogo repetido é pulado. Com qualquer erro, nada é gravado."
 )
 
 
@@ -794,7 +795,7 @@ class StageInline(Inline):
 
 @admin.register(Season)
 class SeasonAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, StandingCacheDeletionMixin, BaseAdmin):
-    list_display = ("__str__", "competition", "year")
+    list_display = ("__str__", "competition", "year", "end_year")
     list_filter = ("competition",)
     search_fields = ("competition__name", "competition__short_name", "year")
     list_select_related = ("competition",)

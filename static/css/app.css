@@ -1622,6 +1622,8 @@
 @layer pages {
   /* --- Home ------------------------------------------------------------------------ */
   .page-intro { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--s-2) var(--s-4); }
+  .date-nav { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
+  .date-nav .page-intro__date { margin: 0; min-width: 12ch; text-align: center; }
   .page-intro__date { min-height: 1.5em; font-family: var(--font-num); font-weight: 600; font-size: 1rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-3); }
   .competitions { display: grid; gap: var(--s-7); }
   .comp-section {

@@ -13,6 +13,8 @@ import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import parse_qsl
+from zoneinfo import ZoneInfo
 
 import pytest
 from django.conf import settings
@@ -384,7 +386,8 @@ class FakeApi:
         if path == "/api/competitions":
             return self.json(route, {"competitions": self.fx["COMPETITIONS"]})
         if path == "/api/home":
-            return self.json(route, {**copy.deepcopy(self.fx["HOME"]), **stamp})
+            day = dict(parse_qsl(query)).get("date")  # o seletor de dias pede ?date=
+            return self.json(route, {**copy.deepcopy(self.fx["HOME"]), **stamp, **({"date": day} if day else {})})
         if path.startswith("/api/competitions/"):
             if path.endswith("/nao-existe"):
                 return self.json(
@@ -704,6 +707,33 @@ def test_home_sem_jogo(open_page, fixtures):
     page.wait_for_selector("#home-empty:not([hidden])")
     assert page.evaluate("document.getElementById('latest-goals').hidden")
     assert page.evaluate("document.querySelectorAll('#competitions-nav a').length") == 4
+    assert not errors, errors
+
+
+def test_home_seletor_de_dias(open_page):
+    today = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+    tomorrow = (today + timedelta(days=1)).isoformat()
+
+    def prepare(api):
+        api.fx = {**api.fx, "HOME": {**api.fx["HOME"], "date": today.isoformat()}}
+
+    page, api, errors = open_page("/", prepare=prepare)
+    page.wait_for_selector("#competitions .match")
+    title = "() => document.getElementById('home-title').textContent"
+    assert page.evaluate(title) == "Jogos de hoje"
+    assert page.evaluate("document.getElementById('day-today').hidden")
+    page.click("#day-next")
+    page.wait_for_function(f"() => document.getElementById('home-date').dateTime === '{tomorrow}'")
+    assert page.evaluate(title) == "Jogos de amanhã"
+    assert page.evaluate("location.search") == f"?date={tomorrow}"
+    assert [q for _, p, q, _ in api.requests if p == "/api/home"][-1] == f"date={tomorrow}"
+    assert not page.evaluate("document.getElementById('day-today').hidden")
+    page.click("#day-today")
+    page.wait_for_function(f"() => document.getElementById('home-date').dateTime === '{today.isoformat()}'")
+    assert page.evaluate("location.search") == ""
+    assert page.evaluate("document.getElementById('day-today').hidden")
+    page.go_back()  # o histórico volta para amanhã
+    page.wait_for_function(f"() => document.getElementById('home-date').dateTime === '{tomorrow}'")
     assert not errors, errors
 
 

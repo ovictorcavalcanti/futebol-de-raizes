@@ -5,6 +5,7 @@
  *
  * Ciclo: busca GET /api/competitions + GET /api/home, desenha, assina o stream a
  * partir do `cursor` e substitui o trecho afetado a cada mensagem (sem merge).
+ * O seletor ‹ › troca o dia (?date=AAAA-MM-DD na URL; sem ele, hoje).
  */
 import { hooks, cloneTemplate, renderCompetitionNav, showToast } from './render.js';
 import { ServerClock, mountClock } from './clock.js';
@@ -20,7 +21,12 @@ const els = {
   nav: document.querySelector('#competitions-nav [data-hook="competition-links"]'),
   clock: $('brasilia-clock'),
   liveStatus: $('live-status'),
+  title: $('home-title'),
   date: $('home-date'),
+  dayPrev: $('day-prev'),
+  dayNext: $('day-next'),
+  dayToday: $('day-today'),
+  emptyTitle: $('home-empty-title'),
   latest: $('latest-goals'),
   latestList: $('latest-goals-list'),
   latestEmpty: $('latest-goals-empty'),
@@ -42,8 +48,17 @@ const now = () => clock.nowMs();
 const notifySupport = notificationSupport(window);
 if (els.notifyButton) els.notifyButton.hidden = !notifySupport.available;
 if (els.notifyHint) els.notifyHint.hidden = notifySupport.reason !== 'insecure';
+const DAY_RE = /^\d{4}-\d\d-\d\d$/;
+
+/** Dia pedido na URL (?date=AAAA-MM-DD) ou null (hoje, acompanha a virada do dia). */
+function dayFromUrl() {
+  const value = new URLSearchParams(location.search).get('date');
+  return value && DAY_RE.test(value) ? value : null;
+}
+
 const state = {
-  date: null,
+  selected: dayFromUrl(), // dia escolhido no seletor; null = hoje
+  date: null, // dia da resposta exibida
   competitions: [], // menu
   liveKey: '',
   cards: new Map(), // match id → card
@@ -51,6 +66,7 @@ const state = {
   ties: new Map(), // tie id → { tie, card } (mata-mata: agregado ao lado dos jogos)
   reloadTimer: 0,
   reloading: null,
+  reloadingFor: null, // dia do reload em andamento
 };
 let alerts = null;
 let stream = null;
@@ -93,6 +109,54 @@ function paintNav(force = false) {
   state.liveKey = key;
   renderCompetitionNav(els.nav, state.competitions, { liveSlugs: slugs });
 }
+
+/* --- Seletor de dias ------------------------------------------------------------------------ */
+
+const DAY_MS = 86_400_000;
+const keyMs = (key) => Date.parse(`${key}T00:00:00Z`);
+
+function addDays(key, n) {
+  return new Date(keyMs(key) + n * DAY_MS).toISOString().slice(0, 10);
+}
+
+/** Dias entre `key` e hoje em Brasília: 0 hoje, -1 ontem, 1 amanhã. */
+function daysFromToday(key) {
+  return Math.round((keyMs(key) - keyMs(clock.today())) / DAY_MS);
+}
+
+function paintDayLabels(key) {
+  const diff = daysFromToday(key);
+  const title = { 0: 'Jogos de hoje', [-1]: 'Jogos de ontem', 1: 'Jogos de amanhã' }[diff] ?? 'Jogos do dia';
+  const empty =
+    { 0: 'Hoje não tem jogo, visse?', [-1]: 'Ontem não teve jogo, visse?', 1: 'Amanhã não tem jogo, visse?' }[diff] ??
+    (diff < 0 ? 'Nesse dia não teve jogo, visse?' : 'Nesse dia não tem jogo, visse?');
+  if (els.title) els.title.textContent = title;
+  if (els.emptyTitle) els.emptyTitle.textContent = empty;
+  if (els.dayToday) els.dayToday.hidden = diff === 0;
+}
+
+function setDayBusy(busy) {
+  for (const button of [els.dayPrev, els.dayNext, els.dayToday]) if (button) button.disabled = busy;
+}
+
+/** Troca o dia exibido: hoje sai da URL (e volta a acompanhar a virada do dia). */
+function goToDay(key, { push = true } = {}) {
+  state.selected = key && key !== clock.today() ? key : null;
+  if (push) {
+    const url = new URL(location.href);
+    if (state.selected) url.searchParams.set('date', state.selected);
+    else url.searchParams.delete('date');
+    history.pushState(null, '', url);
+  }
+  setDayBusy(true);
+  els.competitions.setAttribute('aria-busy', 'true');
+  return reloadAndRestart().finally(() => setDayBusy(false));
+}
+
+els.dayPrev?.addEventListener('click', () => state.date && goToDay(addDays(state.date, -1)));
+els.dayNext?.addEventListener('click', () => state.date && goToDay(addDays(state.date, 1)));
+els.dayToday?.addEventListener('click', () => goToDay(null));
+window.addEventListener('popstate', () => goToDay(dayFromUrl(), { push: false }));
 
 /* --- Desenho ------------------------------------------------------------------------------ */
 
@@ -163,6 +227,7 @@ function render(home) {
     els.date.textContent = formatDateLong(`${home.date}T12:00:00Z`);
     els.date.dateTime = home.date;
   }
+  paintDayLabels(home.date);
   els.error.hidden = true;
   const competitions = home.competitions || [];
   const nextCards = new Map();
@@ -239,18 +304,22 @@ function onGoals(message) {
 
 /** Busca a home de novo e redesenha (sem alertas); devolve o cursor novo. */
 function reload() {
-  if (state.reloading) return state.reloading;
-  state.reloading = getHome()
+  const wanted = state.selected;
+  if (state.reloading && state.reloadingFor === wanted) return state.reloading;
+  state.reloadingFor = wanted;
+  const request = getHome(wanted ?? undefined)
     .then((home) => {
+      if (state.selected !== wanted) return reload(); // o dia mudou no meio do caminho
       sync(home);
       render(home);
       alerts?.reset(home.latest_goals || []);
       return home.cursor ?? null;
     })
     .finally(() => {
-      state.reloading = null;
+      if (state.reloading === request) state.reloading = null;
     });
-  return state.reloading;
+  state.reloading = request;
+  return request;
 }
 
 function reloadAndRestart() {
@@ -269,7 +338,7 @@ function scheduleReload(delay = 2_000) {
 
 async function boot() {
   els.error.hidden = true;
-  const [compsResult, homeResult] = await Promise.allSettled([getCompetitions(), getHome()]);
+  const [compsResult, homeResult] = await Promise.allSettled([getCompetitions(), getHome(state.selected ?? undefined)]);
   if (compsResult.status === 'fulfilled') state.competitions = compsResult.value?.competitions || [];
   if (homeResult.status !== 'fulfilled') {
     paintNav(true);

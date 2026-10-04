@@ -234,10 +234,10 @@ test('apiFetch: erro tipado, tempo esgotado e falha de rede', async () => {
   await assert.rejects(apiFetch('/x', { fetchImpl: html }), (e) => e.code === 'invalid_response');
 });
 
-test('effectiveMinuteMode: gol no intervalo exige o minuto (vai para o tempo que acabou)', () => {
-  const goal = { type: 'goal', kind: 'game', minute: 'required' };
+test('effectiveMinuteMode: gol tem minuto opcional em qualquer tempo (gol a confirmar)', () => {
+  const goal = { type: 'goal', kind: 'game', minute: 'optional' };
   const card = { type: 'yellow_card', kind: 'game', minute: 'required' };
-  assert.equal(effectiveMinuteMode(goal, 'half_time'), 'required');
-  assert.equal(effectiveMinuteMode(goal, 'extra_half_time'), 'required');
+  for (const period of ['first_half', 'half_time', 'second_half', 'extra_half_time']) assert.equal(effectiveMinuteMode(goal, period), 'optional');
+  assert.equal(effectiveMinuteMode(card, 'first_half'), 'required');
   assert.equal(effectiveMinuteMode(card, 'half_time'), 'optional');
 });

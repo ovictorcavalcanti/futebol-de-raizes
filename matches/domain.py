@@ -19,8 +19,10 @@ Convenções
   um lance esquecido entra depois, no tempo dele (gol aos 30' lançado no 2T fica
   no 1T), desde que esse tempo já tenha sido jogado e seja da mesma fase (tempo
   normal ou prorrogação: com a prorrogação ou os pênaltis em andamento, o tempo
-  normal já está fechado). No intervalo, o gol é sempre do tempo que acabou: o
-  minuto é obrigatório. Intervalo: minuto opcional; se vier,
+  normal já está fechado). No intervalo, o gol é sempre do tempo que acabou.
+* Gol aceita ficar sem minuto e sem autor (só o placar é conhecido): entra no
+  período corrente (no intervalo, no tempo que acabou) e na ordem do lançamento;
+  o operador completa depois, editando o lance. Intervalo: minuto opcional; se vier,
   é 45 (105 no intervalo da prorrogação), com ou sem acréscimo. Pênaltis:
   minuto opcional; se vier, é o do início da disputa (90 sem prorrogação, 120 com).
   Acréscimo vai de 1 a 30 (0 = sem acréscimo). `EventSpec.minute == "required"`
@@ -318,15 +320,17 @@ CATALOG: dict[str, EventSpec] = {
         _structural(EventType.PENALTIES_START, "Início dos pênaltis", "ball-penalty"),
         _structural(EventType.MATCH_END, "Fim de jogo", "flag"),
         _game(
-            # no intervalo: gol esquecido do tempo que acabou (o minuto é obrigatório e decide o tempo)
+            # Minuto e autor opcionais: às vezes só se sabe o placar (gol "a confirmar"); no
+            # intervalo, o gol é do tempo que acabou (com minuto, ele decide qual).
             EventType.GOAL, "Gol", "ball", _PLAY_AND_INTERVAL,
             FieldSpec("team_id", "team", "Time beneficiado"),
-            _F_PLAYER,
+            FieldSpec("payload.player", "player", "Jogador", required=False),
             FieldSpec(
                 "payload.origin", "choice", "Origem", required=False,
                 choices=tuple((origin.value, label) for origin, label in GOAL_ORIGIN_LABELS.items()),
             ),
             FieldSpec("payload.assist", "player", "Assistência", required=False),
+            minute="optional",
         ),
         _game(
             EventType.GOAL_ANNULLED, "Gol anulado", "ball-x", _PLAY_AND_INTERVAL,
@@ -414,8 +418,6 @@ def minute_mode(event_type: str, period: str | None) -> str:
     spec = CATALOG.get(event_type)
     if spec is None:
         return "none"
-    if spec.type == EventType.GOAL and period in _INTERVALS:
-        return "required"  # gol no intervalo é do tempo que acabou: o minuto diz qual
     if spec.kind == "game" and spec.minute == "required" and period not in _CLOCK_PERIODS:
         return "optional"
     return spec.minute
@@ -1559,16 +1561,19 @@ def _on_goal(i: _Input) -> _Outcome:
         raise _error("invalid_payload", "Origem do gol inválida.", field="payload.origin")
     origin = GoalOrigin(origin)
     scorer_team = _opponent(i.ctx, team) if origin == GoalOrigin.OWN_GOAL else team
-    scorer = _player(i.ctx, scorer_team, i.payload.get("player"), i.new.player_id, "payload.player")
+    unknown = _clean_name(i.payload.get("player"), "payload.player") is None and i.new.player_id is None
+    # sem autor: gol "a confirmar" (o operador completa depois, editando o lance)
+    scorer = None if unknown else _player(i.ctx, scorer_team, i.payload.get("player"), i.new.player_id, "payload.player")
     assist = _clean_name(i.payload.get("assist"), "payload.assist")
     if assist and origin == GoalOrigin.OWN_GOAL:
         raise _error("invalid_payload", "Gol contra não tem assistência.", field="payload.assist")
-    _check_player(i, scorer, on_field=True)
-    payload = {**scorer.named(), "origin": origin.value}
+    if scorer is not None:
+        _check_player(i, scorer, on_field=True)
+    payload = {**(scorer.named() if scorer else {}), "origin": origin.value}
     if assist:
         payload["assist"] = assist
     side = _side(i.ctx, team)
-    return _Outcome(team, scorer.player_id, payload, changes={side: getattr(i.state, side) + 1})
+    return _Outcome(team, scorer.player_id if scorer else None, payload, changes={side: getattr(i.state, side) + 1})
 
 
 def _on_goal_annulled(i: _Input) -> _Outcome:
@@ -1703,12 +1708,12 @@ def _shootout_minutes(ctx: MatchContext) -> tuple[int, ...]:
     return (120,) if ctx.tie.extra_time else (90,)
 
 
-def _game_minute(new: NewEvent, period: str, ctx: MatchContext) -> tuple[int | None, int | None]:
+def _game_minute(new: NewEvent, period: str, ctx: MatchContext, *, required: bool = True) -> tuple[int | None, int | None]:
     minute, stoppage = new.minute, _normalized_stoppage(new.stoppage)
     if minute is None:
         if stoppage is not None:
             raise _error("invalid_minute", "Acréscimo sem minuto.", stoppage=stoppage)
-        if period in _CLOCK_PERIODS:
+        if required and period in _CLOCK_PERIODS:
             raise _error("invalid_minute", "Informe o minuto do lance.", period=period)
         return None, None
     low, high, stoppage_at = _MINUTE_RULES[period]
@@ -1755,6 +1760,8 @@ def _event_period(state: MatchState, spec: EventSpec, new: NewEvent, ctx: MatchC
     período corrente (a validação recusa o minuto)."""
     current = state.period
     minute = new.minute
+    if minute is None and spec.type == EventType.GOAL and current in _INTERVALS:
+        return _ORDER_PERIOD[PERIOD_ORDER[current] - 1]  # gol sem minuto no intervalo: do tempo que acabou
     if minute is None or not _is_int(minute) or minute < 0:
         return current
     if current in (*_INTERVALS, Period.PENALTIES) and current in spec.periods and spec.type != EventType.GOAL:
@@ -1788,7 +1795,7 @@ def _step_game(
         low, high, _stoppage_at = _MINUTE_RULES[_ORDER_PERIOD[PERIOD_ORDER[period] - 1]]
         raise _error(
             "invalid_minute",
-            f"No intervalo, o gol é do tempo que acabou: informe o minuto ({low} a {high}, com acréscimo).",
+            f"No intervalo, o gol é do tempo que acabou: o minuto vai de {low} a {high} (com acréscimo).",
             minute=new.minute,
             period=period,
         )
@@ -1800,7 +1807,7 @@ def _step_game(
             period=period,
             type=spec.type,
         )
-    minute, stoppage = _game_minute(new, period, ctx)
+    minute, stoppage = _game_minute(new, period, ctx, required=spec.minute == "required")
     if new.player_id is not None:
         _optional_id(new.player_id, "player_id")
     i = _Input(state, new, ctx, history, _payload_of(new), period, collect)

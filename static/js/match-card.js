@@ -21,6 +21,8 @@ let seq = 0;
 
 const POSITION_SHORT = { GK: 'GOL', LAD: 'LAD', DF: 'ZAG', LAE: 'LAE', VOL: 'VOL', MF: 'MEI', FW: 'ATA' };
 const ORIGIN_TAG = { penalty: 'pên.', own_goal: 'contra' };
+/** Gol lançado sem autor (só o placar é conhecido); o operador completa depois. */
+export const GOAL_TO_CONFIRM = 'Gol - Informações a confirmar';
 const ORIGIN_LABEL = { open_play: 'Jogada', penalty: 'De pênalti', own_goal: 'Gol contra' };
 const MISS_LABEL = { saved: 'Defendido', off_target: 'Para fora', woodwork: 'Na trave' };
 const SEPARATORS = {
@@ -382,7 +384,7 @@ function renderSummary(summary, match) {
       const tag = ORIGIN_TAG[g.origin];
       return h('li', { class: 'facts-line__item' },
         icon(g.origin === 'own_goal' ? 'ball-own' : 'ball', { label: 'Gol' }),
-        g.player || 'Gol',
+        g.player || GOAL_TO_CONFIRM,
         h('span', { class: 'facts-line__min', text: minuteLabel(g) }),
         tag ? h('span', { class: 'facts-line__tag', text: `(${tag})` }) : null,
       );
@@ -662,7 +664,7 @@ export function renderTimeline(match, newIds = null) {
           if (!sub.length) sub.push('Gol');
         }
         list.append(timelineItem(e, side, {
-          title: eventPlayer(e) || 'Gol', sub, score: annulled ? null : (e.score_after ? formatScore(e.score_after.home, e.score_after.away) : null),
+          title: eventPlayer(e) || GOAL_TO_CONFIRM, sub, score: annulled ? null : (e.score_after ? formatScore(e.score_after.home, e.score_after.away) : null),
           extraClass: annulled ? 'tl-item--annulled' : 'tl-item--goal', isNew,
         }));
         break;
@@ -942,10 +944,10 @@ export function createLatestGoal(goal, { isNew = false } = {}) {
   const m = goal.match || {};
   const s = goal.score_after || { home: 0, away: 0 };
   const tag = ORIGIN_TAG[goal.origin];
-  const label = `${minuteLabel(goal)} — ${goal.player || 'Gol'} (${displayName(goal.team)}). ${displayName(m.home)} ${s.home} a ${s.away} ${displayName(m.away)}`;
+  const label = `${[minuteLabel(goal), goal.player || GOAL_TO_CONFIRM].filter(Boolean).join(' — ')} (${displayName(goal.team)}). ${displayName(m.home)} ${s.home} a ${s.away} ${displayName(m.away)}`;
   return h('li', { class: ['goal-chip', isNew && 'is-new'], 'data-event-id': goal.event_id, 'aria-label': label },
     h('span', { class: 'goal-chip__min', 'aria-hidden': 'true', text: minuteLabel(goal) }),
-    h('span', { class: 'goal-chip__player', 'aria-hidden': 'true' }, goal.player || 'Gol', tag ? h('small', { text: ` (${tag})` }) : null),
+    h('span', { class: 'goal-chip__player', 'aria-hidden': 'true' }, goal.player || GOAL_TO_CONFIRM, tag ? h('small', { text: ` (${tag})` }) : null),
     matchScoreLine(goal),
   );
 }
@@ -977,8 +979,8 @@ export function createGoalAlert(goal, { kind = 'goal', reason = '', onClose = nu
         createCrest(m.home, { size: 22 }), teamNames(m.home), score, teamNames(m.away), createCrest(m.away, { size: 22 }),
       ),
       h('p', { class: 'goal-alert__who' }, isGoal
-        ? [h('strong', { text: goal.player || 'Gol' }), ` · ${minuteLabel(goal)} · ${displayName(goal.team)}`]
-        : [`Gol de ${goal.player || ''} (${minuteLabel(goal)}) não vale mais. `, 'Lance corrigido pelo operador.']),
+        ? [h('strong', { text: goal.player || GOAL_TO_CONFIRM }), ` · ${[minuteLabel(goal), displayName(goal.team)].filter(Boolean).join(' · ')}`]
+        : [`${goal.player ? `Gol de ${goal.player}` : 'Gol'}${minuteLabel(goal) ? ` (${minuteLabel(goal)})` : ''} não vale mais. `, 'Lance corrigido pelo operador.']),
     ),
     close,
   );

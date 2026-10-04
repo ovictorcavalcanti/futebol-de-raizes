@@ -23,7 +23,7 @@ import { eventIconName, icon } from './icons.js';
 import { createCrest } from './crest.js';
 import { ServerClock, mountClock, liveMinute } from './clock.js';
 import { formatTime, formatWhen, dayKey, TIME_ZONE } from './format.js';
-import { createMatchCard, updateMatchCard, tickMatchCards, sortEventsByClock } from './match-card.js';
+import { createMatchCard, updateMatchCard, tickMatchCards, sortEventsByClock, GOAL_TO_CONFIRM } from './match-card.js';
 import * as api from './api.js';
 
 /* ==========================================================================
@@ -50,8 +50,6 @@ const POSITION_SHORT = { GK: 'GOL', LAD: 'LAD', DF: 'ZAG', LAE: 'LAE', VOL: 'VOL
 export function effectiveMinuteMode(spec, period) {
   if (!spec) return 'none';
   const mode = spec.minute || 'required';
-  // gol no intervalo é do tempo que acabou: o minuto é obrigatório (igual a domain.minute_mode)
-  if (spec.type === 'goal' && (period === 'half_time' || period === 'extra_half_time')) return 'required';
   if (spec.kind === 'game' && mode === 'required' && !CLOCK_PERIODS.has(period)) return 'optional';
   return mode;
 }
@@ -828,7 +826,7 @@ function boolControl() {
 function goalOptionText(event, match) {
   const team = event.team_side ? match[event.team_side] : null;
   const score = event.score_after ? `${event.score_after.home} × ${event.score_after.away}` : '';
-  return [event.minute_label, `${event.player?.name || event.payload?.player || 'Gol'} (${teamShort(team)})`, score].filter(Boolean).join(' · ');
+  return [event.minute_label, `${event.player?.name || event.payload?.player || GOAL_TO_CONFIRM} (${teamShort(team)})`, score].filter(Boolean).join(' · ');
 }
 
 function eventRefControl() {
@@ -1296,7 +1294,7 @@ function setStatusBusy(on) {
 /* --- Linha do tempo -------------------------------------------------------------------------------- */
 
 function eventTitle(event) {
-  const player = event.player?.name || event.payload?.player || '';
+  const player = event.player?.name || event.payload?.player || (event.type === 'goal' ? 'informações a confirmar' : '');
   if (event.type === 'substitution') return event.type_label;
   return [event.type_label, player].filter(Boolean).join(' · ');
 }

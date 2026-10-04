@@ -17,7 +17,7 @@
  */
 import { minuteLabel } from './minute-format.js';
 import { showToast } from './render.js';
-import { createGoalAlert } from './match-card.js';
+import { createGoalAlert, GOAL_TO_CONFIRM } from './match-card.js';
 import { formatScore } from './format.js';
 
 export const ALERT_WINDOW = 2 * 60_000;
@@ -151,7 +151,7 @@ export function notificationText(goal, { kind = 'goal', reason = '' } = {}) {
   const m = goal?.match || {};
   const s = goal?.score_after || { home: 0, away: 0 };
   const minute = minuteLabel(goal);
-  const who = `${goal?.player || 'Gol'}${minute ? ` (${minute})` : ''}`;
+  const who = `${goal?.player || GOAL_TO_CONFIRM}${minute ? ` (${minute})` : ''}`;
   if (kind === 'goal') {
     return {
       title: `É gol! ${shortName(m.home)} ${formatScore(s.home, s.away)} ${shortName(m.away)}`,
@@ -160,7 +160,7 @@ export function notificationText(goal, { kind = 'goal', reason = '' } = {}) {
   }
   return {
     title: reason === 'voided' ? 'Lance corrigido.' : 'Oxe! Gol anulado.',
-    body: `Gol de ${who} em ${teamName(m.home)} × ${teamName(m.away)} não vale mais. Lance corrigido pelo operador.`,
+    body: `${goal?.player ? 'Gol de ' : ''}${who} em ${teamName(m.home)} × ${teamName(m.away)} não vale mais. Lance corrigido pelo operador.`,
   };
 }
 

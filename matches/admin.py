@@ -73,6 +73,7 @@ MATCH_EDITABLE_FIELDS = (
     "city",
     "attendance",
     "revenue_cents",
+    "partial_info",
 )
 MATCH_CACHE_FIELDS = (
     "status",

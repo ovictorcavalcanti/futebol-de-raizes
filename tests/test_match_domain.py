@@ -822,6 +822,22 @@ def test_clock_adjust_stop_start_and_set():
     rejects("invalid_period_for_event", sim, EventType.CLOCK_ADJUST, payload={"action": "stop"})
 
 
+def test_clock_set_range_is_0_45_then_46_90():
+    sim = Sim()
+    sim.post(EventType.MATCH_START)
+    for minute in (0, 45):
+        sim.post(EventType.CLOCK_ADJUST, payload={"action": "set", "minute": minute})
+    for minute in (-1, 46):
+        rejects("invalid_minute", sim, EventType.CLOCK_ADJUST, payload={"action": "set", "minute": minute})
+    rejects("invalid_minute", sim, EventType.CLOCK_ADJUST, payload={"action": "set"})  # sem minuto
+    sim.post(EventType.HALF_TIME)
+    sim.post(EventType.SECOND_HALF_START)
+    for minute in (46, 90):
+        sim.post(EventType.CLOCK_ADJUST, payload={"action": "set", "minute": minute})
+    for minute in (45, 91):
+        rejects("invalid_minute", sim, EventType.CLOCK_ADJUST, payload={"action": "set", "minute": minute})
+
+
 def test_suspend_keeps_period_and_resume():
     sim = Sim().to_second_half()
     sim.goal(NAUTICO, "Kieza", 60)

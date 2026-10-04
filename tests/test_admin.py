@@ -402,10 +402,11 @@ def test_match_edit_goes_through_write_path(admin_client_fdr, league, operator_u
     data = post_data(response)
     data["venue"] = "Ilha do Retiro"
     data["attendance"] = "25000"
+    data["partial_info"] = "on"  # o check de informações parciais também é gravado
     response = admin_client_fdr.post(change_url(match), data)
     assert response.status_code == 302, response.content.decode()[:3000]
     match.refresh_from_db()
-    assert (match.venue, match.attendance) == ("Ilha do Retiro", 25000)
+    assert (match.venue, match.attendance, match.partial_info) == ("Ilha do Retiro", 25000, True)
     assert (match.home_score, match.away_score, match.status) == (2, 1, "finished")  # cache intacto
     assert match.version == version + 1
     message = Outbox.objects.filter(id__gt=mark, topic="match").last().payload

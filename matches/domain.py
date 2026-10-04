@@ -1193,6 +1193,13 @@ def clock_frozen(state: MatchState) -> bool:
     return frozen
 
 
+def clock_set_range(period: str) -> tuple[int, int]:
+    """Minutos aceitos ao acertar o relógio: 0 a 45 no 1º tempo (0 = início), 46 a 90 no
+    2º e 91 a 120 na prorrogação. Sem acréscimo: no acréscimo o relógio só para ou retoma."""
+    clock = PERIOD_CLOCK[period]
+    return (0 if period == Period.FIRST_HALF else clock["offset"] + 1), clock["regular_end"]
+
+
 def _step_clock(state: MatchState, new: NewEvent, spec: EventSpec, sequence: int) -> _Step:
     if state.status != Status.LIVE:
         raise _error("match_not_live", "O relógio só é ajustado com o jogo ao vivo.", status=state.status)
@@ -1211,10 +1218,16 @@ def _step_clock(state: MatchState, new: NewEvent, spec: EventSpec, sequence: int
     minute = None
     if action == "set":
         minute = raw.get("minute")
-        clock = PERIOD_CLOCK[state.period]
-        low, high = clock["offset"] + 1, clock["regular_end"] + MAX_STOPPAGE
+        low, high = clock_set_range(state.period)
         if not _is_int(minute) or not low <= minute <= high:
-            raise _error("invalid_minute", f"Informe o minuto atual entre {low} e {high}.", field="payload.minute", minute=minute)
+            raise _error(
+                "invalid_minute",
+                f"{PERIOD_LABELS[state.period]}: o relógio vai de {low} a {high}.",
+                field="payload.minute",
+                minute=minute,
+                min=low,
+                max=high,
+            )
         payload["minute"] = minute
     marks = (*state.clock_marks, (sequence, action, minute))
     event = Event(sequence, spec.type, state.period, payload=payload)

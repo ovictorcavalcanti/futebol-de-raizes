@@ -361,6 +361,7 @@ usado volta no `X-Request-ID` da resposta e vai nos logs e na auditoria.
 | `POST /api/ops/matches/{id}/events` + `Idempotency-Key` | `201 {"event": EventOut, "derived": [EventOut], "match": MatchOut(detalhe), "available": Available, "warnings": [...], "replayed": false}` · replay → `200` com `"replayed": true` |
 | `POST /api/ops/matches/{id}/events/{eventId}/void` `{"reason"}` | `200 {"voided": [ids], "match": MatchOut(detalhe), "available": Available, "already": bool}` (`already`: já estava cancelado, nada mudou) |
 | `POST /api/ops/matches/{id}/status` + `Idempotency-Key` `{"action","kickoff_at"?,"reason"?}` | `201 {"event": EventOut, "match": ..., "available": ..., "replayed": false}` · replay → `200` com `"replayed": true` |
+| `POST /api/ops/matches/{id}/partial-info` (`matches.change_status`) `{"partial_info": bool}` | `200 {"match": MatchOut (detalhe), "available": ...}` · publica `match` só quando muda |
 | `GET /api/ops/catalog` | `{"events": [EventSpecOut], "status_actions": [{"action","label"}], "periods": [{"key","label","short"}], "statuses": [{"key","label"}]}` (todos os tipos do catálogo, status inclusive) |
 | `GET /api/home?date=YYYY-MM-DD` | HomeOut, `Cache-Control: no-store` (micro-cache no servidor, §3) |
 | `GET /api/competitions` | `{"competitions": [{"id","name","slug","short_name","position"}]}` |

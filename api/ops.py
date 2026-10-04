@@ -17,7 +17,18 @@ from matches.domain import CATALOG, DomainError, NewEvent
 
 from .errors import ApiError, invalid_input
 from .responses import CATALOG_CACHE, respond
-from .schemas import CatalogOut, ErrorOut, EventIn, PostEventOut, StatusIn, StatusOut, VoidIn, VoidOut
+from .schemas import (
+    CatalogOut,
+    ErrorOut,
+    EventIn,
+    MatchStateOut,
+    PartialInfoIn,
+    PostEventOut,
+    StatusIn,
+    StatusOut,
+    VoidIn,
+    VoidOut,
+)
 from .security import CHANGE_STATUS, OPS_PERMISSIONS, POST_EVENT, VOID_EVENT, OperatorAuth
 
 router = Router(tags=["Operação"])
@@ -163,6 +174,18 @@ def change_status(
         request=request,
     )
     return respond(selectors.status_payload(result), status=201 if result.created else 200)
+
+
+@router.post(
+    "/matches/{match_id}/partial-info",
+    auth=OperatorAuth(CHANGE_STATUS),
+    response={200: MatchStateOut, codes_4xx: ErrorOut},
+    summary="Liga ou desliga as informações parciais",
+)
+def partial_info(request, match_id: int, data: PartialInfoIn):
+    """Jogo com informações parciais: sai sem relógio e com o selo no lugar de "Ao vivo"."""
+    match = services.set_partial_info(match_id, request.user, data.partial_info, request=request)
+    return respond(selectors.match_state(match))
 
 
 @router.get(

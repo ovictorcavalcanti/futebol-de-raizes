@@ -1773,7 +1773,8 @@
   .op-event--annulled .op-event__title { text-decoration: line-through; color: var(--ink-3); }
   .op-event--structural { background: color-mix(in srgb, var(--surface-2) 50%, transparent); }
   .op-event__void { color: var(--vermelho-ink); }
-  .op-tools { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-3); }
+  .op-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); margin-top: var(--s-3); }
+  .op-tools__switch { margin-right: var(--s-2); }
 
   /* --- Guia de estilo (QA visual) ------------------------------------------------------- */
   .sg-section { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-4); padding-top: var(--s-6); }

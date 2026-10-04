@@ -265,9 +265,11 @@ function onMatch(message) {
   if (!match) return;
   const card = state.cards.get(match.id);
   if (card) {
+    const before = getCardMatch(card)?.status;
     updateMatchCard(card, match, { flash: true }); // pisca no gol; acordeão e aba continuam
     paintNav();
     refreshTie(match);
+    if (before && before !== match.status) scheduleReload(); // a ordem da fase depende do status
   } else if (state.date && dayKey(match.kickoff_at) === state.date) {
     scheduleReload(); // jogo novo no dia (ex.: reagendado para hoje): busca a home de novo
   }

@@ -23,7 +23,7 @@ import { eventIconName, icon } from './icons.js';
 import { createCrest } from './crest.js';
 import { ServerClock, mountClock, liveMinute } from './clock.js';
 import { formatTime, formatWhen, dayKey, TIME_ZONE } from './format.js';
-import { createMatchCard, updateMatchCard, tickMatchCards } from './match-card.js';
+import { createMatchCard, updateMatchCard, tickMatchCards, sortEventsByClock } from './match-card.js';
 import * as api from './api.js';
 
 /* ==========================================================================
@@ -1345,7 +1345,7 @@ function eventSub(event, match) {
 
 function paintTimeline() {
   const match = state.match;
-  const events = (match.events || []).slice().sort((a, b) => b.sequence - a.sequence);
+  const events = sortEventsByClock(match.events || [], { desc: true }); // mais recente no jogo primeiro
   els.timelineCount.textContent = String(events.length);
   els.timelineEmpty.hidden = events.length > 0;
   els.timeline.replaceChildren(...events.map((event) => {

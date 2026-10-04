@@ -50,7 +50,7 @@ from observability.admin import AuditedModelAdmin
 from realtime.outbox import enqueue
 from standings import services as standings_services
 from standings.domain import CRITERIA, ConfigError, Rules, Zone, validate_rules
-from standings.models import PointAdjustment, Standing
+from standings.models import PointAdjustment, Ranking, RankingCriterion, RankingZone, Standing
 
 from .models import (
     Competition,
@@ -211,7 +211,7 @@ def hierarchy(obj) -> list[dict]:
         return [{"label": obj.name, "url": change_url_of(obj)}]
     if name == "season":
         return [*hierarchy(obj.competition), {"label": f"Temporada {obj.label}", "url": change_url_of(obj)}]
-    if name == "stage":
+    if name in ("stage", "ranking"):
         return [*hierarchy(obj.season), {"label": obj.name, "url": change_url_of(obj)}]
     if name in ("group", "round"):
         label = obj.name if name == "group" else obj.label
@@ -793,6 +793,21 @@ class StageInline(Inline):
         return open_link(obj, "abrir (grupos, rodadas, jogos)")
 
 
+class RankingInline(Inline):
+    """Classificações gerais e personalizadas da temporada; fases, times, critérios e
+    zonas ficam na página de cada uma."""
+
+    model = Ranking
+    fields = ("name", "scope", "position", "show_on_competition", "open")
+    readonly_fields = ("open",)
+    ordering = ("position", "id")
+    verbose_name_plural = "classificações gerais e personalizadas (fases, times, critérios e zonas: na página de cada uma)"
+
+    @admin.display(description="página")
+    def open(self, obj):
+        return open_link(obj, "abrir (fases, times, critérios, zonas)")
+
+
 @admin.register(Season)
 class SeasonAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, StandingCacheDeletionMixin, BaseAdmin):
     list_display = ("__str__", "competition", "year", "end_year")
@@ -800,7 +815,7 @@ class SeasonAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, StandingCacheDeleti
     search_fields = ("competition__name", "competition__short_name", "year")
     list_select_related = ("competition",)
     autocomplete_fields = ("competition",)
-    inlines = [StageInline]
+    inlines = [StageInline, RankingInline]
     parent_params = (("competition", Competition),)
 
     def get_queryset(self, request):
@@ -1142,3 +1157,110 @@ class TeamAdmin(BaseAdmin):
     @admin.display(description="cor secundária")
     def secondary_swatch(self, obj):
         return color_swatch(obj.color_secondary)
+
+
+# --- Classificação geral / personalizada ---------------------------------------------------
+
+
+RANKING_HELP = (
+    "Geral: soma todos os jogos (mata-mata inclusive) das fases marcadas, com todos os times delas. "
+    "Personalizada: os mesmos jogos, mas só os times escolhidos aparecem (ex.: vaga na Série D entre 7 dos 10). "
+    "Punições e bonificações das fases marcadas também somam."
+)
+
+
+class RankingForm(forms.ModelForm):
+    class Meta:
+        model = Ranking
+        fields = (
+            "season", "name", "scope", "position", "stages", "teams",
+            "points_win", "points_draw", "points_loss", "show_on_competition", "show_on_stages",
+        )
+        widgets = {"stages": forms.CheckboxSelectMultiple, "show_on_stages": forms.CheckboxSelectMultiple}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        season_id = self.instance.season_id or self.initial.get("season") or self.data.get("season")
+        stages = Stage.objects.filter(season_id=season_id).order_by("position", "id") if season_id else Stage.objects.none()
+        for name in ("stages", "show_on_stages"):
+            if name in self.fields:
+                self.fields[name].queryset = stages
+                self.fields[name].label_from_instance = lambda stage: f"{stage.name} ({stage.get_format_display()})"
+        if not season_id and "stages" in self.fields:
+            self.fields["stages"].help_text = "Escolha a temporada e salve; depois marque as fases."
+            self.fields["stages"].required = False
+
+    def clean(self):
+        cleaned = super().clean()
+        scope, teams = cleaned.get("scope"), cleaned.get("teams")
+        if scope == Ranking.Scope.CUSTOM and not teams:
+            self.add_error("teams", "A personalizada precisa dos times que disputam.")
+        if scope == Ranking.Scope.OVERALL and teams:
+            self.add_error("teams", "A geral soma todos os times das fases: deixe os times em branco (ou use personalizada).")
+        return cleaned
+
+
+class RankingRulesFormSet(BaseInlineFormSet):
+    """Critérios ou zonas da classificação, conferidos antes de gravar (validate_rules)."""
+
+    def rows(self):
+        return [f.cleaned_data for f in self.forms if f.cleaned_data and not self._should_delete_form(f)]
+
+    def clean(self):
+        super().clean()
+        if any(self.errors):
+            return
+        if self.model is RankingCriterion:
+            keys = [row["key"] for row in sorted(self.rows(), key=lambda row: row.get("position") or 0)]
+            zones = []
+        else:
+            keys = list(DEFAULT_CRITERIA)
+            zones = [Zone(row["name"], row["color"], row["position_from"], row["position_to"]) for row in self.rows()]
+        if self.model is RankingCriterion and not keys:
+            return  # vazio = os critérios padrão
+        try:
+            validate_rules((3, 1, 0), keys, zones)
+        except ConfigError as exc:
+            raise forms.ValidationError(exc.message) from exc
+
+
+class RankingCriterionInline(Inline):
+    model = RankingCriterion
+    formset = RankingRulesFormSet
+    fields = ("position", "key")
+    ordering = ("position",)
+    verbose_name = "critério de desempate"
+    verbose_name_plural = "critérios de desempate (em ordem; vazio = os padrões)"
+
+    def get_formset(self, request, obj=None, **kwargs):
+        kwargs["widgets"] = {"key": forms.Select(choices=CRITERION_CHOICES)}
+        return super().get_formset(request, obj, **kwargs)
+
+
+class RankingZoneInline(Inline):
+    model = RankingZone
+    formset = RankingRulesFormSet
+    fields = ("name", "color", "position_from", "position_to")
+    ordering = ("position_from",)
+
+
+@admin.register(Ranking)
+class RankingAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, BaseAdmin):
+    """Classificação geral do torneio (soma das fases marcadas) ou personalizada (só os
+    times escolhidos), com pontuação, critérios e zonas próprios; botão na página da
+    competição e/ou nas páginas das fases marcadas."""
+
+    form = RankingForm
+    list_display = ("name", "season", "scope", "show_on_competition")
+    list_filter = ("scope", "season__competition")
+    search_fields = ("name", "season__competition__name")
+    list_select_related = ("season__competition",)
+    autocomplete_fields = ("season", "teams")
+    parent_params = (("season", Season),)
+    inlines = [RankingCriterionInline, RankingZoneInline]
+    fieldsets = (
+        (None, {"fields": ("season", "name", "scope", "position")}),
+        ("O que soma", {"fields": ("stages", "teams"), "description": RANKING_HELP}),
+        ("Pontuação", {"fields": (("points_win", "points_draw", "points_loss"),)}),
+        ("Onde aparece", {"fields": ("show_on_competition", "show_on_stages")}),
+    )

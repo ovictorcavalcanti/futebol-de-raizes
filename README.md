@@ -322,6 +322,22 @@ dois jogos da mesma rodada e time em dois grupos. Times de grupos diferentes pod
 recebe os jogos e jogo repetido (mesmos mandante e visitante na rodada) é pulado. Com qualquer
 erro, nada é gravado e o campo mostra onde e por quê. Mata-mata ainda não é aceito.
 
+**Classificação geral e personalizadas.** Na página da temporada no admin, "Classificações gerais
+e personalizadas" cria tabelas além das de cada fase:
+
+* **Geral do torneio** — soma todos os jogos (mata-mata inclusive) das fases marcadas, com todos os
+  times delas. Marque só as fases que contam: "a partir da 2ª fase" = desmarcar a 1ª.
+* **Personalizada** — os mesmos jogos, mas só os times escolhidos aparecem (ex.: vaga na Série D
+  entre os 7 dos 10 que não têm divisão nacional; jogo contra quem está fora conta para quem está).
+
+Cada uma tem pontuação, critérios de desempate e zonas próprios, e as punições das fases marcadas
+somam. Onde aparece: "mostrar na página da competição" (botão ao lado da classificação, em qualquer
+fase) e/ou "mostrar na página destas fases" (botão só quando a página mostra essas fases). A tabela
+é calculada na hora (`GET /api/rankings/{id}`) e se atualiza ao vivo.
+
+Na fase de grupos, cada grupo soma os jogos dos seus times contra qualquer adversário da fase:
+jogo entre grupos diferentes conta para os dois.
+
 **Temporada que cruza o ano.** A temporada tem "ano" (início) e "ano final" (opcional): vazio, é
 de ano único (2026); preenchido, cruza o ano, como as europeias (2026/2027). As páginas e as APIs
 mostram o rótulo (`season.label`).

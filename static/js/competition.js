@@ -12,7 +12,7 @@ import { renderCompetitionNav, showToast } from './render.js';
 import { ServerClock, mountClock } from './clock.js';
 import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createTieCard, createTieGroup, tiesFromMatches, refreshMatchCards, sortMatchesForDisplay } from './match-card.js';
 import { createStandings, updateStandings } from './standings.js';
-import { getCompetitions, getCompetition, listMatches, getMatch } from './api.js';
+import { getCompetitions, getCompetition, listMatches, getMatch, getRanking } from './api.js';
 import { createStream, liveStatusIndicator } from './stream.js';
 
 const $ = (id) => document.getElementById(id);
@@ -33,6 +33,8 @@ const els = {
   matches: $('round-matches'),
   roundEmpty: $('round-empty'),
   standings: $('stage-standings'),
+  standingsSwitch: $('standings-switch'),
+  rankingStandings: $('ranking-standings'),
   ties: $('stage-ties'),
   tiesList: document.querySelector('#stage-ties [data-hook="ties-list"]'),
   missing: $('competition-missing'),
@@ -54,6 +56,10 @@ const state = {
   tieCards: new Map(), // tie id → card
   standingsEl: null,
   standingsStageId: null,
+  view: 'stage', // 'stage' (tabela da fase) ou o id da classificação geral/personalizada exibida
+  rankingStageIds: [], // fases que entram na classificação exibida (atualiza com o stream)
+  rankingTimer: 0,
+  rankingToken: 0,
   seq: 0, // ignora respostas fora de ordem (troca rápida de rodada/fase)
 };
 let stream = null;
@@ -152,8 +158,60 @@ function renderStandings(stage) {
   }
 }
 
+/* --- Classificações gerais e personalizadas (botões ao lado da tabela da fase) ------------ */
+
+/** Classificações com botão: as da competição e as da fase exibida (sem repetir). */
+function rankingRefs(data) {
+  const seen = new Set();
+  return [...(data.rankings || []), ...(data.stage?.rankings || [])].filter((r) => !seen.has(r.id) && seen.add(r.id));
+}
+
+function paintStandingsSwitch() {
+  const data = state.data || {};
+  const refs = rankingRefs(data);
+  const hasStage = !!data.stage?.standings;
+  if (!refs.length) {
+    state.view = 'stage';
+  } else if (state.view !== 'stage' ? !refs.some((r) => r.id === state.view) : !hasStage) {
+    state.view = hasStage ? 'stage' : refs[0].id;
+  }
+  const button = (view, text) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn btn--secondary btn--sm btn--toggle';
+    b.textContent = text;
+    b.setAttribute('aria-pressed', String(state.view === view));
+    b.addEventListener('click', () => {
+      if (state.view === view) return;
+      state.view = view;
+      paintStandingsSwitch();
+    });
+    return b;
+  };
+  const buttons = [...(hasStage ? [button('stage', data.stage.name || 'Fase')] : []), ...refs.map((r) => button(r.id, r.name))];
+  els.standingsSwitch.replaceChildren(...buttons);
+  els.standingsSwitch.hidden = buttons.length < 2 && state.view === 'stage';
+  els.standings.hidden = state.view !== 'stage' || !hasStage;
+  els.rankingStandings.hidden = state.view === 'stage';
+  if (state.view !== 'stage') loadRanking(state.view);
+  else state.rankingStageIds = [];
+  updateAside();
+}
+
+async function loadRanking(id) {
+  const token = ++state.rankingToken;
+  try {
+    const data = await getRanking(id);
+    if (token !== state.rankingToken || state.view !== id) return; // trocou de botão no meio
+    state.rankingStageIds = data.stage_ids || [];
+    els.rankingStandings.replaceChildren(createStandings(data));
+  } catch {
+    if (token === state.rankingToken) showToast('Não deu para carregar a classificação agora.', { kind: 'error' });
+  }
+}
+
 function updateAside() {
-  const hasAside = !els.standings.hidden || !els.ties.hidden;
+  const hasAside = !els.standings.hidden || !els.ties.hidden || !els.rankingStandings.hidden;
   els.grid.classList.toggle('split--no-aside', !hasAside);
   // mata-mata no celular: o resumo dos confrontos (quem avança) vem antes dos cards
   els.grid.classList.toggle('split--aside-first', !els.ties.hidden);
@@ -222,6 +280,7 @@ function render(data, requestedRoundId = null) {
   els.error.hidden = true;
   paintRoundNav();
   renderStandings(data.stage || {});
+  paintStandingsSwitch();
   renderMatches(data.stage?.matches || [], data.stage?.format === 'knockout' ? data.stage?.ties || null : null);
   writeUrl();
 }
@@ -332,6 +391,10 @@ function onMatch(message) {
 }
 
 function onStandings(message) {
+  if (state.view !== 'stage' && state.rankingStageIds.includes(message?.stage_id)) {
+    clearTimeout(state.rankingTimer); // a classificação exibida soma esta fase: busca de novo (agrupado)
+    state.rankingTimer = setTimeout(() => state.view !== 'stage' && loadRanking(state.view), 1500);
+  }
   if (state.standingsEl && message?.stage_id === state.standingsStageId && message.standings) {
     updateStandings(state.standingsEl, message.standings);
   }

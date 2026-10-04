@@ -30,7 +30,8 @@ from competitions.models import Stage
 from core import timeutils
 from matches import selectors
 from realtime.outbox import current_cursor
-from standings.services import stage_standings
+from standings.models import Ranking
+from standings.services import ranking_standings, stage_standings
 
 from .errors import ApiError, invalid_input
 from .responses import MENU_CACHE, respond
@@ -42,6 +43,7 @@ from .schemas import (
     MatchDetailOut,
     MatchesOut,
     StandingsOut,
+    RankingStandingsOut,
 )
 
 router = Router(tags=["Leitura"])
@@ -148,6 +150,17 @@ def standings(request, stage_id: int, live: str | None = Query(None, description
     if not stage.has_table:
         raise ApiError(404, "not_found", "Fase de mata-mata não tem classificação.", {"stage_id": stage_id})
     return respond({**stamp(), **stage_standings(stage, live=is_live)})
+
+
+@router.get(
+    "/rankings/{ranking_id}",
+    response={200: RankingStandingsOut, codes_4xx: ErrorOut},
+    summary="Classificação geral do torneio ou personalizada (mesmo formato da classificação da fase)",
+)
+def ranking(request, ranking_id: int, live: str | None = Query(None, description="1 = ao vivo; sem ele, a oficial")):
+    is_live = parse_flag(live, "live")
+    item = Ranking.objects.prefetch_related("criteria", "zones").get(pk=ranking_id)
+    return respond({**stamp(), **ranking_standings(item, live=is_live)})
 
 
 @router.get("/matches", response={200: MatchesOut, codes_4xx: ErrorOut}, summary="Lista de partidas")

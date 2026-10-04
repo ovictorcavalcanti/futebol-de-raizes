@@ -183,6 +183,7 @@ class CompetitionOut(Stamped):
     current_stage_id: int | None
     current_round_id: int | None
     stage: dict[str, Any] | None
+    rankings: list[dict[str, Any]] = Field(default_factory=list, description="[RankingRef] com botão na página da competição")
 
 
 class StandingsOut(Stamped):
@@ -193,6 +194,19 @@ class StandingsOut(Stamped):
     criteria: list[dict[str, Any]]
     legend: list[dict[str, Any]]
     groups: list[dict[str, Any]]
+
+
+class RankingStandingsOut(Stamped):
+    ranking_id: int
+    stage_name: str = Field(..., description="Nome da classificação")
+    scope: Literal["overall", "custom"]
+    stage_ids: list[int] = Field(..., description="Fases que entram (para atualizar ao vivo)")
+    kind: Literal["live", "official"]
+    points: dict[str, int]
+    criteria: list[dict[str, Any]]
+    legend: list[dict[str, Any]]
+    groups: list[dict[str, Any]]
+    adjustments: list[dict[str, Any]]
 
 
 class MatchesOut(Stamped):

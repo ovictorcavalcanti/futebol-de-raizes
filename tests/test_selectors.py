@@ -327,7 +327,7 @@ def test_competition_payload_current_stage_round_and_params(league, operator_use
     (final,) = make_tie_matches(ko["tie"], kickoff=timeutils.now() + timedelta(days=14))
 
     page = selectors.competition_payload(league["competition"].slug)
-    assert set(page) == {"server_time", "timezone", "cursor", "competition", "season", "stages", "current_stage_id", "current_round_id", "stage"}
+    assert set(page) == {"server_time", "timezone", "cursor", "competition", "season", "stages", "current_stage_id", "current_round_id", "stage", "rankings"}
     assert page["season"] == {"id": league["season"].id, "year": 2026, "end_year": None, "label": "2026"}
     assert [item["id"] for item in page["stages"]] == [stage.id, ko["stage"].id]
     assert page["stages"][0]["rounds"][1] == {"id": rounds[1].id, "number": 2, "name": "Rodada 2"}

@@ -29,6 +29,7 @@ from ninja.errors import AuthenticationError, AuthorizationError, HttpError, Val
 from competitions.models import Competition, Round, Stage
 from matches.domain import DomainError
 from matches.models import Match, MatchEvent
+from standings.models import Ranking
 from matches.services import InvalidInput
 from standings.domain import ConfigError
 
@@ -56,6 +57,7 @@ NOT_FOUND_MESSAGES: tuple[tuple[type[ObjectDoesNotExist], str], ...] = (
     (Competition.DoesNotExist, "Competição não encontrada."),
     (Stage.DoesNotExist, "Fase não encontrada."),
     (Round.DoesNotExist, "Rodada não encontrada."),
+    (Ranking.DoesNotExist, "Classificação não encontrada."),
 )
 # Origem do erro de validação do Ninja → prefixo que sai do `field`.
 _PARAM_SOURCES = {"body", "query", "path", "header", "cookie", "form", "file"}

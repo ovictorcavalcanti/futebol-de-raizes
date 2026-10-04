@@ -83,6 +83,8 @@ function teamCell(row) {
         h('span', { class: 'team-cell__name', title: team.name, text: team.name || team.short_name || '' }),
         h('abbr', { class: 'team-cell__short', title: team.name, text: team.short_name || team.name || '' }),
         zoneName ? h('span', { class: 'visually-hidden', text: `, zona: ${zoneName}` }) : null,
+        // classificação "posição nos grupos": de que grupo é cada time
+        row.group ? h('span', { class: 'team-cell__group', text: row.group }) : null,
       ),
       row.playing ? h('span', { class: 'live-dot', title: 'Em jogo agora' }) : null,
       row.playing ? h('span', { class: 'visually-hidden', text: ', em jogo agora' }) : null,
@@ -125,6 +127,8 @@ function footer(standings, opts, rows = []) {
   if (opts.legend !== false && standings.legend?.length) {
     parts.push(h('ul', { class: 'legend', 'aria-label': 'Legenda das zonas' }, ...standings.legend.map((item) => h('li', { class: 'legend__item' },
       swatch(item.color), h('span', { text: item.name }), rangeLabel(item) ? h('span', { class: 'legend__range', text: rangeLabel(item) }) : null,
+      // zona condicional: "só quem estiver do 1º ao 4º em “Melhores terceiros”"
+      item.condition ? h('span', { class: 'legend__range', text: `(${item.condition})` }) : null,
     ))));
   }
   if (standings.adjustments?.length) {

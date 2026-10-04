@@ -145,6 +145,16 @@ class StandingZone(models.Model):
     color = models.CharField("cor", max_length=7, validators=[HEX_COLOR])
     position_from = models.PositiveSmallIntegerField("da posição")
     position_to = models.PositiveSmallIntegerField("até a posição")
+    # Zona condicional: só vale para quem está, naquele momento, na faixa indicada de uma
+    # classificação "posição nos grupos" (ex.: 3º colocado só fica verde se estiver entre
+    # os 4 melhores terceiros). Sem classificação = zona de sempre.
+    ranking = models.ForeignKey(
+        "standings.Ranking", on_delete=models.SET_NULL, null=True, blank=True, related_name="conditional_zones",
+        verbose_name="só se estiver na classificação",
+        help_text="Opcional: ex. “Melhores terceiros”. Quem estiver fora da faixa abaixo fica sem a cor.",
+    )
+    ranking_position_from = models.PositiveSmallIntegerField("nela, da posição", null=True, blank=True)
+    ranking_position_to = models.PositiveSmallIntegerField("nela, até a posição", null=True, blank=True)
 
     class Meta:
         db_table = "standing_zones"

@@ -94,6 +94,7 @@ class Ranking(models.Model):
     class Scope(models.TextChoices):
         OVERALL = "overall", "Geral do torneio"
         CUSTOM = "custom", "Personalizada (times escolhidos)"
+        POSITION = "position", "Posição nos grupos (ex.: melhores terceiros)"
 
     season = models.ForeignKey(Season, on_delete=models.CASCADE, related_name="rankings", verbose_name="temporada")
     name = models.CharField("nome", max_length=80, help_text="Ex.: Classificação geral, Vaga na Série D.")
@@ -106,6 +107,15 @@ class Ranking(models.Model):
     teams = models.ManyToManyField(
         Team, blank=True, related_name="rankings", verbose_name="times",
         help_text="Só na personalizada: os times que disputam (os demais não aparecem).",
+    )
+    group_position = models.PositiveSmallIntegerField(
+        "posição no grupo", null=True, blank=True,
+        help_text="Só em “posição nos grupos”: compara quem está nesta posição em cada grupo da fase (ex.: 3).",
+    )
+    skip_extra_teams = models.BooleanField(
+        "desconsiderar jogos contra os últimos dos grupos maiores", default=False,
+        help_text="Grupos de tamanhos diferentes: nos maiores, os jogos contra quem passa do tamanho do menor "
+        "grupo (ex.: o 5º num grupo de 5, se o menor tem 4) não contam na comparação.",
     )
     points_win = models.PositiveSmallIntegerField("pontos por vitória", default=3)
     points_draw = models.PositiveSmallIntegerField("pontos por empate", default=1)

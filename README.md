@@ -330,8 +330,18 @@ e personalizadas" cria tabelas além das de cada fase:
 * **Personalizada** — os mesmos jogos, mas só os times escolhidos aparecem (ex.: vaga na Série D
   entre os 7 dos 10 que não têm divisão nacional; jogo contra quem está fora conta para quem está).
 
+* **Posição nos grupos** — marque uma fase de grupos e uma posição (N): compara quem está, naquele
+  momento, na N-ª posição de cada grupo (ex.: melhores terceiros, melhores quartos). É a geral da
+  fase filtrada para esses times; o confronto direto só considera jogos entre eles. Com grupos de
+  tamanhos diferentes, a opção "desconsiderar jogos contra os últimos dos grupos maiores" tira, nos
+  grupos maiores, os jogos contra quem passa do tamanho do menor grupo.
+
 Cada uma tem pontuação, critérios de desempate e zonas próprios, e as punições das fases marcadas
-somam. Onde aparece: "mostrar na página da competição" (botão ao lado da classificação, em qualquer
+somam.
+
+**Zona condicional.** Na fase, uma zona pode apontar para uma classificação e uma faixa dela: ex.
+"3º colocado: verde só se estiver do 1º ao 4º em 'Melhores terceiros'". Quem está na posição mas
+fora da faixa fica sem a cor; a legenda explica a condição, e tudo se atualiza ao vivo. Onde aparece: "mostrar na página da competição" (botão ao lado da classificação, em qualquer
 fase) e/ou "mostrar na página destas fases" (botão só quando a página mostra essas fases). A tabela
 é calculada na hora (`GET /api/rankings/{id}`) e se atualiza ao vivo.
 

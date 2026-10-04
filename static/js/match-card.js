@@ -13,6 +13,7 @@ import { icon, eventIconName } from './icons.js';
 import { createCrest } from './crest.js';
 import { formatTime, formatWhen, formatDay, formatInt, formatMoney, formatScore, toDate } from './format.js';
 import { liveMinuteLabel } from './clock.js';
+import { getMinuteFormat, minuteLabel } from './minute-format.js';
 
 /** Estado por card: {match, opts, eventIds, requested, activeTab, failed}. */
 const STATE = new WeakMap();
@@ -20,6 +21,8 @@ let seq = 0;
 
 const POSITION_SHORT = { GK: 'GOL', LAD: 'LAD', DF: 'ZAG', LAE: 'LAE', VOL: 'VOL', MF: 'MEI', FW: 'ATA' };
 const ORIGIN_TAG = { penalty: 'pên.', own_goal: 'contra' };
+/** Gol lançado sem autor (só o placar é conhecido); o operador completa depois. */
+export const GOAL_TO_CONFIRM = 'Gol - Informações a confirmar';
 const ORIGIN_LABEL = { open_play: 'Jogada', penalty: 'De pênalti', own_goal: 'Gol contra' };
 const MISS_LABEL = { saved: 'Defendido', off_target: 'Para fora', woodwork: 'Na trave' };
 const SEPARATORS = {
@@ -59,7 +62,7 @@ export function safeHref(url) {
  * @returns {string} "Gol anulado aos 60' — Impedimento (VAR)"
  */
 export function annulledGoalNote(annulment) {
-  const when = annulment?.minute_label ? ` aos ${annulment.minute_label}` : '';
+  const when = annulment && minuteLabel(annulment) ? ` aos ${minuteLabel(annulment)}` : '';
   const reason = annulment?.payload?.reason;
   return `Gol anulado${when}${reason ? ` — ${reason}` : ''}`;
 }
@@ -191,6 +194,20 @@ export function tickMatchCards(root, nowMs) {
   }
 }
 
+/**
+ * Redesenha os cards dentro de root com o MatchOut que já têm (ex.: troca do formato
+ * do minuto), linha do tempo inclusive.
+ * @param {ParentNode} root
+ */
+export function refreshMatchCards(root) {
+  for (const el of root.querySelectorAll('.match')) {
+    const st = STATE.get(el);
+    if (!st?.match) continue;
+    st.eventIds = null;
+    updateMatchCard(el, st.match);
+  }
+}
+
 /** Último MatchOut desenhado no card (ou null). */
 export function getCardMatch(el) {
   return STATE.get(el)?.match ?? null;
@@ -245,7 +262,8 @@ function renderMeta(meta, match, now, opts) {
   const status = h('span', { class: 'match__status' }, statusPill(match));
   if (match.status === 'live' && !match.partial_info && !INTERVALS.has(match.period) && match.period !== 'penalties') {
     status.append(h('span', { class: 'match__minute' },
-      match.period_short ? h('span', { class: 'match__minute-period', text: match.period_short }) : null,
+      // no formato por tempo o período já vai no rótulo ("27' 2T")
+      match.period_short && getMinuteFormat() !== 'half' ? h('span', { class: 'match__minute-period', text: match.period_short }) : null,
       h('span', { 'data-hook': 'minute', text: liveMinuteLabel(match, now) }),
     ));
   } else if (match.status === 'suspended' && match.period_label) {
@@ -366,8 +384,8 @@ function renderSummary(summary, match) {
       const tag = ORIGIN_TAG[g.origin];
       return h('li', { class: 'facts-line__item' },
         icon(g.origin === 'own_goal' ? 'ball-own' : 'ball', { label: 'Gol' }),
-        g.player || 'Gol',
-        h('span', { class: 'facts-line__min', text: g.minute_label || '' }),
+        g.player || GOAL_TO_CONFIRM,
+        h('span', { class: 'facts-line__min', text: minuteLabel(g) }),
         tag ? h('span', { class: 'facts-line__tag', text: `(${tag})` }) : null,
       );
     });
@@ -548,7 +566,7 @@ function eventPlayer(e) {
 }
 
 function timelineItem(e, side, { title, sub = [], score = null, extraClass = '', isNew = false, minuteText }) {
-  const minute = minuteText ?? e.minute_label ?? '';
+  const minute = minuteText ?? minuteLabel(e);
   const body = h('div', { class: 'tl-item__body' },
     // lance sem time (ex.: VAR) ocupa o centro e esconde o trilho: o minuto vai junto do texto
     !side && minute ? h('span', { class: 'tl-item__min-inline', text: minute }) : null,
@@ -575,6 +593,23 @@ function separator(def, e, score) {
   const label = h('span', { class: 'tl-sep__label' }, icon(def.icon), def.label);
   if (def.score && score) label.append(h('span', { class: 'tl-sep__score', text: `· ${score}` }));
   return h('li', { class: ['tl-sep', def.end && 'tl-sep--end'], 'data-event-id': e.id }, label);
+}
+
+const LIVE_GROUP = new Set(['live', 'delayed', 'suspended']);
+const RANK_WITH_LIVE = { live: 0, delayed: 0, suspended: 0, finished: 1, scheduled: 2 };
+const RANK_WITHOUT_LIVE = { scheduled: 0, finished: 1 };
+
+/**
+ * Ordem dos jogos na home e na competição (igual a selectors.sort_for_display): com
+ * jogo ao vivo (ou atrasado, ou suspenso), ao vivo > encerrados > agendados; sem
+ * nenhum, agendados > encerrados. Adiados e cancelados por último; a hora desempata.
+ * @param {object[]} matches MatchOut
+ * @returns {object[]} cópia ordenada
+ */
+export function sortMatchesForDisplay(matches = []) {
+  const rank = matches.some((m) => LIVE_GROUP.has(m.status)) ? RANK_WITH_LIVE : RANK_WITHOUT_LIVE;
+  const r = (m) => rank[m.status] ?? 3;
+  return matches.slice().sort((a, b) => r(a) - r(b) || String(a.kickoff_at || '').localeCompare(String(b.kickoff_at || '')) || a.id - b.id);
 }
 
 const PERIOD_ORDER = {
@@ -646,7 +681,7 @@ export function renderTimeline(match, newIds = null) {
           if (!sub.length) sub.push('Gol');
         }
         list.append(timelineItem(e, side, {
-          title: eventPlayer(e) || 'Gol', sub, score: annulled ? null : (e.score_after ? formatScore(e.score_after.home, e.score_after.away) : null),
+          title: eventPlayer(e) || GOAL_TO_CONFIRM, sub, score: annulled ? null : (e.score_after ? formatScore(e.score_after.home, e.score_after.away) : null),
           extraClass: annulled ? 'tl-item--annulled' : 'tl-item--goal', isNew,
         }));
         break;
@@ -926,10 +961,10 @@ export function createLatestGoal(goal, { isNew = false } = {}) {
   const m = goal.match || {};
   const s = goal.score_after || { home: 0, away: 0 };
   const tag = ORIGIN_TAG[goal.origin];
-  const label = `${goal.minute_label || ''} — ${goal.player || 'Gol'} (${displayName(goal.team)}). ${displayName(m.home)} ${s.home} a ${s.away} ${displayName(m.away)}`;
+  const label = `${[minuteLabel(goal), goal.player || GOAL_TO_CONFIRM].filter(Boolean).join(' — ')} (${displayName(goal.team)}). ${displayName(m.home)} ${s.home} a ${s.away} ${displayName(m.away)}`;
   return h('li', { class: ['goal-chip', isNew && 'is-new'], 'data-event-id': goal.event_id, 'aria-label': label },
-    h('span', { class: 'goal-chip__min', 'aria-hidden': 'true', text: goal.minute_label || '' }),
-    h('span', { class: 'goal-chip__player', 'aria-hidden': 'true' }, goal.player || 'Gol', tag ? h('small', { text: ` (${tag})` }) : null),
+    h('span', { class: 'goal-chip__min', 'aria-hidden': 'true', text: minuteLabel(goal) }),
+    h('span', { class: 'goal-chip__player', 'aria-hidden': 'true' }, goal.player || GOAL_TO_CONFIRM, tag ? h('small', { text: ` (${tag})` }) : null),
     matchScoreLine(goal),
   );
 }
@@ -961,8 +996,8 @@ export function createGoalAlert(goal, { kind = 'goal', reason = '', onClose = nu
         createCrest(m.home, { size: 22 }), teamNames(m.home), score, teamNames(m.away), createCrest(m.away, { size: 22 }),
       ),
       h('p', { class: 'goal-alert__who' }, isGoal
-        ? [h('strong', { text: goal.player || 'Gol' }), ` · ${goal.minute_label || ''} · ${displayName(goal.team)}`]
-        : [`Gol de ${goal.player || ''} (${goal.minute_label || ''}) não vale mais. `, 'Lance corrigido pelo operador.']),
+        ? [h('strong', { text: goal.player || GOAL_TO_CONFIRM }), ` · ${[minuteLabel(goal), displayName(goal.team)].filter(Boolean).join(' · ')}`]
+        : [`${goal.player ? `Gol de ${goal.player}` : 'Gol'}${minuteLabel(goal) ? ` (${minuteLabel(goal)})` : ''} não vale mais. `, 'Lance corrigido pelo operador.']),
     ),
     close,
   );

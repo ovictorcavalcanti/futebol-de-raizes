@@ -586,6 +586,7 @@
   .btn[aria-pressed="true"] .when-off { display: none; }
 
   .theme-toggle .icon { width: 22px; height: 22px; }
+  .minute-toggle { font-family: var(--font-num); font-weight: 700; letter-spacing: 0.02em; white-space: nowrap; }
   .theme-toggle .theme-toggle__moon { display: none; }
   :root[data-theme="dark"] .theme-toggle .theme-toggle__sun { display: none; }
   :root[data-theme="dark"] .theme-toggle .theme-toggle__moon { display: block; }

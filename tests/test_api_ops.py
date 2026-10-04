@@ -467,7 +467,7 @@ def test_catalog_lists_every_type_and_labels(operator_client):
     data = response.json()
     assert [spec["type"] for spec in data["events"]] == list(CATALOG)
     goal = next(spec for spec in data["events"] if spec["type"] == "goal")
-    assert goal["minute"] == "required" and goal["kind"] == "game"
+    assert goal["minute"] == "optional" and goal["kind"] == "game"  # gol "a confirmar"
     assert {"name": "team_id", "kind": "team", "label": "Time beneficiado", "required": True, "choices": []} in goal["fields"]
     assert {item["action"] for item in data["status_actions"]} == {"delay", "postpone", "suspend", "resume", "reschedule", "cancel"}
     assert [item["key"] for item in data["periods"]] == [
@@ -519,6 +519,27 @@ def test_partial_info_switch(match, op, operator_client):
     assert_error(op._post(path, {}, expect=400), "invalid_input")
     assert_error(op._post("/api/ops/matches/999999/partial-info", {"partial_info": True}, expect=404), "not_found")
     assert Client().post(path, {"partial_info": True}, content_type="application/json").status_code in (401, 403)
+
+
+def test_goal_to_confirm_then_completed_moves_to_its_minute(match, op, operator_client):
+    op.post("match_start")
+    known = op._post(f"/api/ops/matches/{match.id}/events", {"type": "goal", "minute": 10, "team_id": match.home_team_id,
+                     "payload": {"player": "Zé"}}, expect=201, key=op.key())["event"]
+    unknown = op._post(f"/api/ops/matches/{match.id}/events", {"type": "goal", "team_id": match.away_team_id},
+                       expect=201, key=op.key())
+    assert unknown["event"]["minute"] is None and unknown["event"]["player"]["name"] is None
+    assert (unknown["match"]["home_score"], unknown["match"]["away_score"]) == (1, 1)
+    goals = [e["id"] for e in operator_client.get(f"/api/matches/{match.id}").json()["match"]["events"] if e["type"] == "goal"]
+    assert goals == [known["id"], unknown["event"]["id"]]  # sem minuto: na ordem do lançamento
+    op._post(f"/api/ops/matches/{match.id}/events/{unknown['event']['id']}/edit",
+             {"type": "goal", "minute": 5, "team_id": match.away_team_id, "payload": {"player": "Kieza"}, "confirm": True},
+             expect=200)
+    events = operator_client.get(f"/api/matches/{match.id}").json()["match"]["events"]
+    goals = [(e["id"], e["player"]["name"], e["score_after"]) for e in events if e["type"] == "goal"]
+    assert goals == [  # com o minuto: na ordem do jogo, placar refeito
+        (unknown["event"]["id"], "Kieza", {"home": 0, "away": 1}),
+        (known["id"], "Zé", {"home": 1, "away": 1}),
+    ]
 
 
 def test_edit_event_corrects_scorer_minute_and_team(league, operator_client):

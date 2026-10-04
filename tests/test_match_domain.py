@@ -206,7 +206,8 @@ def test_catalog_labels_kinds_and_public_flag():
     hidden = {key for key, spec in CATALOG.items() if not spec.public}
     assert hidden == {"goal_annulled", "clock_adjust", "delayed", "postponed", "suspended", "resumed", "rescheduled", "cancelled"}
     assert {key for key, spec in CATALOG.items() if spec.kind == "status"} == hidden - {"goal_annulled", "clock_adjust"}
-    assert CATALOG["match_start"].minute == "optional" and CATALOG["goal"].minute == "required"
+    assert CATALOG["match_start"].minute == "optional" and CATALOG["yellow_card"].minute == "required"
+    assert CATALOG["goal"].minute == "optional"  # gol "a confirmar": sem minuto e sem autor
     assert CATALOG["postponed"].minute == "none"
     origin = next(f for f in CATALOG["goal"].fields if f.name == "payload.origin")
     assert dict(origin.choices) == {"open_play": "Jogada", "penalty": "Pênalti", "own_goal": "Contra"}
@@ -215,9 +216,9 @@ def test_catalog_labels_kinds_and_public_flag():
 
 def test_catalog_periods():
     play = {"first_half", "second_half", "extra_time", "extra_second_half"}
-    for event_type in ("goal", "penalty_awarded", "penalty_missed", "var_review", "stoppage_time"):
+    for event_type in ("penalty_awarded", "penalty_missed", "var_review", "stoppage_time"):
         assert CATALOG[event_type].periods == play
-    for event_type in ("goal_annulled", "substitution"):
+    for event_type in ("goal", "goal_annulled", "substitution"):
         assert CATALOG[event_type].periods == play | {"half_time", "extra_half_time"}
     for event_type in ("yellow_card", "red_card"):
         assert CATALOG[event_type].periods == {period.value for period in Period}
@@ -375,7 +376,11 @@ def test_events_only_in_allowed_periods():
     rejects("invalid_period_for_event", sim, EventType.SHOOTOUT_KICK, team_id=SPORT,
             payload={"player": "Zé", "scored": True})
     sim.post(EventType.HALF_TIME)
-    rejects("invalid_period_for_event", sim, EventType.GOAL, team_id=SPORT, payload={"player": "Zé"})
+    # gol no intervalo é do tempo que acabou; minuto de outro tempo é recusado
+    error = rejects("invalid_minute", sim, EventType.GOAL, team_id=SPORT, minute=50, payload={"player": "Zé"})
+    assert error.message == "No intervalo, o gol é do tempo que acabou: o minuto vai de 0 a 45 (com acréscimo)."
+    unknown = apply_event(sim.state, sim.events, NewEvent("goal", team_id=SPORT), CTX).event
+    assert (unknown.period, unknown.minute, unknown.payload) == ("first_half", None, {"origin": "open_play"})
     rejects("invalid_period_for_event", sim, EventType.STOPPAGE_TIME, payload={"minutes": 2})
     rejects("invalid_period_for_event", sim, EventType.VAR_REVIEW, payload={"incident": "a", "decision": "b"})
     # no intervalo valem cartão e substituição, sem minuto
@@ -390,7 +395,7 @@ def test_unknown_type_and_team_player_validation():
     rejects("unknown_event_type", sim, "bicicleta", minute=3)
     rejects("team_required", sim, EventType.GOAL, minute=3, payload={"player": "Zé"})
     rejects("team_not_in_match", sim, EventType.GOAL, minute=3, team_id=99, payload={"player": "Zé"})
-    rejects("player_required", sim, EventType.GOAL, minute=3, team_id=SPORT, payload={"player": "  "})
+    rejects("player_required", sim, EventType.YELLOW_CARD, minute=3, team_id=SPORT, payload={"player": "  "})
     rejects("player_required", sim, EventType.SUBSTITUTION, minute=3, team_id=SPORT, payload={"player_in": "Zé"})
     rejects("invalid_payload", sim, EventType.GOAL, minute=3, team_id=SPORT, payload={"player": "Zé", "origin": "voleio"})
     rejects("invalid_payload", sim, EventType.GOAL, minute=3, team_id=SPORT,
@@ -429,16 +434,12 @@ def test_game_payloads_are_normalized():
         ("first_half", 44, 2),
         ("first_half", -1, None),
         ("first_half", 45, 31),
-        ("second_half", 44, None),
         ("second_half", 91, None),
         ("second_half", 89, 1),
-        ("second_half", 45, 1),
-        ("extra_time", 89, None),
         ("extra_time", 106, None),
         ("extra_time", 100, 1),
-        ("extra_second_half", 104, None),
         ("extra_second_half", 121, None),
-        ("extra_second_half", 105, 1),
+        ("extra_second_half", 110, 1),
         ("half_time", 50, None),
     ],
 )
@@ -461,11 +462,11 @@ def test_minutes_out_of_range(period, minute, stoppage):
     [
         ("first_half", 0, None),
         ("first_half", 45, 3),
-        ("second_half", 45, None),
+        ("second_half", 46, None),
         ("second_half", 90, 7),
-        ("extra_time", 90, None),
+        ("extra_time", 91, None),
         ("extra_time", 105, 1),
-        ("extra_second_half", 105, None),
+        ("extra_second_half", 106, None),
         ("extra_second_half", 120, 2),
     ],
 )
@@ -477,7 +478,7 @@ def test_minutes_in_range(period, minute, stoppage):
 
 def test_minute_required_in_play_and_stoppage_zero_is_no_stoppage():
     sim = live_sim()
-    rejects("invalid_minute", sim, EventType.GOAL, team_id=SPORT, payload={"player": "Zé"})
+    rejects("invalid_minute", sim, EventType.YELLOW_CARD, team_id=SPORT, payload={"player": "Zé"})
     rejects("invalid_minute", sim, EventType.GOAL, team_id=SPORT, stoppage=2, payload={"player": "Zé"})
     rejects("invalid_minute", sim, EventType.GOAL, team_id=SPORT, minute="12", payload={"player": "Zé"})
     goal = sim.goal(SPORT, "Zé", 30, 0)
@@ -531,8 +532,42 @@ def test_minute_decreasing_needs_confirmation():
     # outro período sempre vem depois
     sim.post(EventType.HALF_TIME)
     sim.post(EventType.SECOND_HALF_START)
-    sim.goal(NAUTICO, "Kieza", 45)
-    assert sim.last.warnings == () and sim.state.last_clock == (3, 45, 0)
+    sim.goal(NAUTICO, "Kieza", 46)
+    assert sim.last.warnings == () and sim.state.last_clock == (3, 46, 0)
+
+
+def test_minute_decides_the_period_of_a_late_entry():
+    sim = live_sim()
+    sim.goal(SPORT, "Zé", 10)
+    rejects("invalid_minute", sim, EventType.GOAL, team_id=SPORT, minute=50, payload={"player": "Zé"})  # ainda não chegou
+    sim.post(EventType.HALF_TIME, minute=45, stoppage=3)
+    forgotten = sim.goal(NAUTICO, "Kieza", 30)  # lançado no intervalo, é do 1T
+    assert forgotten.period == "first_half"
+    sim.post(EventType.SECOND_HALF_START)
+    late = sim.goal(SPORT, "Hernane", 45, 2)  # 45+2 lançado no 2T: 1T
+    assert (late.period, late.minute, late.stoppage) == ("first_half", 45, 2)
+    second = sim.goal(SPORT, "Diego", 46)
+    assert second.period == "second_half"
+    card = sim.post(EventType.YELLOW_CARD, team_id=NAUTICO, minute=40, payload={"player": "Kieza"}, confirm=True)
+    assert card.period == "first_half" and sim.state.period == Period.SECOND_HALF
+    assert (sim.state.home_score, sim.state.away_score) == (3, 1)
+    # mesmo minuto: a ordem do lançamento desempata (gol relâmpago e expulsão no 46')
+    red = sim.post(EventType.RED_CARD, team_id=NAUTICO, minute=46, payload={"player": "Thiago"})
+    assert (red.period, red.minute) == ("second_half", 46) and red.sequence > second.sequence
+
+
+def test_goal_without_scorer_and_minute_counts_and_keeps_the_order():
+    sim = live_sim()
+    sim.goal(SPORT, "Zé", 10)
+    unknown = sim.post(EventType.GOAL, team_id=NAUTICO)  # só se sabe o placar
+    assert (unknown.period, unknown.minute, unknown.player_id) == ("first_half", None, None)
+    assert unknown.payload == {"origin": "open_play"} and (sim.state.home_score, sim.state.away_score) == (1, 1)
+    no_minute = sim.post(EventType.GOAL, team_id=SPORT, payload={"player": "Hernane"})  # autor sem minuto
+    assert no_minute.minute is None and no_minute.payload["player"] == "Hernane"
+    sim.post(EventType.HALF_TIME)
+    at_interval = sim.post(EventType.GOAL, team_id=NAUTICO)  # placar do intervalo, sem detalhes
+    assert at_interval.period == "first_half" and (sim.state.home_score, sim.state.away_score) == (2, 2)
+    assert minute_mode("goal", "half_time") == "optional"
 
 
 def test_player_sent_off_warning_uses_normalized_name():
@@ -983,7 +1018,7 @@ def test_available_actions_by_phase():
     assert available_actions(sim.state, CTX) == {"events": FIRST_HALF_EVENTS, "status": ["suspend"]}
     sim.post(EventType.HALF_TIME)
     assert available_actions(sim.state, CTX) == {
-        "events": ["second_half_start", "yellow_card", "red_card", "substitution", "goal_annulled"],
+        "events": ["second_half_start", "goal", "yellow_card", "red_card", "substitution", "goal_annulled"],
         "status": ["suspend"],
     }
     sim.post(EventType.SECOND_HALF_START)
@@ -1065,7 +1100,7 @@ def test_error_messages_use_the_right_preposition():
     state = MatchState(status=Status.LIVE, period=Period.EXTRA_TIME)
     with pytest.raises(DomainError) as info:
         apply_event(state, [], NewEvent("yellow_card", 106, team_id=SPORT, payload={"player": "Zé"}), CTX)
-    assert info.value.message == "No 1º tempo da prorrogação, o minuto vai de 90 a 105."
+    assert info.value.message == "No 1º tempo da prorrogação, o minuto vai de 91 a 105."
 
 
 def test_structural_minute_given_by_hand_is_compared_with_last_clock():
@@ -1134,7 +1169,7 @@ def test_period_pauses_track_suspensions_of_the_current_period():
 
 
 def test_minute_mode_depends_on_period():
-    assert minute_mode("goal", "first_half") == "required"
+    assert minute_mode("goal", "first_half") == "optional" and minute_mode("yellow_card", "first_half") == "required"
     assert minute_mode("yellow_card", "half_time") == "optional"
     assert minute_mode("yellow_card", "penalties") == "optional"
     assert minute_mode("substitution", "extra_time") == "required"

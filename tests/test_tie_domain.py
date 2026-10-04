@@ -114,6 +114,8 @@ def test_two_legs_with_extra_time_decided_in_extra_time():
     assert (start.period, start.minute) == ("extra_time", 90)
     assert sim.state.period == Period.EXTRA_TIME and sim.state.period_started_seq == start.sequence
     sim.rejects("extra_time_not_allowed", EventType.EXTRA_TIME_START)
+    # o tempo normal fechou com o agregado igual: lance esquecido dele não entra mais
+    sim.rejects("invalid_minute", EventType.GOAL, team_id=SPORT, minute=80, payload={"player": "Zé"})
 
     goal = sim.goal(SPORT, "Diego Souza", 105, 1)  # gol da prorrogação entra no placar
     assert goal.period == "extra_time"
@@ -125,7 +127,8 @@ def test_two_legs_with_extra_time_decided_in_extra_time():
     interval = sim.post(EventType.EXTRA_HALF_TIME, minute=105, stoppage=1)
     assert (interval.period, interval.minute, interval.stoppage) == ("extra_time", 105, 1)
     assert sim.state.period == Period.EXTRA_HALF_TIME
-    assert events_of(sim)[0] == "extra_second_half_start" and "goal" not in events_of(sim)
+    assert events_of(sim)[0] == "extra_second_half_start" and "goal" in events_of(sim)  # gol esquecido do 1º tempo dela
+    sim.rejects("invalid_minute", EventType.GOAL, team_id=SPORT, minute=80, payload={"player": "Zé"})  # tempo normal fechado
     sim.rejects("invalid_transition", EventType.MATCH_END)
     second = sim.post(EventType.EXTRA_SECOND_HALF_START)
     assert (second.period, second.minute) == ("extra_second_half", 105)

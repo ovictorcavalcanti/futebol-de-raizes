@@ -1,7 +1,7 @@
 // Partes puras do card de jogo (sem DOM): node --test tests/js/match_card.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { safeHref, annulledGoalNote, sortEventsByClock } from '../../static/js/match-card.js';
+import { safeHref, annulledGoalNote, sortEventsByClock, sortMatchesForDisplay } from '../../static/js/match-card.js';
 
 test('links de transmissão: só http(s); javascript:, data: e lixo viram null', () => {
   assert.equal(safeHref('https://tv.example.com/ao-vivo'), 'https://tv.example.com/ao-vivo');
@@ -29,4 +29,13 @@ test('sortEventsByClock: ordem do jogo, não a do lançamento', () => {
   ];
   assert.deepEqual(sortEventsByClock(events.slice().reverse()).map((e) => e.id), [1, 3, 2, 4, 5, 6, 7, 8]);
   assert.deepEqual(sortEventsByClock(events, { desc: true }).map((e) => e.id), [8, 7, 6, 5, 4, 2, 3, 1]);
+});
+
+test('sortMatchesForDisplay: ao vivo > encerrados > agendados; sem ao vivo, agendados > encerrados', () => {
+  const m = (id, status, hour) => ({ id, status, kickoff_at: `2026-10-04T${String(hour).padStart(2, '0')}:00:00Z` });
+  const withLive = [m(1, 'scheduled', 20), m(2, 'finished', 16), m(3, 'live', 18), m(4, 'finished', 14), m(5, 'postponed', 10)];
+  assert.deepEqual(sortMatchesForDisplay(withLive).map((x) => x.id), [3, 4, 2, 1, 5]);
+  const noLive = [m(1, 'scheduled', 20), m(2, 'finished', 16), m(4, 'finished', 14), m(6, 'scheduled', 19)];
+  assert.deepEqual(sortMatchesForDisplay(noLive).map((x) => x.id), [6, 1, 4, 2]);
+  assert.deepEqual(sortMatchesForDisplay([m(7, 'delayed', 21), m(2, 'finished', 16)]).map((x) => x.id), [7, 2]); // atrasado conta como ao vivo
 });

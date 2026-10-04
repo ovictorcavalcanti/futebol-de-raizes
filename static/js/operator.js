@@ -23,7 +23,7 @@ import { eventIconName, icon } from './icons.js';
 import { createCrest } from './crest.js';
 import { ServerClock, mountClock, liveMinute } from './clock.js';
 import { formatTime, formatWhen, dayKey, TIME_ZONE } from './format.js';
-import { createMatchCard, updateMatchCard, tickMatchCards, sortEventsByClock } from './match-card.js';
+import { createMatchCard, updateMatchCard, tickMatchCards, sortEventsByClock, GOAL_TO_CONFIRM } from './match-card.js';
 import * as api from './api.js';
 
 /* ==========================================================================
@@ -826,7 +826,7 @@ function boolControl() {
 function goalOptionText(event, match) {
   const team = event.team_side ? match[event.team_side] : null;
   const score = event.score_after ? `${event.score_after.home} × ${event.score_after.away}` : '';
-  return [event.minute_label, `${event.player?.name || event.payload?.player || 'Gol'} (${teamShort(team)})`, score].filter(Boolean).join(' · ');
+  return [event.minute_label, `${event.player?.name || event.payload?.player || GOAL_TO_CONFIRM} (${teamShort(team)})`, score].filter(Boolean).join(' · ');
 }
 
 function eventRefControl() {
@@ -1294,7 +1294,7 @@ function setStatusBusy(on) {
 /* --- Linha do tempo -------------------------------------------------------------------------------- */
 
 function eventTitle(event) {
-  const player = event.player?.name || event.payload?.player || '';
+  const player = event.player?.name || event.payload?.player || (event.type === 'goal' ? 'informações a confirmar' : '');
   if (event.type === 'substitution') return event.type_label;
   return [event.type_label, player].filter(Boolean).join(' · ');
 }

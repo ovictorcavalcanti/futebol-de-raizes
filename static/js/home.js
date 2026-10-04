@@ -10,7 +10,7 @@
 import { hooks, cloneTemplate, renderCompetitionNav, showToast } from './render.js';
 import { ServerClock, mountClock } from './clock.js';
 import { formatDateLong, dayKey } from './format.js';
-import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createLatestGoal, createTieCard, createTieGroup, tiesFromMatches } from './match-card.js';
+import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createLatestGoal, createTieCard, createTieGroup, tiesFromMatches, refreshMatchCards } from './match-card.js';
 import { createStandings, updateStandings } from './standings.js';
 import { getHome, getCompetitions, getMatch } from './api.js';
 import { createStream, liveStatusIndicator } from './stream.js';
@@ -64,6 +64,7 @@ const state = {
   cards: new Map(), // match id → card
   standings: new Map(), // stage id → <div class="standings">
   ties: new Map(), // tie id → { tie, card } (mata-mata: agregado ao lado dos jogos)
+  latestGoals: [], // últimos gols desenhados (redesenho na troca do formato do minuto)
   reloadTimer: 0,
   reloading: null,
   reloadingFor: null, // dia do reload em andamento
@@ -214,6 +215,7 @@ function competitionSection(comp, nextCards, nextStandings, nextTies) {
 }
 
 function renderLatestGoals(goals = [], freshIds = null) {
+  state.latestGoals = goals;
   els.latestList.replaceChildren(...goals.map((g) => createLatestGoal(g, { isNew: !!freshIds?.has(g.event_id) })));
   els.latestList.hidden = goals.length === 0;
   els.latestList.removeAttribute('aria-busy'); // sai o chip esqueleto do HTML
@@ -378,6 +380,12 @@ async function boot() {
     if (document.visibilityState === 'visible') clock.checkDay();
   });
 }
+
+// Formato do minuto trocado no cabeçalho: redesenha cards e últimos gols com o que já há.
+document.addEventListener('minuteformatchange', () => {
+  refreshMatchCards(els.competitions);
+  if (state.date) renderLatestGoals(state.latestGoals);
+});
 
 els.error?.querySelector('[data-hook="home-retry"]')?.addEventListener('click', () => {
   if (stream) reloadAndRestart();

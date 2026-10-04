@@ -106,6 +106,7 @@ class EventType(StrEnum):
     YELLOW_CARD = "yellow_card"
     RED_CARD = "red_card"
     STOPPAGE_TIME = "stoppage_time"
+    CLOCK_ADJUST = "clock_adjust"  # operador para, retoma ou acerta o relógio do período
     SHOOTOUT_KICK = "shootout_kick"
     # status (ações do operador, também registradas como fatos)
     DELAYED = "delayed"
@@ -258,6 +259,8 @@ class EventSpec:
 
 
 _CLOCK_PERIODS = frozenset({Period.FIRST_HALF, Period.SECOND_HALF, Period.EXTRA_TIME})
+# Ajuste do relógio (início ou reinício lançado com atraso, relógio parado à parte da suspensão).
+CLOCK_ACTION_LABELS = {"stop": "Parar o relógio", "start": "Retomar o relógio", "set": "Acertar o minuto"}
 _PLAY_AND_INTERVAL = _CLOCK_PERIODS | {Period.HALF_TIME}
 _ANY_PERIOD = frozenset(Period)
 
@@ -331,6 +334,14 @@ CATALOG: dict[str, EventSpec] = {
         _game(EventType.RED_CARD, "Cartão vermelho", "card-red", _ANY_PERIOD, _F_TEAM, _F_PLAYER),
         _game(EventType.STOPPAGE_TIME, "Acréscimos", "clock", _CLOCK_PERIODS,
               FieldSpec("payload.minutes", "int", "Minutos de acréscimo")),
+        EventSpec(
+            EventType.CLOCK_ADJUST.value, "Relógio do jogo", "game",
+            (
+                FieldSpec("payload.action", "choice", "Ação", choices=tuple(CLOCK_ACTION_LABELS.items())),
+                FieldSpec("payload.minute", "int", "Minuto que o relógio deve mostrar", required=False),
+            ),
+            _CLOCK_PERIODS, minute="none", public=False, icon="clock",
+        ),
         _game(
             EventType.SHOOTOUT_KICK, "Cobrança de pênalti", "target", frozenset({Period.PENALTIES}),
             _F_TEAM,
@@ -475,6 +486,8 @@ class MatchState:
     # None enquanto suspenso). O serviço desconta esses intervalos do relógio
     # (created_at): period_started_at = abertura do período + tempo parado.
     period_pauses: tuple[tuple[int, int | None], ...] = ()
+    # ajustes do relógio no período corrente: (sequence, "stop"|"start"|"set", minuto|None)
+    clock_marks: tuple[tuple[int, str, int | None], ...] = ()
     # minutos de acréscimo anunciados por período
     stoppage_announced: Mapping[str, int] = field(default_factory=dict)
     # nova data/hora pedida no último reagendamento (ISO 8601), se houver
@@ -875,6 +888,7 @@ _GAME_ORDER = (
     EventType.VAR_REVIEW,
     EventType.STOPPAGE_TIME,
     EventType.GOAL_ANNULLED,
+    EventType.CLOCK_ADJUST,
 )
 _STATUS_ORDER = (
     StatusAction.DELAY,
@@ -1165,7 +1179,46 @@ def _step(
         return _step_structural(state, new, spec, ctx, sequence, collect)
     if spec.kind == "status":
         return _step_status(state, new, spec, sequence)
+    if spec.type == EventType.CLOCK_ADJUST:
+        return _step_clock(state, new, spec, sequence)
     return _step_game(state, new, spec, ctx, history, sequence, collect)
+
+
+def clock_frozen(state: MatchState) -> bool:
+    """Relógio parado pelo operador (sem contar a suspensão)."""
+    frozen = False
+    for _, action, _minute in state.clock_marks:
+        if action in ("stop", "start"):
+            frozen = action == "stop"
+    return frozen
+
+
+def _step_clock(state: MatchState, new: NewEvent, spec: EventSpec, sequence: int) -> _Step:
+    if state.status != Status.LIVE:
+        raise _error("match_not_live", "O relógio só é ajustado com o jogo ao vivo.", status=state.status)
+    if state.period not in _CLOCK_PERIODS:
+        raise _error("invalid_period_for_event", "O relógio só corre no 1º e 2º tempos e na prorrogação.", period=state.period)
+    raw = new.payload or {}
+    action = raw.get("action")
+    if action not in CLOCK_ACTION_LABELS:
+        raise _error("invalid_payload", "Escolha: parar, retomar ou acertar o minuto.", field="payload.action")
+    frozen = clock_frozen(state)
+    if action == "stop" and frozen:
+        raise _error("invalid_payload", "O relógio já está parado.", field="payload.action")
+    if action == "start" and not frozen:
+        raise _error("invalid_payload", "O relógio já está correndo.", field="payload.action")
+    payload: dict = {"action": action}
+    minute = None
+    if action == "set":
+        minute = raw.get("minute")
+        clock = PERIOD_CLOCK[state.period]
+        low, high = clock["offset"] + 1, clock["regular_end"] + MAX_STOPPAGE
+        if not _is_int(minute) or not low <= minute <= high:
+            raise _error("invalid_minute", f"Informe o minuto atual entre {low} e {high}.", field="payload.minute", minute=minute)
+        payload["minute"] = minute
+    marks = (*state.clock_marks, (sequence, action, minute))
+    event = Event(sequence, spec.type, state.period, payload=payload)
+    return _Step(replace(state, clock_marks=marks), event)
 
 
 def _normalized_stoppage(stoppage) -> int | None:
@@ -1219,6 +1272,7 @@ def _step_structural(
         "period": plan.period,
         "period_started_seq": sequence if plan.period is not None else None,
         "period_pauses": (),
+        "clock_marks": (),
     }
     if spec.type == EventType.PENALTIES_START:
         changes.update(home_penalties=0, away_penalties=0)
@@ -1236,7 +1290,7 @@ def _step_status(state: MatchState, new: NewEvent, spec: EventSpec, sequence: in
     payload: dict[str, str] = {}
     changes: dict = {"status": plan.status, "period": plan.period}
     if plan.period is None:
-        changes.update(period_started_seq=None, period_pauses=())
+        changes.update(period_started_seq=None, period_pauses=(), clock_marks=())
     elif spec.type == EventType.SUSPENDED:
         changes["period_pauses"] = (*state.period_pauses, (sequence, None))
     elif spec.type == EventType.RESUMED and state.period_pauses and state.period_pauses[-1][1] is None:

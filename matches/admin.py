@@ -477,7 +477,7 @@ class MatchAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, WriteLockedPostMixin
     inlines = [MatchEventInline, MatchOfficialInline, MatchBroadcastInline, MatchStatInline]
     parent_params = (("round", Round), ("stage", Stage))
     fieldsets = (
-        (None, {"fields": ("stage", ("group", "round"), ("tie", "leg"), ("home_team", "away_team"), "kickoff_at", ("venue", "city"))}),
+        (None, {"fields": ("stage", ("group", "round"), ("tie", "leg"), ("home_team", "away_team"), "kickoff_at", ("venue", "city"), "partial_info")}),
         (
             "Situação e placar (calculados pelos lances)",
             {
@@ -497,13 +497,14 @@ class MatchAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, WriteLockedPostMixin
         day = timezone.localtime(obj.kickoff_at).date().isoformat()
         return f"{reverse('operator')}?date={day}&match={obj.pk}"
 
-    def object_tools(self, request, obj):
+    def operator_tool(self, request, obj):
         if obj is None or obj.pk is None or not any(request.user.has_perm(perm) for perm in OPS_PERMISSIONS):
             return []
-        return [{"label": "Lançar lances na tela do operador", "url": self.operator_url(obj), "class": "fdr-tool-primary"}]
+        return [{"label": "Lançar lances na tela do operador", "url": self.operator_url(obj)}]
 
     def render_change_form(self, request, context, add=False, change=False, form_url="", obj=None):
-        tools = self.object_tools(request, obj) if obj is not None else []
+        # O atalho para o operador fica só no aviso do topo (não ao lado de "Histórico").
+        tools = self.operator_tool(request, obj) if obj is not None else []
         if tools:
             context["fdr_callout"] = {
                 "text": "Gols, cartões, substituições, VAR e o andamento do jogo são lançados na tela do operador, "

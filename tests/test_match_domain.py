@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from matches.domain import (
+    PERIOD_CLOCK,
     CATALOG,
     GOAL_ORIGIN_LABELS,
     DomainError,
@@ -194,14 +195,14 @@ def test_catalog_labels_kinds_and_public_flag():
         "extra_time_start": "Início da prorrogação", "penalties_start": "Início dos pênaltis", "match_end": "Fim de jogo",
         "goal": "Gol", "goal_annulled": "Gol anulado", "penalty_awarded": "Pênalti marcado",
         "penalty_missed": "Pênalti perdido", "var_review": "Revisão do VAR", "substitution": "Substituição",
-        "yellow_card": "Cartão amarelo", "red_card": "Cartão vermelho", "stoppage_time": "Acréscimos",
+        "yellow_card": "Cartão amarelo", "red_card": "Cartão vermelho", "stoppage_time": "Acréscimos", "clock_adjust": "Relógio do jogo",
         "shootout_kick": "Cobrança de pênalti", "delayed": "Atrasado", "postponed": "Adiado", "suspended": "Suspenso",
         "resumed": "Retomado", "rescheduled": "Reagendado", "cancelled": "Cancelado",
     }
     assert {key: spec.label for key, spec in CATALOG.items()} == labels
     hidden = {key for key, spec in CATALOG.items() if not spec.public}
-    assert hidden == {"goal_annulled", "delayed", "postponed", "suspended", "resumed", "rescheduled", "cancelled"}
-    assert {key for key, spec in CATALOG.items() if spec.kind == "status"} == hidden - {"goal_annulled"}
+    assert hidden == {"goal_annulled", "clock_adjust", "delayed", "postponed", "suspended", "resumed", "rescheduled", "cancelled"}
+    assert {key for key, spec in CATALOG.items() if spec.kind == "status"} == hidden - {"goal_annulled", "clock_adjust"}
     assert CATALOG["match_start"].minute == "optional" and CATALOG["goal"].minute == "required"
     assert CATALOG["postponed"].minute == "none"
     origin = next(f for f in CATALOG["goal"].fields if f.name == "payload.origin")
@@ -805,6 +806,22 @@ def test_delayed_match_can_be_postponed_or_cancelled():
     assert other.state.status == Status.CANCELLED
 
 
+def test_clock_adjust_stop_start_and_set():
+    sim = Sim()
+    sim.post(EventType.MATCH_START)
+    rejects("invalid_payload", sim, EventType.CLOCK_ADJUST, payload={"action": "start"})  # já corre
+    stop = sim.post(EventType.CLOCK_ADJUST, payload={"action": "stop"})
+    assert stop.payload == {"action": "stop"} and stop.period == "first_half"
+    rejects("invalid_payload", sim, EventType.CLOCK_ADJUST, payload={"action": "stop"})  # já parado
+    sim.post(EventType.CLOCK_ADJUST, payload={"action": "set", "minute": 12})
+    rejects("invalid_minute", sim, EventType.CLOCK_ADJUST, payload={"action": "set", "minute": 80})
+    sim.post(EventType.CLOCK_ADJUST, payload={"action": "start"})
+    assert [m[1:] for m in sim.state.clock_marks] == [("stop", None), ("set", 12), ("start", None)]
+    sim.post(EventType.HALF_TIME)
+    assert sim.state.clock_marks == ()  # novo período zera os ajustes
+    rejects("invalid_period_for_event", sim, EventType.CLOCK_ADJUST, payload={"action": "stop"})
+
+
 def test_suspend_keeps_period_and_resume():
     sim = Sim().to_second_half()
     sim.goal(NAUTICO, "Kieza", 60)
@@ -928,7 +945,7 @@ def test_derive_state_rejects_inconsistent_sequences():
 
 FIRST_HALF_EVENTS = [
     "half_time", "goal", "penalty_awarded", "penalty_missed", "yellow_card", "red_card",
-    "substitution", "var_review", "stoppage_time", "goal_annulled",
+    "substitution", "var_review", "stoppage_time", "goal_annulled", "clock_adjust",
 ]
 
 
@@ -975,6 +992,7 @@ def _minute_for(state: MatchState) -> int | None:
 
 
 SAMPLES = {
+    "clock_adjust": lambda s: NewEvent("clock_adjust", payload={"action": "set", "minute": PERIOD_CLOCK.get(s.period, {"offset": 0})["offset"] + 5}),
     "match_start": lambda s: NewEvent("match_start"),
     "half_time": lambda s: NewEvent("half_time"),
     "second_half_start": lambda s: NewEvent("second_half_start"),

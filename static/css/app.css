@@ -619,6 +619,7 @@
     animation: pulse 1.4s var(--ease) infinite;
   }
   .pill--interval { background: var(--amarelo); color: var(--on-amarelo); }
+  .pill--partial { background: var(--surface-2); color: var(--ink); border: 2px dashed var(--vermelho); }
   .pill--delayed { background: var(--surface); color: var(--ink); border: 2px solid var(--amarelo); }
   .pill--finished { background: var(--ink); color: var(--on-ink); }
   .pill--scheduled {
@@ -915,7 +916,6 @@
   .facts-line__item .icon { width: 13px; height: 13px; color: var(--ink-3); }
   .facts-line__min { font-family: var(--font-num); font-weight: 600; color: var(--ink-3); }
   .facts-line__tag { font-size: 0.75rem; color: var(--ink-3); }
-  .facts-line__item--red .icon { width: 12px; height: 14px; }
 
   @container match (min-width: 520px) {
     .match__summary { font-size: 0.875rem; padding-inline: var(--s-5); }

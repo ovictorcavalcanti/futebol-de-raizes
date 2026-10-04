@@ -217,6 +217,7 @@ function statusPill(match) {
     return h('span', { class: 'pill pill--scheduled' }, icon('clock'), h('span', { class: 'visually-hidden', text: 'Agendado para ' }), time || 'A definir');
   }
   if (status === 'live') {
+    if (match.partial_info) return h('span', { class: 'pill pill--partial', text: 'Informações parciais' });
     if (match.period === 'half_time') return h('span', { class: 'pill pill--interval', text: 'Intervalo' });
     return h('span', { class: 'pill pill--live', text: match.period === 'penalties' ? 'Pênaltis' : 'Ao vivo' });
   }
@@ -239,7 +240,7 @@ function roundLabel(match) {
 function renderMeta(meta, match, now, opts) {
   const parts = [];
   const status = h('span', { class: 'match__status' }, statusPill(match));
-  if (match.status === 'live' && match.period !== 'half_time' && match.period !== 'penalties') {
+  if (match.status === 'live' && !match.partial_info && match.period !== 'half_time' && match.period !== 'penalties') {
     status.append(h('span', { class: 'match__minute' },
       match.period_short ? h('span', { class: 'match__minute-period', text: match.period_short }) : null,
       h('span', { 'data-hook': 'minute', text: liveMinuteLabel(match, now) }),
@@ -345,13 +346,13 @@ function flashScore(el, prev, match) {
 }
 
 /* ==========================================================================
-   Resumo (gols e vermelhos sem abrir) e linha do confronto
+   Resumo (só os gols, sem abrir) e linha do confronto
    ========================================================================== */
 
 function renderSummary(summary, match) {
+  // Fora do acordeão, só os gols; cartões ficam nos lances.
   const goals = Array.isArray(match.goals) ? match.goals : [];
-  const reds = Array.isArray(match.red_cards) ? match.red_cards : [];
-  if (!goals.length && !reds.length) {
+  if (!goals.length) {
     summary.hidden = true;
     summary.replaceChildren();
     return;
@@ -367,11 +368,7 @@ function renderSummary(summary, match) {
         tag ? h('span', { class: 'facts-line__tag', text: `(${tag})` }) : null,
       );
     });
-    for (const r of reds.filter((c) => c.team_side === side)) {
-      items.push(h('li', { class: 'facts-line__item facts-line__item--red' },
-        icon('card-red', { label: 'Cartão vermelho' }), r.player || 'Expulsão', h('span', { class: 'facts-line__min', text: r.minute_label || '' })));
-    }
-    return h('ul', { class: `facts-line facts-line--${side}`, 'aria-label': `Destaques de ${displayName(match[side])}` }, ...items);
+    return h('ul', { class: `facts-line facts-line--${side}`, 'aria-label': `Gols de ${displayName(match[side])}` }, ...items);
   };
   summary.replaceChildren(column('home'), column('away'));
 }
@@ -657,6 +654,8 @@ export function renderTimeline(match, newIds = null) {
         list.append(timelineItem(e, side, { title: 'Revisão do VAR', sub: [incident, decision ? `Decisão: ${decision}` : null], isNew }));
         break;
       }
+      case 'clock_adjust':
+        break; // ajuste interno do relógio: não aparece nos lances do público
       case 'stoppage_time': {
         const minutes = e.payload?.minutes;
         list.append(timelineItem(e, null, { title: minutes ? `+${minutes} min de acréscimo` : 'Acréscimos', isNew, minuteText: '' }));

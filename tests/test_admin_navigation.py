@@ -263,7 +263,7 @@ def test_match_page_lists_visible_events_and_links_to_operator(admin_client_fdr,
     assert "Zé Roberto · Pênalti" in page and "Lance Errado" not in page  # cancelado não aparece
     assert "Cancelar lançamento" in page
     operator = f"/operator.html?date=2026-10-03&amp;match={match.pk}"
-    assert page.count(operator) == 2  # botão no topo e no aviso
+    assert page.count(operator) == 1  # só no aviso do topo (nada ao lado de "Histórico")
     assert "Lançar lances na tela do operador" in page
 
 
@@ -452,3 +452,11 @@ def test_games_sorted_live_then_scheduled_then_finished(operator_client):
     html = operator_client.get(reverse("admin_games_competition", args=["ordem"])).content.decode()
     positions = [html.index(reverse("admin:matches_match_change", args=[m.pk])) for m in (live, scheduled, finished)]
     assert positions == sorted(positions)
+
+
+def test_competition_games_page_has_add_button_for_current_stage(operator_client):
+    league = make_league(2, name="Com botão", slug="com-botao")
+    make_match(league["stage"], *league["teams"], round=league["rounds"][0])
+    html = operator_client.get(reverse("admin_games_competition", args=["com-botao"])).content.decode()
+    assert f'{reverse("admin:matches_match_add")}?stage={league["stage"].pk}' in html
+    assert "Adicionar jogo" in html

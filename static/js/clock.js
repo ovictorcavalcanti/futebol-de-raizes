@@ -155,10 +155,12 @@ const MAX_STOPPAGE = 30;
  */
 export function liveMinute(match, nowMs = Date.now()) {
   const clock = match?.clock;
-  if (!clock || !clock.running || !match.period_started_at) return null;
+  if (!clock || !match.period_started_at) return null;
+  // Relógio parado (suspensão ou operador): o minuto fica no instante em que parou.
+  const at = clock.running ? nowMs : Date.parse(clock.paused_at || '');
   const started = Date.parse(match.period_started_at);
-  if (!Number.isFinite(started)) return null;
-  const elapsed = Math.max(0, Math.floor((nowMs - started) / 60_000));
+  if (!Number.isFinite(started) || !Number.isFinite(at)) return null;
+  const elapsed = Math.max(0, Math.floor((at - started) / 60_000));
   const minute = clock.offset + elapsed + 1;
   if (minute > clock.regular_end) {
     return { minute: clock.regular_end, stoppage: Math.min(minute - clock.regular_end, MAX_STOPPAGE) };
@@ -171,7 +173,7 @@ export function liveMinute(match, nowMs = Date.now()) {
  * Vazio quando o jogo não está ao vivo.
  */
 export function liveMinuteLabel(match, nowMs = Date.now()) {
-  if (!match || match.status !== 'live') return '';
+  if (!match || match.status !== 'live' || match.partial_info) return '';
   if (match.period === 'half_time') return 'INT';
   if (match.period === 'penalties') return 'PÊN';
   const m = liveMinute(match, nowMs);

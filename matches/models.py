@@ -90,11 +90,18 @@ class Match(models.Model):
     status = models.CharField("status", max_length=12, choices=Status.choices, default=Status.SCHEDULED, editable=False)
     period = models.CharField("período", max_length=12, choices=Period.choices, null=True, blank=True, editable=False)
     period_started_at = models.DateTimeField("início do período", null=True, blank=True, editable=False)
+    clock_paused_at = models.DateTimeField("relógio parado desde", null=True, blank=True, editable=False)
     home_score = models.PositiveSmallIntegerField("gols mandante", default=0, editable=False)
     away_score = models.PositiveSmallIntegerField("gols visitante", default=0, editable=False)
     home_penalties = models.PositiveSmallIntegerField("pênaltis mandante", null=True, blank=True, editable=False)
     away_penalties = models.PositiveSmallIntegerField("pênaltis visitante", null=True, blank=True, editable=False)
     version = models.PositiveIntegerField("versão", default=0, editable=False)
+    partial_info = models.BooleanField(
+        "informações parciais",
+        default=False,
+        help_text="Marque quando o jogo tem só informações parciais: o site mostra "
+        "\"Informações parciais\" no lugar de \"Ao vivo\" e não mostra o tempo de jogo.",
+    )
     # Enriquecimento (fase 10): público e renda (em centavos).
     attendance = models.PositiveIntegerField("público pagante", null=True, blank=True)
     revenue_cents = models.PositiveBigIntegerField("renda (centavos)", null=True, blank=True)

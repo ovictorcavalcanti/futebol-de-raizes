@@ -4,7 +4,7 @@ from django.contrib import admin
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, render
 
-from competitions.models import Competition
+from competitions.models import Competition, Stage
 
 from .models import Match
 
@@ -43,8 +43,16 @@ def games_competition(request, slug):
             done.append(match)
     by_kickoff = lambda m: (m.kickoff_at, m.id)  # noqa: E731
     matches = sorted(live, key=by_kickoff) + sorted(upcoming, key=by_kickoff) + sorted(done, key=by_kickoff, reverse=True)
+    # "Adicionar jogo": abre o cadastro já na fase atual da temporada mais recente
+    # (a primeira com jogo não encerrado, senão a última).
+    latest = Stage.objects.filter(season__competition=competition).order_by("-season__year").values_list("season_id", flat=True).first()
+    stages = list(Stage.objects.filter(season_id=latest).order_by("position", "id")) if latest else []
+    open_stage_ids = {m.stage_id for m in live + upcoming}
+    add_stage = next((st for st in stages if st.id in open_stage_ids), stages[-1] if stages else None)
     context = {
         **admin.site.each_context(request),
+        "add_stage": add_stage,
+        "can_add": request.user.has_perm("matches.add_match"),
         "title": f"Jogos · {competition.name}",
         "competition": competition,
         "matches": matches,

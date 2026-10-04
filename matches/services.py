@@ -30,7 +30,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from competitions.models import Group
@@ -58,6 +58,7 @@ CACHE_FIELDS = [
     "status",
     "period",
     "period_started_at",
+    "clock_paused_at",
     "home_score",
     "away_score",
     "home_penalties",
@@ -441,7 +442,7 @@ class _Work:
         by_seq = {row.sequence: row for row in self.rows}
         match.status = str(state.status)
         match.period = _text(state.period)
-        match.period_started_at = _period_started_at(state, by_seq)
+        match.period_started_at, match.clock_paused_at = _period_clock(state, by_seq)
         match.home_score = state.home_score
         match.away_score = state.away_score
         match.home_penalties = state.home_penalties
@@ -477,7 +478,7 @@ class _Work:
         match = self.match
         by_seq = {row.sequence: row for row in self.rows}
         match.status, match.period = str(state.status), _text(state.period)
-        match.period_started_at = _period_started_at(state, by_seq)
+        match.period_started_at, match.clock_paused_at = _period_clock(state, by_seq)
         match.home_score, match.away_score = state.home_score, state.away_score
         match.home_penalties, match.away_penalties = state.home_penalties, state.away_penalties
         match.finished_at = self._finished_at(state)
@@ -603,17 +604,47 @@ def _kickoff_after(state: domain.MatchState, rescheduled: MatchEvent | None, voi
     return _aware(previous) if previous else None
 
 
-def _period_started_at(state: domain.MatchState, by_seq: Mapping[int, MatchEvent]) -> datetime | None:
-    """Abertura do período + tempo parado nas suspensões já retomadas (o relógio do
-    front desconta a parada). Suspensão aberta não entra: o front para no `paused_at`."""
+def _period_clock(state: domain.MatchState, by_seq: Mapping[int, MatchEvent]) -> tuple[datetime | None, datetime | None]:
+    """(início efetivo do período, relógio parado desde) para o front calcular o minuto.
+
+    Parte da abertura do período e percorre, em ordem, as suspensões e os ajustes do
+    operador (`clock_adjust`): enquanto o relógio está parado (suspensão ou "parar"),
+    o tempo não corre — ao voltar, o início anda o tempo parado. "Acertar o minuto" M
+    redefine o início para o relógio mostrar M naquele instante (ou no instante em que
+    parou, se estiver parado). Devolve `paused_at` quando o relógio está parado agora.
+    """
+    if state.status != domain.Status.LIVE and state.status != domain.Status.SUSPENDED:
+        return None, None
     if state.period_started_seq is None or state.period_started_seq not in by_seq:
-        return None
+        return None, None
     started = by_seq[state.period_started_seq].created_at
+    offset = domain.PERIOD_CLOCK.get(state.period, {}).get("offset", 0)
+    marks: list[tuple[int, str, int | None]] = []
     for suspended_seq, resumed_seq in state.period_pauses:
-        if resumed_seq is None or suspended_seq not in by_seq or resumed_seq not in by_seq:
+        marks.append((suspended_seq, "suspend", None))
+        if resumed_seq is not None:
+            marks.append((resumed_seq, "resume", None))
+    marks.extend(state.clock_marks)
+    holds: set[str] = set()
+    frozen_at: datetime | None = None
+    for seq, action, minute in sorted(marks):
+        row = by_seq.get(seq)
+        if row is None:
             continue
-        started += by_seq[resumed_seq].created_at - by_seq[suspended_seq].created_at
-    return started
+        at = row.created_at
+        if action in ("suspend", "stop"):
+            if not holds:
+                frozen_at = at
+            holds.add("suspend" if action == "suspend" else "stop")
+        elif action in ("resume", "start"):
+            holds.discard("suspend" if action == "resume" else "stop")
+            if not holds and frozen_at is not None:
+                started += at - frozen_at
+                frozen_at = None
+        elif action == "set" and minute is not None:
+            # minuto exibido = offset + minutos decorridos + 1 (CONTRACT §3, "clock")
+            started = (frozen_at or at) - timedelta(minutes=minute - offset - 1)
+    return started, frozen_at
 
 
 def _kickoff_utc(value: str | datetime, field_name: str) -> str:

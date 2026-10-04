@@ -16,6 +16,7 @@ import pytest
 
 from matches.domain import (
     PERIOD_CLOCK,
+    clock_set_range,
     CATALOG,
     GOAL_ORIGIN_LABELS,
     DomainError,
@@ -192,7 +193,9 @@ def test_catalog_has_one_spec_per_event_type():
 def test_catalog_labels_kinds_and_public_flag():
     labels = {
         "match_start": "Início de jogo", "half_time": "Fim do 1º tempo", "second_half_start": "Início do 2º tempo",
-        "extra_time_start": "Início da prorrogação", "penalties_start": "Início dos pênaltis", "match_end": "Fim de jogo",
+        "extra_time_start": "Início da prorrogação", "extra_half_time": "Fim do 1º tempo da prorrogação",
+        "extra_second_half_start": "Início do 2º tempo da prorrogação",
+        "penalties_start": "Início dos pênaltis", "match_end": "Fim de jogo",
         "goal": "Gol", "goal_annulled": "Gol anulado", "penalty_awarded": "Pênalti marcado",
         "penalty_missed": "Pênalti perdido", "var_review": "Revisão do VAR", "substitution": "Substituição",
         "yellow_card": "Cartão amarelo", "red_card": "Cartão vermelho", "stoppage_time": "Acréscimos", "clock_adjust": "Relógio do jogo",
@@ -211,11 +214,11 @@ def test_catalog_labels_kinds_and_public_flag():
 
 
 def test_catalog_periods():
-    play = {"first_half", "second_half", "extra_time"}
+    play = {"first_half", "second_half", "extra_time", "extra_second_half"}
     for event_type in ("goal", "penalty_awarded", "penalty_missed", "var_review", "stoppage_time"):
         assert CATALOG[event_type].periods == play
     for event_type in ("goal_annulled", "substitution"):
-        assert CATALOG[event_type].periods == play | {"half_time"}
+        assert CATALOG[event_type].periods == play | {"half_time", "extra_half_time"}
     for event_type in ("yellow_card", "red_card"):
         assert CATALOG[event_type].periods == {period.value for period in Period}
     assert CATALOG["shootout_kick"].periods == {"penalties"}
@@ -431,8 +434,11 @@ def test_game_payloads_are_normalized():
         ("second_half", 89, 1),
         ("second_half", 45, 1),
         ("extra_time", 89, None),
-        ("extra_time", 121, None),
+        ("extra_time", 106, None),
         ("extra_time", 100, 1),
+        ("extra_second_half", 104, None),
+        ("extra_second_half", 121, None),
+        ("extra_second_half", 105, 1),
         ("half_time", 50, None),
     ],
 )
@@ -440,10 +446,10 @@ def test_minutes_out_of_range(period, minute, stoppage):
     sim = live_sim()
     if period != "first_half":
         sim.post(EventType.HALF_TIME)
-    if period in ("second_half", "extra_time"):
+    if period in ("second_half", "extra_time", "extra_second_half"):
         sim.post(EventType.SECOND_HALF_START)
-    if period == "extra_time":
-        sim.state = replace(sim.state, period=Period.EXTRA_TIME)  # atalho: só o minuto importa aqui
+    if period in ("extra_time", "extra_second_half"):
+        sim.state = replace(sim.state, period=Period(period))  # atalho: só o minuto importa aqui
         sim.events = []
     error = rejects("invalid_minute", sim, EventType.YELLOW_CARD, team_id=SPORT, minute=minute, stoppage=stoppage,
                     payload={"player": "Zé"})
@@ -457,8 +463,10 @@ def test_minutes_out_of_range(period, minute, stoppage):
         ("first_half", 45, 3),
         ("second_half", 45, None),
         ("second_half", 90, 7),
+        ("extra_time", 90, None),
         ("extra_time", 105, 1),
-        ("extra_time", 120, 2),
+        ("extra_second_half", 105, None),
+        ("extra_second_half", 120, 2),
     ],
 )
 def test_minutes_in_range(period, minute, stoppage):
@@ -822,6 +830,25 @@ def test_clock_adjust_stop_start_and_set():
     rejects("invalid_period_for_event", sim, EventType.CLOCK_ADJUST, payload={"action": "stop"})
 
 
+def test_clock_set_range_is_0_45_then_46_90():
+    assert [clock_set_range(p) for p in ("first_half", "second_half", "extra_time", "extra_second_half")] == [
+        (0, 45), (46, 90), (91, 105), (106, 120),
+    ]
+    sim = Sim()
+    sim.post(EventType.MATCH_START)
+    for minute in (0, 45):
+        sim.post(EventType.CLOCK_ADJUST, payload={"action": "set", "minute": minute})
+    for minute in (-1, 46):
+        rejects("invalid_minute", sim, EventType.CLOCK_ADJUST, payload={"action": "set", "minute": minute})
+    rejects("invalid_minute", sim, EventType.CLOCK_ADJUST, payload={"action": "set"})  # sem minuto
+    sim.post(EventType.HALF_TIME)
+    sim.post(EventType.SECOND_HALF_START)
+    for minute in (46, 90):
+        sim.post(EventType.CLOCK_ADJUST, payload={"action": "set", "minute": minute})
+    for minute in (45, 91):
+        rejects("invalid_minute", sim, EventType.CLOCK_ADJUST, payload={"action": "set", "minute": minute})
+
+
 def test_suspend_keeps_period_and_resume():
     sim = Sim().to_second_half()
     sim.goal(NAUTICO, "Kieza", 60)
@@ -988,7 +1015,7 @@ def test_available_actions_match_apply_event():
 
 
 def _minute_for(state: MatchState) -> int | None:
-    return {"first_half": 45, "second_half": 90, "extra_time": 120}.get(state.period)
+    return {"first_half": 45, "second_half": 90, "extra_time": 105, "extra_second_half": 120}.get(state.period)
 
 
 SAMPLES = {
@@ -997,6 +1024,8 @@ SAMPLES = {
     "half_time": lambda s: NewEvent("half_time"),
     "second_half_start": lambda s: NewEvent("second_half_start"),
     "extra_time_start": lambda s: NewEvent("extra_time_start"),
+    "extra_half_time": lambda s: NewEvent("extra_half_time"),
+    "extra_second_half_start": lambda s: NewEvent("extra_second_half_start"),
     "penalties_start": lambda s: NewEvent("penalties_start"),
     "match_end": lambda s: NewEvent("match_end"),
     "goal": lambda s: NewEvent("goal", _minute_for(s), team_id=SPORT, payload={"player": "Durval"}),
@@ -1035,8 +1064,8 @@ def test_error_messages_use_the_right_preposition():
     assert error.message == "Não é possível lançar revisão do VAR no intervalo."
     state = MatchState(status=Status.LIVE, period=Period.EXTRA_TIME)
     with pytest.raises(DomainError) as info:
-        apply_event(state, [], NewEvent("yellow_card", 121, team_id=SPORT, payload={"player": "Zé"}), CTX)
-    assert info.value.message == "Na prorrogação, o minuto vai de 90 a 120."
+        apply_event(state, [], NewEvent("yellow_card", 106, team_id=SPORT, payload={"player": "Zé"}), CTX)
+    assert info.value.message == "No 1º tempo da prorrogação, o minuto vai de 90 a 105."
 
 
 def test_structural_minute_given_by_hand_is_compared_with_last_clock():

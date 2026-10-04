@@ -8,12 +8,15 @@ Convenções
 * Status (7): scheduled, delayed, live, finished, postponed, suspended, cancelled.
   `delayed` = início atrasado (com observação obrigatória); dele o jogo começa,
   é adiado, reagendado ou cancelado.
-* Período (5): first_half, half_time, second_half, extra_time, penalties.
+* Período (7): first_half, half_time, second_half, extra_time (1º tempo da
+  prorrogação), extra_half_time (intervalo da prorrogação), extra_second_half
+  (2º tempo da prorrogação), penalties.
   `period` só existe com status live ou suspended (em suspenso, guarda onde parou).
 * Minuto é ABSOLUTO no jogo (45+2 = minute 45, stoppage 2; 90+3; 105+1; 120+2).
   Faixas: 1T 0–45 (acréscimo só no 45); 2T 45–90 (acréscimo só no 90);
-  prorrogação 90–120 (acréscimo só no 105 ou 120). Fora disso: `invalid_minute`.
-  Intervalo: minuto opcional; se vier, é 45 (com ou sem acréscimo). Pênaltis:
+  prorrogação 90–105 no 1º tempo (acréscimo só no 105) e 105–120 no 2º (acréscimo
+  só no 120). Fora disso: `invalid_minute`. Intervalo: minuto opcional; se vier,
+  é 45 (105 no intervalo da prorrogação), com ou sem acréscimo. Pênaltis:
   minuto opcional; se vier, é o do início da disputa (90 sem prorrogação, 120 com).
   Acréscimo vai de 1 a 30 (0 = sem acréscimo). `EventSpec.minute == "required"`
   vale nos períodos com relógio; no intervalo e nos pênaltis o minuto é opcional
@@ -25,7 +28,8 @@ Convenções
   nome digitado pelo nome da escalação e completa o id que faltar.
 * Período gravado no evento: eventos que ABREM período levam o período novo
   (match_start→first_half, second_half_start→second_half, extra_time_start→extra_time,
-  penalties_start→penalties); half_time e match_end levam o período que FECHAM;
+  extra_second_half_start→extra_second_half, penalties_start→penalties);
+  half_time, extra_half_time e match_end levam o período que FECHAM;
   eventos de jogo levam o período corrente; eventos de status levam o período
   corrente (ou None fora de jogo).
 * Gol válido: tipo goal, não cancelado (voided) e não anulado por um goal_annulled
@@ -37,13 +41,15 @@ Convenções
 Máquina de estados (status e período mudam só por eventos)
 ----------------------------------------------------------
 * Estrutura: match_start (agendado → ao vivo/1T) · half_time (1T → intervalo) ·
-  second_half_start (intervalo → 2T) · extra_time_start (2T → prorrogação, só no jogo
-  decisivo do confronto com prorrogação e agregado igual) · penalties_start (agregado
-  igual no jogo decisivo: do 2T sem prorrogação, ou da prorrogação) · match_end (2T,
-  prorrogação ou pênaltis → encerrado). Fora de ordem: `invalid_transition`
+  second_half_start (intervalo → 2T) · extra_time_start (2T → 1º tempo da prorrogação,
+  só no jogo decisivo do confronto com prorrogação e agregado igual) · extra_half_time
+  (1º tempo da prorrogação → intervalo da prorrogação) · extra_second_half_start
+  (intervalo da prorrogação → 2º tempo da prorrogação) · penalties_start (agregado
+  igual no jogo decisivo: do 2T sem prorrogação, ou do 2º tempo da prorrogação) ·
+  match_end (2T, 2º tempo da prorrogação ou pênaltis → encerrado). Fora de ordem: `invalid_transition`
   (prorrogação e pênaltis: `extra_time_not_allowed` / `penalties_not_allowed`).
 * Jogo decisivo com agregado igual: fim de jogo no 2T → `tie_level_requires_extra_time`
-  (com prorrogação) ou `tie_level_requires_penalties`; na prorrogação →
+  (com prorrogação) ou `tie_level_requires_penalties`; no 2º tempo da prorrogação →
   `tie_level_requires_penalties`; nos pênaltis com placar igual → `penalties_level`.
   Agregado = gols dos outros jogos + placar atual; gol fora não desempata.
 * Status (ações do operador): adiar (agendado → adiado) · suspender (ao vivo →
@@ -84,7 +90,9 @@ class Period(StrEnum):
     FIRST_HALF = "first_half"
     HALF_TIME = "half_time"
     SECOND_HALF = "second_half"
-    EXTRA_TIME = "extra_time"
+    EXTRA_TIME = "extra_time"  # 1º tempo da prorrogação
+    EXTRA_HALF_TIME = "extra_half_time"  # intervalo da prorrogação
+    EXTRA_SECOND_HALF = "extra_second_half"  # 2º tempo da prorrogação
     PENALTIES = "penalties"
 
 
@@ -94,6 +102,8 @@ class EventType(StrEnum):
     HALF_TIME = "half_time"  # fim do 1T = intervalo (um evento só)
     SECOND_HALF_START = "second_half_start"
     EXTRA_TIME_START = "extra_time_start"
+    EXTRA_HALF_TIME = "extra_half_time"  # fim do 1º tempo da prorrogação = intervalo
+    EXTRA_SECOND_HALF_START = "extra_second_half_start"
     PENALTIES_START = "penalties_start"
     MATCH_END = "match_end"
     # lances
@@ -162,7 +172,9 @@ PERIOD_LABELS = {
     Period.FIRST_HALF: "1º tempo",
     Period.HALF_TIME: "Intervalo",
     Period.SECOND_HALF: "2º tempo",
-    Period.EXTRA_TIME: "Prorrogação",
+    Period.EXTRA_TIME: "1º tempo da prorrogação",
+    Period.EXTRA_HALF_TIME: "Intervalo da prorrogação",
+    Period.EXTRA_SECOND_HALF: "2º tempo da prorrogação",
     Period.PENALTIES: "Pênaltis",
 }
 
@@ -170,7 +182,9 @@ PERIOD_SHORT = {
     Period.FIRST_HALF: "1T",
     Period.HALF_TIME: "INT",
     Period.SECOND_HALF: "2T",
-    Period.EXTRA_TIME: "PRO",
+    Period.EXTRA_TIME: "1TP",
+    Period.EXTRA_HALF_TIME: "INT",
+    Period.EXTRA_SECOND_HALF: "2TP",
     Period.PENALTIES: "PÊN",
 }
 
@@ -209,7 +223,9 @@ PERIOD_ORDER = {
     Period.HALF_TIME: 2,
     Period.SECOND_HALF: 3,
     Period.EXTRA_TIME: 4,
-    Period.PENALTIES: 5,
+    Period.EXTRA_HALF_TIME: 5,
+    Period.EXTRA_SECOND_HALF: 6,
+    Period.PENALTIES: 7,
 }
 
 # Relógio do período para o front desenhar o minuto ao vivo sem regra de negócio:
@@ -218,7 +234,8 @@ PERIOD_ORDER = {
 PERIOD_CLOCK = {
     Period.FIRST_HALF: {"offset": 0, "regular_end": 45},
     Period.SECOND_HALF: {"offset": 45, "regular_end": 90},
-    Period.EXTRA_TIME: {"offset": 90, "regular_end": 120},
+    Period.EXTRA_TIME: {"offset": 90, "regular_end": 105},
+    Period.EXTRA_SECOND_HALF: {"offset": 105, "regular_end": 120},
 }
 
 MAX_STOPPAGE = 30  # acréscimo máximo (minuto 45+30) e maior anúncio de acréscimos
@@ -258,10 +275,10 @@ class EventSpec:
     icon: str = ""  # nome do ícone no sprite do front
 
 
-_CLOCK_PERIODS = frozenset({Period.FIRST_HALF, Period.SECOND_HALF, Period.EXTRA_TIME})
+_CLOCK_PERIODS = frozenset({Period.FIRST_HALF, Period.SECOND_HALF, Period.EXTRA_TIME, Period.EXTRA_SECOND_HALF})
 # Ajuste do relógio (início ou reinício lançado com atraso, relógio parado à parte da suspensão).
 CLOCK_ACTION_LABELS = {"stop": "Parar o relógio", "start": "Retomar o relógio", "set": "Acertar o minuto"}
-_PLAY_AND_INTERVAL = _CLOCK_PERIODS | {Period.HALF_TIME}
+_PLAY_AND_INTERVAL = _CLOCK_PERIODS | {Period.HALF_TIME, Period.EXTRA_HALF_TIME}
 _ANY_PERIOD = frozenset(Period)
 
 _F_TEAM = FieldSpec("team_id", "team", "Time")
@@ -290,6 +307,8 @@ CATALOG: dict[str, EventSpec] = {
         _structural(EventType.HALF_TIME, "Fim do 1º tempo", "whistle"),
         _structural(EventType.SECOND_HALF_START, "Início do 2º tempo", "whistle"),
         _structural(EventType.EXTRA_TIME_START, "Início da prorrogação", "whistle"),
+        _structural(EventType.EXTRA_HALF_TIME, "Fim do 1º tempo da prorrogação", "whistle"),
+        _structural(EventType.EXTRA_SECOND_HALF_START, "Início do 2º tempo da prorrogação", "whistle"),
         _structural(EventType.PENALTIES_START, "Início dos pênaltis", "ball-penalty"),
         _structural(EventType.MATCH_END, "Fim de jogo", "flag"),
         _game(
@@ -384,7 +403,7 @@ def event_icon(event_type: str, payload: Mapping | None = None) -> str:
 def minute_mode(event_type: str, period: str | None) -> str:
     """Exigência do minuto para lançar `event_type` com a partida em `period`:
     "required" | "optional" | "none". Lance que exige minuto com o relógio
-    correndo (1T, 2T, prorrogação) o dispensa no intervalo e nos pênaltis."""
+    correndo (1T, 2T e os dois tempos da prorrogação) o dispensa nos intervalos e nos pênaltis."""
     spec = CATALOG.get(event_type)
     if spec is None:
         return "none"
@@ -874,6 +893,8 @@ _STRUCTURAL_ORDER = (
     EventType.HALF_TIME,
     EventType.SECOND_HALF_START,
     EventType.EXTRA_TIME_START,
+    EventType.EXTRA_HALF_TIME,
+    EventType.EXTRA_SECOND_HALF_START,
     EventType.PENALTIES_START,
     EventType.MATCH_END,
 )
@@ -913,7 +934,9 @@ _PERIOD_IN = {
     Period.FIRST_HALF: "no 1º tempo",
     Period.HALF_TIME: "no intervalo",
     Period.SECOND_HALF: "no 2º tempo",
-    Period.EXTRA_TIME: "na prorrogação",
+    Period.EXTRA_TIME: "no 1º tempo da prorrogação",
+    Period.EXTRA_HALF_TIME: "no intervalo da prorrogação",
+    Period.EXTRA_SECOND_HALF: "no 2º tempo da prorrogação",
     Period.PENALTIES: "nos pênaltis",
 }
 _ISO_DATETIME_PREFIX = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}")
@@ -922,7 +945,9 @@ _MINUTE_RULES: dict[str, tuple[int, int, tuple[int, ...]]] = {
     Period.FIRST_HALF: (0, 45, (45,)),
     Period.HALF_TIME: (45, 45, (45,)),
     Period.SECOND_HALF: (45, 90, (90,)),
-    Period.EXTRA_TIME: (90, 120, (105, 120)),
+    Period.EXTRA_TIME: (90, 105, (105,)),
+    Period.EXTRA_HALF_TIME: (105, 105, (105,)),
+    Period.EXTRA_SECOND_HALF: (105, 120, (120,)),
     Period.PENALTIES: (90, 120, ()),
 }
 
@@ -1106,15 +1131,23 @@ def _plan_structural(state: MatchState, event_type: str, ctx: MatchContext) -> _
         if reason:
             return _error("extra_time_not_allowed", reason, status=state.status, period=period)
         return _Transition(Status.LIVE, Period.EXTRA_TIME, Period.EXTRA_TIME, 90, True)
+    if event_type == EventType.EXTRA_HALF_TIME:
+        if not (live and period == Period.EXTRA_TIME):
+            return _transition_error(state, event_type)
+        return _Transition(Status.LIVE, Period.EXTRA_HALF_TIME, Period.EXTRA_TIME, 105, True)
+    if event_type == EventType.EXTRA_SECOND_HALF_START:
+        if not (live and period == Period.EXTRA_HALF_TIME):
+            return _transition_error(state, event_type)
+        return _Transition(Status.LIVE, Period.EXTRA_SECOND_HALF, Period.EXTRA_SECOND_HALF, 105)
     if event_type == EventType.PENALTIES_START:
         reason = _tie_block(state, ctx, what="disputa de pênaltis")
         if not live:
             reason = "Os pênaltis só começam com o jogo em andamento."
         elif reason is None:
-            expected = Period.EXTRA_TIME if ctx.tie.extra_time else Period.SECOND_HALF
+            expected = Period.EXTRA_SECOND_HALF if ctx.tie.extra_time else Period.SECOND_HALF
             if period != expected:
                 reason = (
-                    "Este confronto tem prorrogação: os pênaltis vêm ao fim dela."
+                    "Este confronto tem prorrogação: os pênaltis vêm ao fim do 2º tempo dela."
                     if ctx.tie.extra_time
                     else "Os pênaltis começam ao fim do 2º tempo."
                 )
@@ -1122,7 +1155,7 @@ def _plan_structural(state: MatchState, event_type: str, ctx: MatchContext) -> _
             return _error("penalties_not_allowed", reason, status=state.status, period=period)
         return _Transition(Status.LIVE, Period.PENALTIES, Period.PENALTIES, 90 if period == Period.SECOND_HALF else 120, True)
     if event_type == EventType.MATCH_END:
-        if not live or period not in (Period.SECOND_HALF, Period.EXTRA_TIME, Period.PENALTIES):
+        if not live or period not in (Period.SECOND_HALF, Period.EXTRA_SECOND_HALF, Period.PENALTIES):
             return _transition_error(state, event_type)
         if period == Period.PENALTIES:
             if (state.home_penalties or 0) == (state.away_penalties or 0):
@@ -1193,11 +1226,19 @@ def clock_frozen(state: MatchState) -> bool:
     return frozen
 
 
+def clock_set_range(period: str) -> tuple[int, int]:
+    """Minutos aceitos ao acertar o relógio: 0 a 45 no 1º tempo (0 = início), 46 a 90 no
+    2º, 91 a 105 e 106 a 120 nos tempos da prorrogação. Sem acréscimo: no acréscimo o
+    relógio só para ou retoma."""
+    clock = PERIOD_CLOCK[period]
+    return (0 if period == Period.FIRST_HALF else clock["offset"] + 1), clock["regular_end"]
+
+
 def _step_clock(state: MatchState, new: NewEvent, spec: EventSpec, sequence: int) -> _Step:
     if state.status != Status.LIVE:
         raise _error("match_not_live", "O relógio só é ajustado com o jogo ao vivo.", status=state.status)
     if state.period not in _CLOCK_PERIODS:
-        raise _error("invalid_period_for_event", "O relógio só corre no 1º e 2º tempos e na prorrogação.", period=state.period)
+        raise _error("invalid_period_for_event", "O relógio só corre com a bola rolando: nos dois tempos do jogo e da prorrogação.", period=state.period)
     raw = new.payload or {}
     action = raw.get("action")
     if action not in CLOCK_ACTION_LABELS:
@@ -1211,10 +1252,16 @@ def _step_clock(state: MatchState, new: NewEvent, spec: EventSpec, sequence: int
     minute = None
     if action == "set":
         minute = raw.get("minute")
-        clock = PERIOD_CLOCK[state.period]
-        low, high = clock["offset"] + 1, clock["regular_end"] + MAX_STOPPAGE
+        low, high = clock_set_range(state.period)
         if not _is_int(minute) or not low <= minute <= high:
-            raise _error("invalid_minute", f"Informe o minuto atual entre {low} e {high}.", field="payload.minute", minute=minute)
+            raise _error(
+                "invalid_minute",
+                f"{PERIOD_LABELS[state.period]}: o relógio vai de {low} a {high}.",
+                field="payload.minute",
+                minute=minute,
+                min=low,
+                max=high,
+            )
         payload["minute"] = minute
     marks = (*state.clock_marks, (sequence, action, minute))
     event = Event(sequence, spec.type, state.period, payload=payload)

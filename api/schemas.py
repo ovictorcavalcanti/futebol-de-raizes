@@ -100,6 +100,15 @@ class StatusIn(Schema):
     reason: str | None = Field(None, max_length=TEXT_MAX_LENGTH)
 
 
+class PartialInfoIn(Schema):
+    partial_info: bool = Field(..., description="true: jogo com informações parciais (sem relógio público)")
+
+
+class MatchStateOut(Schema):
+    match: dict[str, Any] = Field(..., description="MatchOut (detalhe)")
+    available: "AvailableOut"
+
+
 class VoidIn(Schema):
     reason: str = Field("", max_length=TEXT_MAX_LENGTH)
 

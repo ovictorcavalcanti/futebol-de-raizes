@@ -379,8 +379,9 @@ class Play:
     extra: dict = field(default_factory=dict)
 
     def sort_key(self) -> tuple:
-        priority = {"match_start": -2, "second_half_start": -2, "extra_time_start": -2, "penalties_start": -2}.get(self.kind, 0)
-        if self.kind in ("half_time", "match_end"):
+        opening = ("match_start", "second_half_start", "extra_time_start", "extra_second_half_start", "penalties_start")
+        priority = -2 if self.kind in opening else 0
+        if self.kind in ("half_time", "extra_half_time", "match_end"):
             priority = 9
         return (PERIOD_INDEX[self.period], self.minute, self.stoppage, priority)
 
@@ -397,7 +398,9 @@ class MatchClock:
         self.second_half = self.half_time + self._minutes(interval)
         self.regular_end = self.second_half + self._minutes(45 + second_stoppage)
         self.extra_time = self.regular_end + self._minutes(5)
-        self.extra_end = self.extra_time + self._minutes(32 + et_stoppage)
+        self.extra_half = self.extra_time + self._minutes(15)
+        self.extra_second = self.extra_half + self._minutes(2)  # intervalo da prorrogação
+        self.extra_end = self.extra_second + self._minutes(15 + et_stoppage)
         self.penalties = self.extra_end + self._minutes(3)
 
     def _minutes(self, value: float) -> timedelta:
@@ -413,17 +416,22 @@ class MatchClock:
             return self.second_half
         if play.kind == "extra_time_start":
             return self.extra_time
+        if play.kind == "extra_half_time":
+            return self.extra_half
+        if play.kind == "extra_second_half_start":
+            return self.extra_second
         if play.kind == "penalties_start":
             return self.penalties
         if play.kind == "match_end":
-            return {Period.SECOND_HALF: self.regular_end, Period.EXTRA_TIME: self.extra_end}.get(play.period, self.penalties + self._minutes(1.5 * (play.minute + 1)))
+            return {Period.SECOND_HALF: self.regular_end, Period.EXTRA_SECOND_HALF: self.extra_end}.get(play.period, self.penalties + self._minutes(1.5 * (play.minute + 1)))
         if play.period == Period.FIRST_HALF:
             return self.start + self._minutes(play.minute + play.stoppage) + jitter
         if play.period == Period.SECOND_HALF:
             return self.second_half + self._minutes(play.minute - 45 + play.stoppage) + jitter
         if play.period == Period.EXTRA_TIME:
-            pause = 2 if play.minute > 105 or (play.minute == 105 and play.stoppage) else 0
-            return self.extra_time + self._minutes(play.minute - 90 + play.stoppage + pause) + jitter
+            return self.extra_time + self._minutes(play.minute - 90 + play.stoppage) + jitter
+        if play.period == Period.EXTRA_SECOND_HALF:
+            return self.extra_second + self._minutes(play.minute - 105 + play.stoppage) + jitter
         return self.penalties + self._minutes(1.5 * (play.minute + 1))
 
 
@@ -520,10 +528,14 @@ class PlayRunner:
             return post(EventType.SECOND_HALF_START, at=at)
         if kind == "extra_time_start":
             return post(EventType.EXTRA_TIME_START, at=at)
+        if kind == "extra_half_time":
+            return post(EventType.EXTRA_HALF_TIME, at=at, minute=105, stoppage=stoppage)
+        if kind == "extra_second_half_start":
+            return post(EventType.EXTRA_SECOND_HALF_START, at=at)
         if kind == "penalties_start":
             return post(EventType.PENALTIES_START, at=at)
         if kind == "match_end":
-            end_minute = {Period.SECOND_HALF: 90, Period.EXTRA_TIME: 120}.get(play.period)
+            end_minute = {Period.SECOND_HALF: 90, Period.EXTRA_SECOND_HALF: 120}.get(play.period)
             return post(EventType.MATCH_END, at=at, minute=end_minute, stoppage=stoppage if end_minute else None)
         if kind == "stoppage":
             return post(EventType.STOPPAGE_TIME, at=at, minute=minute, payload={"minutes": play.extra["minutes"]})
@@ -723,9 +735,18 @@ class LiveSimulation:
                 if not self.stopped:
                     self.end_of(Period.SECOND_HALF, 90)
             elif period == Period.EXTRA_TIME:
-                self.play_period(Period.EXTRA_TIME, self.current_minute(match, state, rows), 120)
+                self.play_period(Period.EXTRA_TIME, self.current_minute(match, state, rows), 105)
                 if not self.stopped:
-                    self.end_of(Period.EXTRA_TIME, 120)
+                    self.poster.post(EventType.EXTRA_HALF_TIME, minute=105, stoppage=self.stoppage_used.get(Period.EXTRA_TIME))
+            elif period == Period.EXTRA_HALF_TIME:
+                if self._reached(105):
+                    break
+                self.wait(2)
+                self.poster.post(EventType.EXTRA_SECOND_HALF_START)
+            elif period == Period.EXTRA_SECOND_HALF:
+                self.play_period(Period.EXTRA_SECOND_HALF, self.current_minute(match, state, rows), 120)
+                if not self.stopped:
+                    self.end_of(Period.EXTRA_SECOND_HALF, 120)
             elif period == Period.PENALTIES:
                 if self._reached(120):
                     break

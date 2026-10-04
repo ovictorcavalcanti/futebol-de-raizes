@@ -31,9 +31,15 @@ import * as api from './api.js';
    ========================================================================== */
 
 /** Períodos com relógio correndo (o minuto é obrigatório nos lances de jogo). */
-export const CLOCK_PERIODS = new Set(['first_half', 'second_half', 'extra_time']);
+export const CLOCK_PERIODS = new Set(['first_half', 'second_half', 'extra_time', 'extra_second_half']);
+
+/** Minutos aceitos ao acertar o relógio (igual a domain.clock_set_range): 0–45, 46–90, 91–105, 106–120. */
+const CLOCK_SET_RANGES = { first_half: [0, 45], second_half: [46, 90], extra_time: [91, 105], extra_second_half: [106, 120] };
+export function clockSetRange(period) {
+  return CLOCK_SET_RANGES[period] || null;
+}
 /** Eventos estruturais que fecham um período (aceitam acréscimo no minuto final). */
-const CLOSING_EVENTS = new Set(['half_time', 'match_end']);
+const CLOSING_EVENTS = new Set(['half_time', 'extra_half_time', 'match_end']);
 const POSITION_SHORT = { GK: 'GOL', LAD: 'LAD', DF: 'ZAG', LAE: 'LAE', VOL: 'VOL', MF: 'MEI', FW: 'ATA' };
 
 /**
@@ -150,6 +156,10 @@ export function structuralConfirm(type, match, label = '') {
       return { title: 'Iniciar o 2º tempo?', text: `${score}. O relógio do jogo volta a contar.`, ok: 'Iniciar 2º tempo' };
     case 'extra_time_start':
       return { title: 'Iniciar a prorrogação?', text: `${score}. O relógio do jogo volta a contar.`, ok: 'Iniciar prorrogação' };
+    case 'extra_half_time':
+      return { title: 'Encerrar o 1º tempo da prorrogação?', text: `${score}. O jogo vai para o intervalo da prorrogação.`, ok: 'Encerrar 1º tempo' };
+    case 'extra_second_half_start':
+      return { title: 'Iniciar o 2º tempo da prorrogação?', text: `${score}. O relógio do jogo volta a contar.`, ok: 'Iniciar 2º tempo' };
     case 'penalties_start':
       return { title: 'Ir para os pênaltis?', text: `${score}. Começa a disputa de pênaltis.`, ok: 'Iniciar pênaltis' };
     case 'match_end':
@@ -372,8 +382,9 @@ function pickPill(match) {
   let cls = 'scheduled';
   let text = match.status_label || match.status;
   if (match.status === 'live') {
-    cls = match.period === 'half_time' ? 'interval' : 'live';
-    if (match.period === 'half_time') text = 'Intervalo';
+    const interval = match.period === 'half_time' || match.period === 'extra_half_time';
+    cls = interval ? 'interval' : 'live';
+    if (interval) text = 'Intervalo';
   } else if (['finished', 'postponed', 'suspended', 'cancelled', 'delayed'].includes(match.status)) {
     cls = match.status;
   }
@@ -533,21 +544,48 @@ function applyMatch(match, available) {
   }
 }
 
-/** Atalhos para o Django Admin: escalação de cada time e público e renda (nova aba). */
+/**
+ * Atalhos da partida: "Informações parciais" (quem muda o status) e, para quem entra no
+ * Django Admin, escalação de cada time e público e renda (nova aba).
+ */
 function paintTools(match) {
   if (!els.tools) return;
-  if (!can('admin_site')) {
-    els.tools.hidden = true;
-    return;
+  const items = [];
+  if (can('change_status')) items.push(partialInfoSwitch(match));
+  if (can('admin_site')) {
+    const link = (href, iconName, text) => h('a', { class: 'btn btn--secondary btn--sm', href, target: '_blank', rel: 'noopener' },
+      icon(iconName), h('span', { text }));
+    items.push(
+      link(`/admin/escalacao/${match.id}/home/`, 'shirt', `Escalação ${teamShort(match.home)}`),
+      link(`/admin/escalacao/${match.id}/away/`, 'shirt', `Escalação ${teamShort(match.away)}`),
+      link(`/admin/matches/match/${match.id}/change/`, 'people', 'Público e renda'),
+    );
   }
-  const link = (href, iconName, text) => h('a', { class: 'btn btn--secondary btn--sm', href, target: '_blank', rel: 'noopener' },
-    icon(iconName), h('span', { text }));
-  els.tools.replaceChildren(
-    link(`/admin/escalacao/${match.id}/home/`, 'shirt', `Escalação ${teamShort(match.home)}`),
-    link(`/admin/escalacao/${match.id}/away/`, 'shirt', `Escalação ${teamShort(match.away)}`),
-    link(`/admin/matches/match/${match.id}/change/`, 'people', 'Público e renda'),
-  );
-  els.tools.hidden = false;
+  els.tools.replaceChildren(...items);
+  els.tools.hidden = items.length === 0;
+}
+
+/** Liga/desliga "Informações parciais": o jogo sai sem relógio e com o selo no lugar de "Ao vivo". */
+function partialInfoSwitch(match) {
+  const input = h('input', { type: 'checkbox', id: 'op-partial-info' });
+  input.checked = !!match.partial_info;
+  input.addEventListener('change', async () => {
+    const matchId = match.id;
+    const wanted = input.checked;
+    input.disabled = true;
+    try {
+      const result = await api.setPartialInfo(matchId, wanted);
+      if (state.matchId !== matchId) return;
+      showToast(wanted ? 'Jogo com informações parciais: sem relógio na home.' : 'Informações completas: o relógio volta a aparecer.', { kind: 'ok' });
+      applyMatch(result?.match, result?.available);
+    } catch (error) {
+      input.checked = !wanted;
+      input.disabled = false;
+      if (error?.status === 401) return sessionExpired();
+      showToast(error?.message || 'Não deu para mudar agora. Tente de novo.', { kind: 'error' });
+    }
+  });
+  return h('label', { class: 'switch op-tools__switch' }, input, h('span', { text: 'Informações parciais' }));
 }
 
 /* --- Botões de lance e de status ----------------------------------------------------------- */
@@ -881,6 +919,19 @@ function refreshDependencies() {
   if (team) enableControl(team, !(target && target.read() != null)); // o gol anulado herda o time do gol
   const teamId = team && !team.el.hidden ? team.read() : null;
   const ownGoal = byName.get('payload.origin')?.read() === 'own_goal';
+  const clockMinute = state.formType === 'clock_adjust' ? byName.get('payload.minute') : null;
+  if (clockMinute) {
+    // Acertar o minuto: só com a ação "set", obrigatório e dentro do tempo corrente.
+    const setting = byName.get('payload.action')?.read() === 'set';
+    const range = clockSetRange(match.period);
+    enableControl(clockMinute, setting);
+    const [input] = clockMinute.inputs;
+    input.required = setting;
+    if (range) {
+      [input.min, input.max] = range.map(String);
+      input.placeholder = `${range[0]} a ${range[1]}`;
+    }
+  }
   for (const [field, control] of active) {
     if (field.kind !== 'player' || !control.setPlayers) continue;
     control.setPlayers(lineupPlayers(match, teamId, { opponent: ownGoal && field.name === 'payload.player' }));

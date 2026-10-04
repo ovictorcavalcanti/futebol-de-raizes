@@ -213,6 +213,19 @@ def on_match_edited(match: Match, changed_fields, user=None, request=None) -> No
             work.enqueue_latest_goals()
 
 
+def set_partial_info(match_id: int, user, value: bool, request=None) -> Match:
+    """Liga/desliga "Informações parciais" (tela do operador): o jogo ao vivo sai sem
+    relógio e com o selo no lugar de "Ao vivo". Sem mudança → nada é publicado.
+    Partida inexistente → `Match.DoesNotExist` (404)."""
+    with locked_atomic():
+        match = Match.objects.get(pk=match_id)
+        if match.partial_info != value:
+            match.partial_info = value
+            match.save(update_fields=["partial_info"])
+            on_match_edited(match, ["partial_info"], user=user, request=request)  # versão, auditoria e `match`
+    return Match.objects.select_related(*context.MATCH_RELATED).get(pk=match_id)
+
+
 def publish_match(match: Match):
     """Publica a partida (`match`, detalhe) sem mudar nada — ex.: escalação, arbitragem
     ou estatísticas editadas no admin. Devolve a linha do outbox."""
@@ -726,7 +739,8 @@ def _period_clock(state: domain.MatchState, by_seq: Mapping[int, MatchEvent]) ->
                 frozen_at = None
         elif action == "set" and minute is not None:
             # minuto exibido = offset + minutos decorridos + 1 (CONTRACT §3, "clock")
-            started = (frozen_at or at) - timedelta(minutes=minute - offset - 1)
+            # 0 no 1º tempo = início do período (o mesmo que o minuto 1)
+            started = (frozen_at or at) - timedelta(minutes=max(minute - offset - 1, 0))
     return started, frozen_at
 
 

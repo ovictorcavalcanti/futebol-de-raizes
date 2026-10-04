@@ -118,14 +118,28 @@ def test_two_legs_with_extra_time_decided_in_extra_time():
     goal = sim.goal(SPORT, "Diego Souza", 105, 1)  # gol da prorrogação entra no placar
     assert goal.period == "extra_time"
     assert (sim.state.home_score, sim.state.away_score) == (1, 1)
+    # A prorrogação tem dois tempos e intervalo: o fim de jogo só vem no 2º tempo dela.
+    assert events_of(sim)[0] == "extra_half_time" and "match_end" not in events_of(sim)
+    sim.rejects("invalid_transition", EventType.MATCH_END)
+    sim.rejects("invalid_transition", EventType.EXTRA_SECOND_HALF_START)
+    interval = sim.post(EventType.EXTRA_HALF_TIME, minute=105, stoppage=1)
+    assert (interval.period, interval.minute, interval.stoppage) == ("extra_time", 105, 1)
+    assert sim.state.period == Period.EXTRA_HALF_TIME
+    assert events_of(sim)[0] == "extra_second_half_start" and "goal" not in events_of(sim)
+    sim.rejects("invalid_transition", EventType.MATCH_END)
+    second = sim.post(EventType.EXTRA_SECOND_HALF_START)
+    assert (second.period, second.minute) == ("extra_second_half", 105)
+    assert sim.state.period == Period.EXTRA_SECOND_HALF and sim.state.period_started_seq == second.sequence
+    late = sim.goal(SPORT, "Hernane", 118)
+    assert late.period == "extra_second_half" and (sim.state.home_score, sim.state.away_score) == (1, 2)
     assert events_of(sim)[0] == "match_end" and "penalties_start" not in events_of(sim)
 
     end = sim.post(EventType.MATCH_END)
-    assert (end.period, end.minute) == ("extra_time", 120)
+    assert (end.period, end.minute) == ("extra_second_half", 120)
     assert sim.state.status == Status.FINISHED and sim.state.home_penalties is None
 
     result = compute_tie_result(TWO_LEGS_ET, [FIRST_LEG, sim.leg(2)], sim.types())
-    assert (result.aggregate_a, result.aggregate_b) == (3, 2)
+    assert (result.aggregate_a, result.aggregate_b) == (4, 2)
     assert result.winner_team_id == SPORT
     assert result.decided_by == DecidedBy.EXTRA_TIME and result.complete
 
@@ -135,6 +149,9 @@ def test_extra_time_still_level_goes_to_penalties():
     sim.goal(NAUTICO, "Kieza", 70)
     sim.rejects("penalties_not_allowed", EventType.PENALTIES_START)  # com prorrogação, ela vem antes
     sim.post(EventType.EXTRA_TIME_START)
+    sim.rejects("penalties_not_allowed", EventType.PENALTIES_START)  # só ao fim do 2º tempo dela
+    sim.post(EventType.EXTRA_HALF_TIME)
+    sim.post(EventType.EXTRA_SECOND_HALF_START)
     sim.rejects("tie_level_requires_penalties", EventType.MATCH_END)
     assert events_of(sim)[0] == "penalties_start"
     start = sim.post(EventType.PENALTIES_START)
@@ -319,6 +336,8 @@ def test_shootout_minute_is_the_minute_the_shootout_started():
     with_et = Sim(ctx).to_second_half()
     with_et.goal(NAUTICO, "Kieza", 70)
     with_et.post(EventType.EXTRA_TIME_START)
+    with_et.post(EventType.EXTRA_HALF_TIME)
+    with_et.post(EventType.EXTRA_SECOND_HALF_START)
     with_et.post(EventType.PENALTIES_START)
     with_et.rejects("invalid_minute", EventType.YELLOW_CARD, minute=90, team_id=SPORT, payload={"player": "Durval"})
     card = with_et.post(EventType.YELLOW_CARD, minute=120, team_id=SPORT, payload={"player": "Durval"})

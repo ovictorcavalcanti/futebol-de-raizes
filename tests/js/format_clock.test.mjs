@@ -87,6 +87,7 @@ test('minuto ao vivo segue o relógio do contrato', () => {
 
 test('rótulos especiais: intervalo, pênaltis, suspenso e fora do ar', () => {
   assert.equal(liveMinuteLabel(liveMatch({ period: 'half_time', clock: null })), 'INT');
+  assert.equal(liveMinuteLabel(liveMatch({ period: 'extra_half_time', clock: null })), 'INT');
   assert.equal(liveMinuteLabel(liveMatch({ period: 'penalties', clock: null })), 'PÊN');
   assert.equal(liveMinuteLabel(liveMatch({ clock: { running: false, offset: 45, regular_end: 90 } })), '2T');
   assert.equal(liveMinuteLabel({ status: 'finished', period: 'second_half' }), '');

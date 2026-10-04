@@ -373,7 +373,9 @@ def test_two_leg_tie_with_extra_time_saves_winner_and_locks_first_leg(league, op
     assert info.value.code == "tie_level_requires_extra_time"
     op2.post("extra_time_start", after=5)
     op2.goal(team_b, 100)
-    end2 = op2.post("match_end", after=30)
+    op2.post("extra_half_time", after=6)
+    op2.post("extra_second_half_start", after=2)
+    end2 = op2.post("match_end", after=15)
     assert end2.match.status == "finished"
     tie.refresh_from_db()
     assert tie.winner_team_id == team_b.id and tie.decided_by == "extra_time"
@@ -803,6 +805,25 @@ def test_operator_clock_stop_start_and_set_minute(live_match, operator_user):
     fixed = op.post("clock_adjust", after=1, payload={"action": "set", "minute": 20}).match
     now = t0 + timedelta(minutes=15)
     assert fixed.period_started_at == now - timedelta(minutes=19)
+    # 0 no 1º tempo = início do período (o relógio recomeça do zero agora)
+    zero = op.post("clock_adjust", after=1, payload={"action": "set", "minute": 0}).match
+    assert zero.period_started_at == now + timedelta(minutes=1)
+
+
+def test_set_partial_info_publishes_and_audits(live_match, operator_user):
+    from observability.models import AuditLog
+
+    op = Op(live_match, operator_user, start=timeutils.now() - timedelta(minutes=30))
+    op.post("match_start")
+    version = Match.objects.get(pk=live_match.pk).version
+    mark = Outbox.objects.order_by("-id").values_list("id", flat=True).first() or 0
+    match = services.set_partial_info(live_match.pk, operator_user, True)
+    assert match.partial_info is True and match.version == version + 1
+    row = Outbox.objects.filter(id__gt=mark, topic="match").get()
+    assert row.payload["match"]["partial_info"] is True and row.payload["match"]["clock"] is None
+    assert AuditLog.objects.get(action="match.edit").data == {"fields": ["partial_info"]}
+    services.set_partial_info(live_match.pk, operator_user, True)  # sem mudança: nada sai
+    assert not Outbox.objects.filter(id__gt=row.id).exists()
 
 
 def test_partial_info_match_has_no_clock(live_match, operator_user):

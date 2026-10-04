@@ -17,12 +17,22 @@
 <div class="container">
   <header class="section-head page-intro">
     <div class="section-head__titles">
-      <h1>Jogos de hoje</h1>
+      <h1 id="home-title" data-hook="home-title">Jogos de hoje</h1>
       <span class="frevo frevo--short" aria-hidden="true"></span>
     </div>
     {# data do dia já no HTML (Brasília; home.js reescreve com a da API): a linha não aparece depois, sem layout shift #}
     {% now "Y-m-d" as today_iso %}{% now "l, j \d\e F" as today_long %}
-    <p class="page-intro__date"><time id="home-date" data-hook="home-date" datetime="{{ today_iso }}">{{ today_long|lower }}</time></p>
+    {# seletor de dias: ‹ e › trocam o dia (?date=AAAA-MM-DD); "Hoje" volta, só aparece fora de hoje #}
+    <nav class="date-nav" aria-label="Dias" data-hook="date-nav">
+      <button id="day-prev" type="button" class="btn btn--secondary btn--icon btn--sm" data-hook="day-prev" aria-label="Dia anterior">
+        <svg class="icon" aria-hidden="true"><use href="#i-chevron-left"/></svg>
+      </button>
+      <p class="page-intro__date" aria-live="polite"><time id="home-date" data-hook="home-date" datetime="{{ today_iso }}">{{ today_long|lower }}</time></p>
+      <button id="day-next" type="button" class="btn btn--secondary btn--icon btn--sm" data-hook="day-next" aria-label="Próximo dia">
+        <svg class="icon" aria-hidden="true"><use href="#i-chevron-right"/></svg>
+      </button>
+      <button id="day-today" type="button" class="btn btn--secondary btn--sm" data-hook="day-today" hidden>Hoje</button>
+    </nav>
   </header>
 
   {# Últimos gols: aviso de gol (aria-live), botões de som/notificação e a lista dos 10 mais recentes. #}
@@ -73,7 +83,7 @@
 
   <div id="home-empty" class="empty azulejo" data-hook="home-empty" hidden>
     <svg class="empty__art" viewBox="0 0 240 150" role="img" aria-label="Sol de Pernambuco e mandacaru"><use href="#ill-sertao"/></svg>
-    <h2 class="empty__title">Hoje não tem jogo, visse?</h2>
+    <h2 id="home-empty-title" class="empty__title" data-hook="home-empty-title">Hoje não tem jogo, visse?</h2>
     <p class="empty__text">A bola volta a rolar logo, logo.</p>
   </div>
 

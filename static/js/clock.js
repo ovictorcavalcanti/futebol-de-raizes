@@ -174,7 +174,7 @@ export function liveMinute(match, nowMs = Date.now()) {
  */
 export function liveMinuteLabel(match, nowMs = Date.now()) {
   if (!match || match.status !== 'live' || match.partial_info) return '';
-  if (match.period === 'half_time') return 'INT';
+  if (match.period === 'half_time' || match.period === 'extra_half_time') return 'INT';
   if (match.period === 'penalties') return 'PÊN';
   const m = liveMinute(match, nowMs);
   if (!m) return match.period_short || '';

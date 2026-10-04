@@ -470,7 +470,9 @@ def test_catalog_lists_every_type_and_labels(operator_client):
     assert goal["minute"] == "required" and goal["kind"] == "game"
     assert {"name": "team_id", "kind": "team", "label": "Time beneficiado", "required": True, "choices": []} in goal["fields"]
     assert {item["action"] for item in data["status_actions"]} == {"delay", "postpone", "suspend", "resume", "reschedule", "cancel"}
-    assert [item["key"] for item in data["periods"]] == ["first_half", "half_time", "second_half", "extra_time", "penalties"]
+    assert [item["key"] for item in data["periods"]] == [
+        "first_half", "half_time", "second_half", "extra_time", "extra_half_time", "extra_second_half", "penalties",
+    ]
     assert {item["key"] for item in data["statuses"]} == {"scheduled", "delayed", "live", "finished", "postponed", "suspended", "cancelled"}
 
 
@@ -505,6 +507,18 @@ def test_status_delay_with_note_then_start(league, operator_client):
     assert next(m for m in listed if m["id"] == match.id)["status_note"] == "Chuva forte"
     started = op.post("match_start")
     assert started["match"]["status"] == "live" and started["match"]["status_note"] is None
+
+
+def test_partial_info_switch(match, op, operator_client):
+    op.post("match_start")
+    path = f"/api/ops/matches/{match.id}/partial-info"
+    on = op._post(path, {"partial_info": True}, expect=200)
+    assert on["match"]["partial_info"] is True and on["match"]["clock"] is None and "events" in on["available"]
+    off = op._post(path, {"partial_info": False}, expect=200)
+    assert off["match"]["partial_info"] is False and off["match"]["clock"] is not None
+    assert_error(op._post(path, {}, expect=400), "invalid_input")
+    assert_error(op._post("/api/ops/matches/999999/partial-info", {"partial_info": True}, expect=404), "not_found")
+    assert Client().post(path, {"partial_info": True}, content_type="application/json").status_code in (401, 403)
 
 
 def test_edit_event_corrects_scorer_minute_and_team(league, operator_client):

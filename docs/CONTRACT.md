@@ -162,8 +162,12 @@ erro do formulário.
 * Relógio com suspensão: `state.period_pauses` = `((seq do suspended, seq do resumed | None), ...)` do período
   corrente (zera a cada período). Ao vivo: `period_started_at` = abertura + soma de `created_at(resumed) -
   created_at(suspended)`. Suspenso (`running=false`): o minuto fica parado no `created_at` da suspensão aberta.
-* Minuto no formulário do operador: `EventSpec.minute == "required"` vale com o relógio correndo (1T, 2T,
-  prorrogação); no intervalo e nos pênaltis é opcional. `domain.minute_mode(type, period)` devolve o que vale
+* Períodos: `first_half`, `half_time`, `second_half`, `extra_time` (1º tempo da prorrogação, 90–105),
+  `extra_half_time` (intervalo da prorrogação), `extra_second_half` (2º tempo da prorrogação, 105–120),
+  `penalties`. A prorrogação segue `extra_time_start` → `extra_half_time` → `extra_second_half_start`;
+  pênaltis e fim de jogo vêm depois do 2º tempo dela.
+* Minuto no formulário do operador: `EventSpec.minute == "required"` vale com o relógio correndo (1T, 2T e
+  os dois tempos da prorrogação); nos intervalos e nos pênaltis é opcional. `domain.minute_mode(type, period)` devolve o que vale
   agora. Nos pênaltis, o minuto (se vier) é o do início da disputa: 120 com prorrogação, 90 sem.
 * Reagendamento: `kickoff_at` em ISO 8601 com data **e** hora (só a data é recusada: `invalid_payload`).
   Sem fuso = horário de Brasília: o serviço aplica `settings.TIME_ZONE` antes de gravar `Match.kickoff_at`.

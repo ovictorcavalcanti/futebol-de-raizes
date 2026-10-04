@@ -3,13 +3,20 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   effectiveMinuteMode, suggestMinute, buildEventBody, toBrasiliaInput, groupByCompetition, lineupPlayers,
-  splitActions, structuralConfirm, sortByStatus,
+  splitActions, structuralConfirm, sortByStatus, clockSetRange,
 } from '../../static/js/operator.js';
 import {
   ApiError, apiFetch, getCookie, queryString, toApiError, newIdempotencyKey, setCsrfToken,
 } from '../../static/js/api.js';
 
 const MIN = 60_000;
+
+test('clockSetRange: faixas do acerto do relógio por tempo (com os dois da prorrogação)', () => {
+  assert.deepEqual(['first_half', 'second_half', 'extra_time', 'extra_second_half'].map(clockSetRange),
+    [[0, 45], [46, 90], [91, 105], [106, 120]]);
+  assert.equal(clockSetRange('extra_half_time'), null);
+  assert.equal(structuralConfirm('extra_half_time', {}).ok, 'Encerrar 1º tempo');
+});
 const NOW = Date.parse('2026-10-03T21:00:30Z');
 const spec = (type, kind = 'game', minute = 'required') => ({ type, kind, minute, label: type, fields: [] });
 const GOAL = spec('goal');

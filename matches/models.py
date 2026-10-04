@@ -72,7 +72,9 @@ class Match(models.Model):
         FIRST_HALF = "first_half", "1º tempo"
         HALF_TIME = "half_time", "Intervalo"
         SECOND_HALF = "second_half", "2º tempo"
-        EXTRA_TIME = "extra_time", "Prorrogação"
+        EXTRA_TIME = "extra_time", "1º tempo da prorrogação"
+        EXTRA_HALF_TIME = "extra_half_time", "Intervalo da prorrogação"
+        EXTRA_SECOND_HALF = "extra_second_half", "2º tempo da prorrogação"
         PENALTIES = "penalties", "Pênaltis"
 
     stage = models.ForeignKey(Stage, on_delete=models.PROTECT, related_name="matches", verbose_name="fase")
@@ -88,7 +90,7 @@ class Match(models.Model):
     city = models.CharField("cidade", max_length=80, blank=True)
     # Caches derivados dos eventos; não editáveis à mão.
     status = models.CharField("status", max_length=12, choices=Status.choices, default=Status.SCHEDULED, editable=False)
-    period = models.CharField("período", max_length=12, choices=Period.choices, null=True, blank=True, editable=False)
+    period = models.CharField("período", max_length=20, choices=Period.choices, null=True, blank=True, editable=False)
     period_started_at = models.DateTimeField("início do período", null=True, blank=True, editable=False)
     clock_paused_at = models.DateTimeField("relógio parado desde", null=True, blank=True, editable=False)
     home_score = models.PositiveSmallIntegerField("gols mandante", default=0, editable=False)
@@ -200,7 +202,7 @@ class MatchEvent(models.Model):
     match = models.ForeignKey(Match, on_delete=models.CASCADE, related_name="events", verbose_name="partida")
     sequence = models.PositiveIntegerField("sequência")
     type = models.CharField("tipo", max_length=24)
-    period = models.CharField("período", max_length=12, null=True, blank=True)
+    period = models.CharField("período", max_length=20, null=True, blank=True)
     minute = models.PositiveSmallIntegerField("minuto", null=True, blank=True)
     stoppage = models.PositiveSmallIntegerField("acréscimo", null=True, blank=True)
     team = models.ForeignKey(Team, on_delete=models.PROTECT, null=True, blank=True, related_name="+", verbose_name="time")

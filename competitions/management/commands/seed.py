@@ -622,8 +622,10 @@ class Seeder:
                 tail = [
                     Play(Period.EXTRA_TIME, 90, "extra_time_start"),
                     Play(Period.EXTRA_TIME, 104, "goal", "home"),
-                    Play(Period.EXTRA_TIME, 120, "stoppage", extra={"minutes": 1}),
-                    Play(Period.EXTRA_TIME, 120, "match_end", stoppage=1),
+                    Play(Period.EXTRA_TIME, 105, "extra_half_time"),
+                    Play(Period.EXTRA_SECOND_HALF, 105, "extra_second_half_start"),
+                    Play(Period.EXTRA_SECOND_HALF, 120, "stoppage", extra={"minutes": 1}),
+                    Play(Period.EXTRA_SECOND_HALF, 120, "match_end", stoppage=1),
                 ]
             self.play_finished(match, home_goals, away_goals, kickoff + timedelta(minutes=2), tail=tail)
 

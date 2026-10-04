@@ -470,7 +470,9 @@ def test_catalog_lists_every_type_and_labels(operator_client):
     assert goal["minute"] == "required" and goal["kind"] == "game"
     assert {"name": "team_id", "kind": "team", "label": "Time beneficiado", "required": True, "choices": []} in goal["fields"]
     assert {item["action"] for item in data["status_actions"]} == {"delay", "postpone", "suspend", "resume", "reschedule", "cancel"}
-    assert [item["key"] for item in data["periods"]] == ["first_half", "half_time", "second_half", "extra_time", "penalties"]
+    assert [item["key"] for item in data["periods"]] == [
+        "first_half", "half_time", "second_half", "extra_time", "extra_half_time", "extra_second_half", "penalties",
+    ]
     assert {item["key"] for item in data["statuses"]} == {"scheduled", "delayed", "live", "finished", "postponed", "suspended", "cancelled"}
 
 

@@ -27,9 +27,12 @@ const SEPARATORS = {
   half_time: { label: 'Intervalo', icon: 'whistle', score: true },
   second_half_start: { label: '2º tempo', icon: 'whistle' },
   extra_time_start: { label: 'Prorrogação', icon: 'whistle', score: true },
+  extra_half_time: { label: 'Intervalo da prorrogação', icon: 'whistle', score: true },
+  extra_second_half_start: { label: '2º tempo da prorrogação', icon: 'whistle' },
   penalties_start: { label: 'Disputa de pênaltis', icon: 'ball-penalty', score: true },
   match_end: { label: 'Fim de jogo', icon: 'flag', score: true, end: true },
 };
+const INTERVALS = new Set(['half_time', 'extra_half_time']); // períodos sem relógio entre os tempos
 const STATUS_EVENTS = new Set(['delayed', 'postponed', 'suspended', 'resumed', 'rescheduled', 'cancelled']);
 const TABS = [
   { key: 'events', label: 'Lances', icon: 'list' },
@@ -218,7 +221,7 @@ function statusPill(match) {
   }
   if (status === 'live') {
     if (match.partial_info) return h('span', { class: 'pill pill--partial', text: 'Informações parciais' });
-    if (match.period === 'half_time') return h('span', { class: 'pill pill--interval', text: 'Intervalo' });
+    if (INTERVALS.has(match.period)) return h('span', { class: 'pill pill--interval', text: 'Intervalo' });
     return h('span', { class: 'pill pill--live', text: match.period === 'penalties' ? 'Pênaltis' : 'Ao vivo' });
   }
   if (status === 'delayed') {
@@ -240,7 +243,7 @@ function roundLabel(match) {
 function renderMeta(meta, match, now, opts) {
   const parts = [];
   const status = h('span', { class: 'match__status' }, statusPill(match));
-  if (match.status === 'live' && !match.partial_info && match.period !== 'half_time' && match.period !== 'penalties') {
+  if (match.status === 'live' && !match.partial_info && !INTERVALS.has(match.period) && match.period !== 'penalties') {
     status.append(h('span', { class: 'match__minute' },
       match.period_short ? h('span', { class: 'match__minute-period', text: match.period_short }) : null,
       h('span', { 'data-hook': 'minute', text: liveMinuteLabel(match, now) }),
@@ -299,7 +302,7 @@ function boardLabel(match, now) {
   let label = `${home} ${match.home_score ?? 0} a ${match.away_score ?? 0} ${away}`;
   if (match.home_penalties != null && match.away_penalties != null) label += `, pênaltis ${match.home_penalties} a ${match.away_penalties}`;
   const minute = liveMinuteLabel(match, now);
-  return `${label}. ${match.status_label || ''}${minute && match.period !== 'half_time' ? `, ${minute.replace("'", ' minutos')}` : ''}`;
+  return `${label}. ${match.status_label || ''}${minute && !INTERVALS.has(match.period) ? `, ${minute.replace("'", ' minutos')}` : ''}`;
 }
 
 function renderBoard(board, match, now) {

@@ -31,15 +31,15 @@ import * as api from './api.js';
    ========================================================================== */
 
 /** Períodos com relógio correndo (o minuto é obrigatório nos lances de jogo). */
-export const CLOCK_PERIODS = new Set(['first_half', 'second_half', 'extra_time']);
+export const CLOCK_PERIODS = new Set(['first_half', 'second_half', 'extra_time', 'extra_second_half']);
 
-/** Minutos aceitos ao acertar o relógio (igual a domain.clock_set_range): 0–45, 46–90, 91–120. */
-const CLOCK_SET_RANGES = { first_half: [0, 45], second_half: [46, 90], extra_time: [91, 120] };
+/** Minutos aceitos ao acertar o relógio (igual a domain.clock_set_range): 0–45, 46–90, 91–105, 106–120. */
+const CLOCK_SET_RANGES = { first_half: [0, 45], second_half: [46, 90], extra_time: [91, 105], extra_second_half: [106, 120] };
 export function clockSetRange(period) {
   return CLOCK_SET_RANGES[period] || null;
 }
 /** Eventos estruturais que fecham um período (aceitam acréscimo no minuto final). */
-const CLOSING_EVENTS = new Set(['half_time', 'match_end']);
+const CLOSING_EVENTS = new Set(['half_time', 'extra_half_time', 'match_end']);
 const POSITION_SHORT = { GK: 'GOL', LAD: 'LAD', DF: 'ZAG', LAE: 'LAE', VOL: 'VOL', MF: 'MEI', FW: 'ATA' };
 
 /**
@@ -156,6 +156,10 @@ export function structuralConfirm(type, match, label = '') {
       return { title: 'Iniciar o 2º tempo?', text: `${score}. O relógio do jogo volta a contar.`, ok: 'Iniciar 2º tempo' };
     case 'extra_time_start':
       return { title: 'Iniciar a prorrogação?', text: `${score}. O relógio do jogo volta a contar.`, ok: 'Iniciar prorrogação' };
+    case 'extra_half_time':
+      return { title: 'Encerrar o 1º tempo da prorrogação?', text: `${score}. O jogo vai para o intervalo da prorrogação.`, ok: 'Encerrar 1º tempo' };
+    case 'extra_second_half_start':
+      return { title: 'Iniciar o 2º tempo da prorrogação?', text: `${score}. O relógio do jogo volta a contar.`, ok: 'Iniciar 2º tempo' };
     case 'penalties_start':
       return { title: 'Ir para os pênaltis?', text: `${score}. Começa a disputa de pênaltis.`, ok: 'Iniciar pênaltis' };
     case 'match_end':
@@ -378,8 +382,9 @@ function pickPill(match) {
   let cls = 'scheduled';
   let text = match.status_label || match.status;
   if (match.status === 'live') {
-    cls = match.period === 'half_time' ? 'interval' : 'live';
-    if (match.period === 'half_time') text = 'Intervalo';
+    const interval = match.period === 'half_time' || match.period === 'extra_half_time';
+    cls = interval ? 'interval' : 'live';
+    if (interval) text = 'Intervalo';
   } else if (['finished', 'postponed', 'suspended', 'cancelled', 'delayed'].includes(match.status)) {
     cls = match.status;
   }

@@ -65,6 +65,12 @@ def test_two_leg_tie_with_extra_time_end_to_end(league, operator_client, client)
     extra = op2.post("extra_time_start")
     assert extra["match"]["period"] == "extra_time" and extra["event"]["minute"] == 90
     op2.goal(team_b, 104, "Fabinho")
+    assert_error(op2.post("match_end", expect=422), "invalid_transition")  # ainda no 1º tempo da prorrogação
+    interval = op2.post("extra_half_time")
+    assert interval["match"]["period"] == "extra_half_time" and interval["match"]["period_label"] == "Intervalo da prorrogação"
+    assert interval["match"]["clock"] is None and interval["available"]["events"][0] == "extra_second_half_start"
+    second = op2.post("extra_second_half_start")
+    assert second["match"]["period"] == "extra_second_half" and second["match"]["clock"]["offset"] == 105
     end2 = op2.post("match_end")
     assert end2["match"]["status"] == "finished" and end2["match"]["winner"] == "home"
     result = end2["match"]["tie"]

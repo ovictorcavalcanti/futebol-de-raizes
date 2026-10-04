@@ -373,7 +373,9 @@ def test_two_leg_tie_with_extra_time_saves_winner_and_locks_first_leg(league, op
     assert info.value.code == "tie_level_requires_extra_time"
     op2.post("extra_time_start", after=5)
     op2.goal(team_b, 100)
-    end2 = op2.post("match_end", after=30)
+    op2.post("extra_half_time", after=6)
+    op2.post("extra_second_half_start", after=2)
+    end2 = op2.post("match_end", after=15)
     assert end2.match.status == "finished"
     tie.refresh_from_db()
     assert tie.winner_team_id == team_b.id and tie.decided_by == "extra_time"

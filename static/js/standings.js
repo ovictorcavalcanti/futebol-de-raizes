@@ -150,7 +150,7 @@ function footer(standings, opts, rows = []) {
  * Classificação de uma fase (StageStandingsOut, CONTRACT §3).
  * @param {object} standings StageStandingsOut
  * @param {{compact?: boolean, legend?: boolean, criteria?: boolean, highlightTeamIds?: Set<number>}} [opts]
- *   compact força a versão enxuta (sem GP/GC); sem ela, colunas somem por container query.
+ *   compact força a versão enxuta (sem GC; GP fica, é critério de desempate); sem ela, colunas somem por container query.
  * @returns {HTMLElement} <div class="standings">
  */
 export function createStandings(standings, opts = {}) {

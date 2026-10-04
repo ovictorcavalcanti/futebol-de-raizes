@@ -399,7 +399,8 @@
     color: var(--ink-3);
   }
   .clock__label-long { display: none; }
-  .standings--compact .col-gp, .standings--compact .col-gc { display: none; }
+  /* GP nunca some: é critério de desempate. */
+  .standings--compact .col-gc { display: none; }
 
   .live-status {
     display: inline-flex;
@@ -1288,7 +1289,7 @@
   .adjustments__item .adj-mark { margin: 0 4px 0 0; }
 
   @container standings (max-width: 440px) {
-    .table .col-gp, .table .col-gc { display: none; }
+    .table .col-gc { display: none; }
   }
   @container standings (max-width: 330px) {
     .table .col-w, .table .col-d, .table .col-l { display: none; }

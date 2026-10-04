@@ -10,7 +10,7 @@
 import { hooks, cloneTemplate, renderCompetitionNav, showToast } from './render.js';
 import { ServerClock, mountClock } from './clock.js';
 import { formatDateLong, dayKey } from './format.js';
-import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createLatestGoal, createTieCard, createTieGroup, tiesFromMatches, refreshMatchCards } from './match-card.js';
+import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createLatestGoal, createTieCard, createTieGroup, tiesFromMatches, refreshMatchCards, groupMatchesByGroup, createMatchGroup } from './match-card.js';
 import { createStandings, updateStandings } from './standings.js';
 import { getHome, getCompetitions, getMatch } from './api.js';
 import { createStream, liveStatusIndicator } from './stream.js';
@@ -205,7 +205,12 @@ function competitionSection(comp, nextCards, nextStandings, nextTies) {
       b.standings.remove();
       b['stage-grid'].classList.add('split--no-aside');
     } else {
-      b.matches.replaceChildren(...(stage.matches || []).map((m) => cardFor(m, nextCards)));
+      const matches = stage.matches || [];
+      const grouped = stage.format === 'groups';
+      b.matches.classList.toggle('match-groups', grouped);
+      b.matches.replaceChildren(...(grouped
+        ? groupMatchesByGroup(matches).map((g) => createMatchGroup(g.group, g.matches.map((m) => cardFor(m, nextCards))))
+        : matches.map((m) => cardFor(m, nextCards))));
       if (stage.standings) b.standings.append(standingsFor(stage, nextStandings));
       else b.standings.remove();
     }

@@ -612,6 +612,32 @@ export function sortMatchesForDisplay(matches = []) {
   return matches.slice().sort((a, b) => r(a) - r(b) || String(a.kickoff_at || '').localeCompare(String(b.kickoff_at || '')) || a.id - b.id);
 }
 
+/**
+ * Fase de grupos: os jogos separados por grupo (pela ordem do nome: "Grupo 2" antes de
+ * "Grupo 10"), cada lista na ordem de sortMatchesForDisplay. Jogo entre times de grupos
+ * diferentes fica no grupo da partida (o do mandante).
+ * @returns {{group: object|null, matches: object[]}[]}
+ */
+export function groupMatchesByGroup(matches = []) {
+  const byGroup = new Map();
+  for (const m of matches) {
+    const key = m.group?.id ?? null;
+    if (!byGroup.has(key)) byGroup.set(key, { group: m.group || null, matches: [] });
+    byGroup.get(key).matches.push(m);
+  }
+  return [...byGroup.values()]
+    .sort((a, b) => String(a.group?.name || '').localeCompare(String(b.group?.name || ''), 'pt-BR', { numeric: true }))
+    .map((g) => ({ group: g.group, matches: sortMatchesForDisplay(g.matches) }));
+}
+
+/** Bloco de um grupo na lista de jogos: título com o nome do grupo e os cards. */
+export function createMatchGroup(group, cards) {
+  return h('section', { class: 'match-group', 'data-group-id': group?.id ?? null },
+    h('h3', { class: 'match-group__title', text: group?.name || 'Sem grupo' }),
+    h('div', { class: 'match-group__games' }, ...cards),
+  );
+}
+
 const PERIOD_ORDER = {
   first_half: 1, half_time: 2, second_half: 3, extra_time: 4, extra_half_time: 5, extra_second_half: 6, penalties: 7,
 };

@@ -140,6 +140,35 @@ def test_home_orders_matches_live_then_finished_then_scheduled_by_time(operator_
     assert [m["id"] for m in matches] == [ids[("scheduled", 20)], ids[("finished", 14)], ids[("finished", 16)], ids[("live", 18)]]
 
 
+def test_current_round_follows_the_calendar(client, monkeypatch):
+    """Rodada atual: a do jogo ao vivo; senão a de um jogo de hoje; senão a do próximo
+    agendado; senão a última. Um jogo adiado de rodada antiga não prende a página."""
+    from django.core.cache import caches
+
+    from matches.models import Match
+
+    lg = make_league(name="Pernambucano", slug="pe", position=1, n_teams=8)
+    t, (r1, r2, r3) = lg["teams"], lg["rounds"][:3]
+    old = make_match(lg["stage"], t[0], t[1], round=r1, kickoff_at=brt(1, 16, 0))
+    Match.objects.filter(pk=old.pk).update(status="postponed")  # esquecido em aberto
+    today = make_match(lg["stage"], t[2], t[3], round=r2, kickoff_at=brt(3, 19, 0))
+    later = make_match(lg["stage"], t[4], t[5], round=r3, kickoff_at=brt(10, 16, 0))
+
+    def current(day, hour):
+        use_clock(monkeypatch, brt(day, hour, 0))
+        caches["default"].clear()
+        return client.get("/api/competitions/pe").json()["current_round_id"]
+
+    assert current(2, 12) == r2.id  # próximo agendado (o adiado da 1ª não conta)
+    Match.objects.filter(pk=today.pk).update(status="finished")
+    assert current(3, 23) == r2.id  # jogo de hoje, mesmo encerrado
+    assert current(4, 12) == r3.id  # dia seguinte: o próximo agendado
+    Match.objects.filter(pk=today.pk).update(status="live")
+    assert current(4, 12) == r2.id  # ao vivo ganha de tudo
+    Match.objects.filter(pk__in=[today.pk, later.pk]).update(status="finished")
+    assert current(20, 12) == lg["rounds"][-1].id  # sem jogo hoje nem agendado: a última
+
+
 def test_home_rejects_invalid_date(client):
     for value in ("2026-13-01", "03/10/2026", "ontem", "2026-1-5"):
         response = client.get("/api/home", {"date": value})
@@ -153,8 +182,9 @@ def test_competitions_menu_and_competition_page(client):
     second = make_league(name="Série A2", slug="a2", position=2, n_teams=2)
     first = make_league(name="Pernambucano", slug="pe", position=1, n_teams=4)
     r1, r2 = first["rounds"][0], first["rounds"][1]
-    m1 = make_match(first["stage"], first["teams"][0], first["teams"][1], round=r1)
-    m2 = make_match(first["stage"], first["teams"][2], first["teams"][3], round=r2)
+    soon = timeutils.now() + timedelta(days=1)  # rodada atual = a do próximo jogo agendado
+    m1 = make_match(first["stage"], first["teams"][0], first["teams"][1], round=r1, kickoff_at=soon)
+    m2 = make_match(first["stage"], first["teams"][2], first["teams"][3], round=r2, kickoff_at=soon + timedelta(days=7))
 
     menu = client.get("/api/competitions")
     assert menu.status_code == 200 and menu["Cache-Control"] == "public, max-age=60"

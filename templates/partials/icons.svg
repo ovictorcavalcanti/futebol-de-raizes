@@ -16,9 +16,9 @@
   <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.6"/><path d="M2.5 20.5c0-3.7 2.9-6.3 6.5-6.3s6.5 2.6 6.5 6.3M15.8 4.5a3.6 3.6 0 0 1 0 7M18 14.6c2.1.8 3.5 3 3.5 5.9"/></symbol>
   <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7.2 8-7.2s8 2.8 8 7.2"/></symbol>
   <symbol id="i-card" viewBox="0 0 24 24"><rect x="6.5" y="3" width="11" height="17" rx="1.6" transform="rotate(8 12 12)"/></symbol>
-  <symbol id="i-card-yellow" viewBox="0 0 24 24"><rect class="card-y" x="6.5" y="3" width="11" height="17" rx="1.6" transform="rotate(8 12 12)"/></symbol>
-  <symbol id="i-card-red" viewBox="0 0 24 24"><rect class="card-r" x="6.5" y="3" width="11" height="17" rx="1.6" transform="rotate(8 12 12)"/></symbol>
-  <symbol id="i-card-second-yellow" viewBox="0 0 24 24"><rect class="card-y" x="3.5" y="2.5" width="10" height="15" rx="1.5" transform="rotate(-8 8.5 10)"/><rect class="card-r" x="10" y="6.5" width="10" height="15" rx="1.5" transform="rotate(8 15 14)"/></symbol>
+  <symbol id="i-card-yellow" viewBox="0 0 24 24"><rect class="card-y" style="fill:var(--amarelo);stroke:color-mix(in srgb,var(--ink) 35%,transparent);stroke-width:1" x="6.5" y="3" width="11" height="17" rx="1.6" transform="rotate(8 12 12)"/></symbol>
+  <symbol id="i-card-red" viewBox="0 0 24 24"><rect class="card-r" style="fill:var(--vermelho);stroke:color-mix(in srgb,var(--ink) 35%,transparent);stroke-width:1" x="6.5" y="3" width="11" height="17" rx="1.6" transform="rotate(8 12 12)"/></symbol>
+  <symbol id="i-card-second-yellow" viewBox="0 0 24 24"><rect class="card-y" style="fill:var(--amarelo);stroke:color-mix(in srgb,var(--ink) 35%,transparent);stroke-width:1" x="3.5" y="2.5" width="10" height="15" rx="1.5" transform="rotate(-8 8.5 10)"/><rect class="card-r" style="fill:var(--vermelho);stroke:color-mix(in srgb,var(--ink) 35%,transparent);stroke-width:1" x="10" y="6.5" width="10" height="15" rx="1.5" transform="rotate(8 15 14)"/></symbol>
   <symbol id="i-sub" viewBox="0 0 24 24"><path class="up" d="M7.5 20V4.5M3.5 8.5l4-4 4 4"/><path class="down" d="M16.5 4v15.5M12.5 15.5l4 4 4-4"/></symbol>
   <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="M12 19.5V4.5M5.5 11l6.5-6.5 6.5 6.5"/></symbol>
   <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="M12 4.5v15M5.5 13l6.5 6.5 6.5-6.5"/></symbol>

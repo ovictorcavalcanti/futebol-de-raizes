@@ -15,7 +15,6 @@ from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Any
 
 from django.conf import settings
 from django.db.models import Prefetch, Q, QuerySet, prefetch_related_objects
@@ -753,12 +752,31 @@ def competitions_menu() -> dict:
     return {"competitions": list(rows)}
 
 
-def _current(items: Sequence, is_open) -> Any:
-    """Primeiro item com jogo ainda não encerrado; senão o último (None se vazio)."""
-    for item in items:
-        if is_open(item):
-            return item
-    return items[-1] if items else None
+CURRENT_LIVE = (Status.LIVE, Status.DELAYED)
+
+
+def _current_pair(stages: Sequence[Stage], now: datetime) -> tuple[Stage | None, Round | None]:
+    """Fase e rodada atuais pelo calendário: a do jogo ao vivo (ou atrasado); senão a de
+    um jogo de hoje (Brasília); senão a do próximo jogo agendado; senão a última. Jogo
+    adiado ou suspenso esquecido não prende a página numa rodada antiga."""
+    if not stages:
+        return None, None
+    fields = ("stage_id", "current_round")
+
+    def first(query):
+        return query.annotate(current_round=ROUND_EXPRESSION).order_by("kickoff_at", "id").values_list(*fields).first()
+
+    base = Match.objects.filter(stage__in=stages)
+    pick = (
+        first(base.filter(status__in=CURRENT_LIVE))
+        or first(day_matches_query(timeutils.local_today(now), now).filter(stage__in=stages))
+        or first(base.filter(status=Status.SCHEDULED, kickoff_at__gte=now))
+    )
+    by_id = {stage.id: stage for stage in stages}
+    stage = by_id[pick[0]] if pick else stages[-1]
+    rounds = list(stage.rounds.all())
+    selected = next((rnd for rnd in rounds if pick and rnd.id == pick[1]), None)
+    return stage, selected or (rounds[-1] if rounds else None)
 
 
 def serialize_tie_detail(tie, matches: Sequence[dict], legs: Sequence) -> dict:
@@ -767,9 +785,10 @@ def serialize_tie_detail(tie, matches: Sequence[dict], legs: Sequence) -> dict:
 
 
 def competition_payload(slug: str, stage_id: int | None = None, round_id: int | None = None) -> dict:
-    """CompetitionOut. Fase e rodada exibidas: as pedidas ou as atuais (primeiras com
-    jogo ainda não encerrado; senão as últimas). `current_stage_id`/`current_round_id`
-    são as exibidas. Levanta Competition/Stage/Round.DoesNotExist (404)."""
+    """CompetitionOut. Fase e rodada exibidas: as pedidas ou as atuais pelo calendário
+    (`_current_pair`: jogo ao vivo, de hoje ou o próximo; senão as últimas).
+    `current_stage_id`/`current_round_id` são as exibidas. Levanta
+    Competition/Stage/Round.DoesNotExist (404)."""
     from standings.services import stage_standings
 
     cursor = current_cursor()
@@ -782,14 +801,6 @@ def competition_payload(slug: str, stage_id: int | None = None, round_id: int | 
             .order_by("position", "id")
             .prefetch_related(Prefetch("rounds", queryset=Round.objects.order_by("number")))
         )
-    open_pairs = set(
-        Match.objects.filter(stage__in=stages)
-        .exclude(status__in=CLOSED_STATUSES)
-        .order_by()
-        .values_list("stage_id", ROUND_EXPRESSION)
-        .distinct()
-    ) if stages else set()
-    open_stages = {stage for stage, _ in open_pairs}
 
     by_id = {stage.id: stage for stage in stages}
     selected_round = None
@@ -806,7 +817,7 @@ def competition_payload(slug: str, stage_id: int | None = None, round_id: int | 
     elif selected_round is not None:
         stage = by_id[selected_round.stage_id]
     else:
-        stage = _current(stages, lambda item: item.id in open_stages)
+        stage, selected_round = _current_pair(stages, timeutils.now())
 
     data = {
         **_stamp(),
@@ -836,9 +847,8 @@ def competition_payload(slug: str, stage_id: int | None = None, round_id: int | 
     if stage is None:
         return data
 
-    rounds = list(stage.rounds.all())
-    if selected_round is None:
-        selected_round = _current(rounds, lambda rnd: (stage.id, rnd.id) in open_pairs)
+    if selected_round is None:  # fase pedida sem rodada: a atual dentro dela
+        selected_round = _current_pair([stage], timeutils.now())[1]
     data["current_round_id"] = selected_round.id if selected_round else None
 
     matches_query = Match.objects.filter(stage=stage)

@@ -1,0 +1,57 @@
+# Proxy do ambiente de teste do Futebol de Raízes: HTTPS, stream SSE sem
+# buffer e um processo ASGI só atrás (uvicorn --workers 1).
+#
+# Variáveis (vêm do docker-compose / .env):
+#   SITE_ADDRESS  endereço servido            (padrão: localhost)
+#   APP_UPSTREAM  processo ASGI de destino    (padrão: app:8000)
+#
+# O navegador fala HTTP/2 ou HTTP/3 com o Caddy: várias abas com o stream
+# aberto não esbarram no limite de 6 conexões por host do HTTP/1.1.
+{
+	# Certificado da CA interna do Caddy (só para teste). Para o navegador
+	# confiar, importe /data/caddy/pki/authorities/local/root.crt do volume
+	# caddy_data (ou rode `caddy trust` fora do contêiner).
+	skip_install_trust
+
+	servers {
+		timeouts {
+			read_header 10s
+			idle 5m
+			# sem `write`: o stream SSE fica aberto por horas
+		}
+	}
+}
+
+{$SITE_ADDRESS:localhost} {
+	tls internal
+
+	# Stream SSE: entrega cada quadro na hora (sem buffer), sem compressão e
+	# sem prazo curto de leitura; o ping de 20 s mantém a conexão viva.
+	@stream path /api/stream
+	handle @stream {
+		reverse_proxy {$APP_UPSTREAM:app:8000} {
+			flush_interval -1
+			transport http {
+				read_timeout 24h
+				write_timeout 24h
+			}
+		}
+	}
+
+	# Todo o resto: compressão e proxy normal. Os estáticos já chegam comprimidos
+	# (.br/.gz gerados no build e servidos pelo WhiteNoise); o encode só atua no
+	# que vem sem Content-Encoding (páginas e JSON).
+	handle {
+		# Corpo grande é recusado aqui (413), antes de chegar ao processo ASGI.
+		# Limite de taxa por IP fica no app (core/ratelimit.py, login em
+		# accounts/throttle.py): o Caddy padrão não traz rate limit sem plugin.
+		request_body {
+			max_size 1MB
+		}
+		encode zstd gzip
+		reverse_proxy {$APP_UPSTREAM:app:8000}
+	}
+
+	header -Server
+	log
+}

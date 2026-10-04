@@ -1,0 +1,22 @@
+# Contexto do build: o Dockerfile copia uma lista explícita, mas tudo que não
+# está aqui ainda vai para o daemon. Segredos e lixo local ficam de fora.
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.venv
+venv
+node_modules
+staticfiles
+media
+htmlcov
+.coverage
+docs
+tests
+scratchpad

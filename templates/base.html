@@ -1,0 +1,35 @@
+{% load static %}<!doctype html>
+<html lang="pt-BR" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% block title %}{{ brand.name }}{% endblock %}</title>
+  <meta name="description" content="{% block description %}{{ brand.tagline }}{% endblock %}">
+  <meta name="theme-color" content="{{ brand.theme_color }}" data-light="{{ brand.theme_color }}" data-dark="#0C1322">
+  <meta name="color-scheme" content="light dark">
+  <meta name="application-name" content="{{ brand.name }}">
+  {# Tema salvo aplicado antes da primeira pintura (sem flash). Claro é o padrão. #}
+  <script>(function(){var d=document.documentElement,t=null;try{t=localStorage.getItem("fdr-theme")}catch(e){}if(t!=="dark")t="light";d.setAttribute("data-theme",t);if(t==="dark"){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",m.getAttribute("data-dark"))}})();</script>
+  <link rel="icon" href="{{ brand.favicon_src }}">
+  <link rel="preload" href="{% static 'fonts/barlow-latin-400-normal.woff2' %}" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="{% static 'fonts/barlow-condensed-latin-700-normal.woff2' %}" as="font" type="font/woff2" crossorigin>
+  {# Face dos títulos (h1 "Jogos de hoje" é o LCP): sem o preload, só é descoberta depois do CSS e troca tarde. #}
+  <link rel="preload" href="{% static 'fonts/alfa-slab-one-latin-400-normal.woff2' %}" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  {% block head %}{% endblock %}
+</head>
+<body class="page-{{ page|default:'generic' }}">
+  <a class="skip-link" href="#conteudo">Pular para o conteúdo</a>
+  {% include "partials/icons.svg" %}
+  {% include "partials/header.html" %}
+  <main id="conteudo" class="site-main" tabindex="-1">
+    {% block main %}{% endblock %}
+  </main>
+  {% include "partials/footer.html" %}
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <noscript><p>Ative o JavaScript para acompanhar os jogos ao vivo.</p></noscript>
+  {% block templates %}{% endblock %}
+  <script type="module" src="{% static 'js/theme.js' %}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

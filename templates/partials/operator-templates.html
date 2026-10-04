@@ -1,0 +1,123 @@
+{# Templates da tela do operador (também usados pelo guia de estilo). Ver docs/FRONTEND.md. #}
+<template id="tpl-pick-item">
+  <li>
+    <button type="button" class="pick-item" data-hook="pick">
+      <span class="pick-item__teams">
+        <span data-hook="home-crest"></span><span data-hook="home"></span>
+        <span class="pick-item__score num" data-hook="score"></span>
+        <span data-hook="away"></span><span data-hook="away-crest"></span>
+      </span>
+      <span data-hook="status"></span>
+      <span class="pick-item__meta"><time data-hook="time"></time><span class="pick-item__comp" data-hook="competition"></span></span>
+    </button>
+  </li>
+</template>
+
+<template id="tpl-action-button">
+  <button type="button" class="action-btn" data-hook="action" aria-pressed="false">
+    <svg class="icon" aria-hidden="true"><use data-hook="action-icon" href="#i-ball"/></svg>
+    <span data-hook="action-label"></span>
+  </button>
+</template>
+
+<template id="tpl-status-button">
+  <button type="button" class="btn btn--secondary" data-hook="status-action">
+    <svg class="icon" aria-hidden="true"><use data-hook="status-icon" href="#i-pause"/></svg>
+    <span data-hook="status-label"></span>
+  </button>
+</template>
+
+<template id="tpl-field-minute">
+  <div class="field" data-field="minute">
+    <span class="field__label" data-hook="label">Minuto</span>
+    <span class="event-form__minute">
+      <input class="input input--num" type="number" name="minute" min="0" max="130" inputmode="numeric" aria-label="Minuto" data-hook="input">
+      <span class="event-form__plus" aria-hidden="true">+</span>
+      <input class="input input--num" type="number" name="stoppage" min="1" max="30" inputmode="numeric" aria-label="Acréscimo" placeholder="0" data-hook="stoppage">
+    </span>
+    <span class="field__hint" data-hook="hint">Acréscimo só depois do 45 ou do 90.</span>
+  </div>
+</template>
+
+<template id="tpl-field-team">
+  <fieldset class="field field--wide" data-field="team" style="border:0;margin:0;padding:0">
+    <legend class="field__label" data-hook="label">Time</legend>
+    <div class="segmented" data-hook="options">
+      <label class="segmented__option">
+        <input type="radio" data-hook="input-home" value="">
+        <span class="segmented__label"><span data-hook="crest-home"></span><span data-hook="name-home"></span></span>
+      </label>
+      <label class="segmented__option">
+        <input type="radio" data-hook="input-away" value="">
+        <span class="segmented__label"><span data-hook="crest-away"></span><span data-hook="name-away"></span></span>
+      </label>
+    </div>
+  </fieldset>
+</template>
+
+<template id="tpl-field-player">
+  <div class="field" data-field="player">
+    <label class="field__label" data-hook="label"></label>
+    <input class="input" type="text" autocomplete="off" maxlength="80" data-hook="input">
+    <datalist data-hook="datalist"></datalist>
+  </div>
+</template>
+
+<template id="tpl-field-text">
+  <div class="field field--wide" data-field="text">
+    <label class="field__label" data-hook="label"></label>
+    <textarea class="textarea" maxlength="280" rows="2" data-hook="input"></textarea>
+  </div>
+</template>
+
+<template id="tpl-field-choice">
+  <div class="field" data-field="choice">
+    <label class="field__label" data-hook="label"></label>
+    <span class="select">
+      <select data-hook="input"></select>
+      <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+    </span>
+  </div>
+</template>
+
+<template id="tpl-field-int">
+  <div class="field" data-field="int">
+    <label class="field__label" data-hook="label"></label>
+    <input class="input input--num" type="number" min="0" max="30" inputmode="numeric" data-hook="input">
+  </div>
+</template>
+
+<template id="tpl-field-bool">
+  <div class="field" data-field="bool">
+    <label class="switch"><input type="checkbox" data-hook="input"><span data-hook="label"></span></label>
+  </div>
+</template>
+
+<template id="tpl-field-event-ref">
+  <div class="field field--wide" data-field="event_ref">
+    <label class="field__label" data-hook="label"></label>
+    <span class="select">
+      <select data-hook="input"><option value="">— Gol ainda não lançado —</option></select>
+      <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+    </span>
+  </div>
+</template>
+
+<template id="tpl-field-datetime">
+  <div class="field" data-field="datetime">
+    <label class="field__label" data-hook="label"></label>
+    <input class="input" type="datetime-local" data-hook="input">
+    <span class="field__hint">Horário de Brasília.</span>
+  </div>
+</template>
+
+<template id="tpl-op-event">
+  <li class="op-event" data-hook="op-event">
+    <span class="op-event__min num" data-hook="minute"></span>
+    <svg class="icon op-event__icon" aria-hidden="true"><use data-hook="icon" href="#i-ball"/></svg>
+    <span class="op-event__text"><span class="op-event__title" data-hook="title"></span><span class="op-event__sub" data-hook="sub"></span></span>
+    <button type="button" class="btn btn--ghost btn--sm op-event__void" data-hook="void" title="Cancelar lançamento">
+      <svg class="icon" aria-hidden="true"><use href="#i-undo"/></svg><span class="hide-sm">Cancelar</span>
+    </button>
+  </li>
+</template>

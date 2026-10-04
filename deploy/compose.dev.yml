@@ -1,0 +1,16 @@
+# Desenvolvimento: publica o PostgreSQL do compose em 127.0.0.1 para o
+# scripts/run_dev.sh e o pytest rodarem no host, sem Postgres local.
+#
+#   scripts/dev_db.sh
+#   # ou: docker compose -f docker-compose.yml -f deploy/compose.dev.yml up -d --wait db
+#
+# No .env: DB_HOST=localhost e DB_PASSWORD=postgres (a senha do contêiner). Com a
+# 5432 ocupada, use DB_PUBLISH_PORT=5433 e DB_PORT=5433. O pytest cria o banco de
+# teste (TEST_DB_NAME) nesse servidor: o usuário postgres pode criar bancos.
+#
+# Fica fora do docker-compose.yml de propósito: o `docker compose up` completo
+# não publica a 5432 nem briga com um Postgres que já use a porta.
+services:
+  db:
+    ports:
+      - "127.0.0.1:${DB_PUBLISH_PORT:-5432}:5432"

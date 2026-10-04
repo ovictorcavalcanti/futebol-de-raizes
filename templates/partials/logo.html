@@ -1,0 +1,5 @@
+{% load static %}{# Logo configurável: settings.BRAND (BRAND_LOGO_URL, BRAND_LOGO_DARK_URL, BRAND_LOGO_ALT). BRAND_LOGO_DARK_URL vazio repete o logo claro no tema escuro. #}
+<a class="brand" href="/" title="{{ brand.name }} — página inicial">
+  <img class="brand__logo brand__logo--light" src="{{ brand.logo_src }}" alt="{{ brand.logo_alt }}" width="217" height="64" fetchpriority="high" decoding="async">
+  <img class="brand__logo brand__logo--dark" src="{{ brand.logo_dark_src }}" alt="{{ brand.logo_alt }}" width="217" height="64" loading="lazy" decoding="async">
+</a>

@@ -1,0 +1,35 @@
+<header class="site-header azulejo">
+  <span class="frevo" aria-hidden="true"></span>
+  <div class="container header__bar">
+    {% include "partials/logo.html" %}
+    <div class="header__tools">
+      <p id="live-status" class="live-status" role="status" hidden>
+        <svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>
+        <span data-hook="live-status-text">Reconectando ao vivo…</span>
+      </p>
+      <div class="clock">
+        <time id="brasilia-clock" class="clock__time" data-hook="clock">--:--:--</time>
+        <span class="clock__label"><span class="clock__label-long">Horário de </span>Brasília</span>
+      </div>
+      <button type="button" class="btn btn--ghost btn--icon theme-toggle" data-theme-toggle aria-pressed="false" aria-label="Tema escuro" title="Usar tema escuro">
+        <svg class="icon theme-toggle__sun" aria-hidden="true"><use href="#i-sun"/></svg>
+        <svg class="icon theme-toggle__moon" aria-hidden="true"><use href="#i-moon"/></svg>
+      </button>
+    </div>
+  </div>
+  {# Menu só nas páginas públicas que o preenchem (home, competição, guia); fora delas — operador #}
+  {# e páginas de erro, sem `page` — o esqueleto ficaria carregando para sempre.                    #}
+  {% if page and page != "operator" %}
+  <nav id="competitions-nav" class="comp-nav" aria-label="Competições" aria-busy="true">
+    <div class="container">
+      <ul class="comp-nav__list" data-hook="competition-links">
+        <li class="comp-nav__placeholder" aria-hidden="true">
+          <span class="skeleton skeleton--line" style="width:120px"></span>
+          <span class="skeleton skeleton--line" style="width:96px"></span>
+          <span class="skeleton skeleton--line" style="width:140px"></span>
+        </li>
+      </ul>
+    </div>
+  </nav>
+  {% endif %}
+</header>

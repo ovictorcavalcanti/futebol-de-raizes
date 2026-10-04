@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{{ brand.name }} · Jogos de hoje{% endblock %}
+{% block head %}
+  <link rel="modulepreload" href="{% static 'js/render.js' %}">
+  <link rel="modulepreload" href="{% static 'js/format.js' %}">
+  <link rel="modulepreload" href="{% static 'js/match-card.js' %}">
+  <link rel="modulepreload" href="{% static 'js/icons.js' %}">
+  <link rel="modulepreload" href="{% static 'js/crest.js' %}">
+  <link rel="modulepreload" href="{% static 'js/clock.js' %}">
+  <link rel="modulepreload" href="{% static 'js/standings.js' %}">
+  <link rel="modulepreload" href="{% static 'js/api.js' %}">
+  <link rel="modulepreload" href="{% static 'js/stream.js' %}">
+  <link rel="modulepreload" href="{% static 'js/alerts.js' %}">
+{% endblock %}
+{% block main %}
+<div class="container">
+  <header class="section-head page-intro">
+    <div class="section-head__titles">
+      <h1>Jogos de hoje</h1>
+      <span class="frevo frevo--short" aria-hidden="true"></span>
+    </div>
+    {# data do dia já no HTML (Brasília; home.js reescreve com a da API): a linha não aparece depois, sem layout shift #}
+    {% now "Y-m-d" as today_iso %}{% now "l, j \d\e F" as today_long %}
+    <p class="page-intro__date"><time id="home-date" data-hook="home-date" datetime="{{ today_iso }}">{{ today_long|lower }}</time></p>
+  </header>
+
+  {# Últimos gols: aviso de gol (aria-live), botões de som/notificação e a lista dos 10 mais recentes. #}
+  {# Visível desde a 1ª pintura, com um chip esqueleto (sem layout shift quando os dados chegam);   #}
+  {# home.js esconde o bloco só no dia sem jogo (o estado vazio toma o lugar) ou no erro.           #}
+  <section id="latest-goals" class="card goals" aria-labelledby="latest-goals-title" data-hook="latest-goals">
+    <div class="goals__head">
+      <h2 id="latest-goals-title" class="goals__title">
+        <svg class="icon" aria-hidden="true"><use href="#i-ball"/></svg>Últimos gols
+      </h2>
+      <div class="goals__toggles">
+        <button id="toggle-sound" type="button" class="btn btn--secondary btn--sm btn--toggle" aria-pressed="false" data-hook="toggle-sound">
+          <span class="when-off cluster"><svg class="icon" aria-hidden="true"><use href="#i-speaker-off"/></svg>Ativar som</span>
+          <span class="when-on cluster"><svg class="icon" aria-hidden="true"><use href="#i-speaker"/></svg>Som ligado</span>
+        </button>
+        <button id="toggle-notifications" type="button" class="btn btn--secondary btn--sm btn--toggle" aria-pressed="false" data-hook="toggle-notifications" hidden>
+          <span class="when-off cluster"><svg class="icon" aria-hidden="true"><use href="#i-bell-off"/></svg>Ativar notificações</span>
+          <span class="when-on cluster"><svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg>Notificações ligadas</span>
+        </button>
+      </div>
+    </div>
+    <p id="notifications-hint" class="goals__hint" data-hook="notifications-hint" hidden>As notificações do sistema só funcionam com HTTPS.</p>
+    {# Antes da 1ª pintura: mostra o botão de notificações (ou o aviso de HTTPS) onde alerts.js vai mostrar — #}
+    {# mesma regra de notificationSupport()/isMobileDevice(), sem o teste do construtor, que alerts.js faz   #}
+    {# depois. Sem isso o botão aparece com os módulos e empurra a página (layout shift no celular estreito). #}
+    <script>(function(){var w=window,n=w.navigator||{},ua=String(n.userAgent||"");if((n.userAgentData&&n.userAgentData.mobile===true)||/Android|iPhone|iPad|iPod|Mobile|Silk|Kindle|Opera Mini/i.test(ua)||(/Macintosh/.test(ua)&&(n.maxTouchPoints||0)>1&&"ontouchstart" in w))return;if(w.isSecureContext===false){document.getElementById("notifications-hint").hidden=false;return}if(typeof w.Notification==="function")document.getElementById("toggle-notifications").hidden=false})();</script>
+    <div id="goal-alert" class="goal-alert-region" aria-live="polite" data-hook="goal-alert"></div>
+    {# tabindex: a lista rola para o lado e os chips não têm foco — sem ele o teclado não chega aos gols antigos #}
+    <ol id="latest-goals-list" class="goals__list" data-hook="latest-goals-list" tabindex="0" aria-label="Gols mais recentes, do mais novo ao mais antigo" aria-busy="true">
+      <li class="skeleton" aria-hidden="true"></li>
+    </ol>
+    <p id="latest-goals-empty" class="goals__empty" data-hook="latest-goals-empty" hidden>Nenhum gol hoje ainda. Paciência, que ele vem.</p>
+  </section>
+
+  {# Uma seção por competição com jogo no dia (tpl-competition-section), em competitions.position. #}
+  <div id="competitions" class="competitions" data-hook="competitions" aria-busy="true">
+    <section class="comp-section" aria-hidden="true">
+      <div class="section-head"><span class="skeleton skeleton--title" style="width:260px"></span></div>
+      <div class="split">
+        <div class="matches">
+          <div class="card skeleton-card"><span class="skeleton skeleton--line" style="width:45%"></span><div class="skeleton-card__board"><span class="skeleton skeleton--line"></span><span class="skeleton" style="width:84px;height:40px"></span><span class="skeleton skeleton--line"></span></div></div>
+          <div class="card skeleton-card"><span class="skeleton skeleton--line" style="width:35%"></span><div class="skeleton-card__board"><span class="skeleton skeleton--line"></span><span class="skeleton" style="width:84px;height:40px"></span><span class="skeleton skeleton--line"></span></div></div>
+        </div>
+        <div class="split__aside"><div class="card skeleton-card"><span class="skeleton skeleton--line" style="width:40%"></span><span class="skeleton skeleton--line"></span><span class="skeleton skeleton--line"></span><span class="skeleton skeleton--line"></span><span class="skeleton skeleton--line"></span></div></div>
+      </div>
+    </section>
+  </div>
+
+  <div id="home-empty" class="empty azulejo" data-hook="home-empty" hidden>
+    <svg class="empty__art" viewBox="0 0 240 150" role="img" aria-label="Sol de Pernambuco e mandacaru"><use href="#ill-sertao"/></svg>
+    <h2 class="empty__title">Hoje não tem jogo, visse?</h2>
+    <p class="empty__text">A bola volta a rolar logo, logo.</p>
+  </div>
+
+  <div id="home-error" class="notice notice--error" role="alert" data-hook="home-error" hidden>
+    <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+    <div class="notice__body">
+      <p>Não deu certo agora. Tente de novo em instantes.</p>
+      <p><button type="button" class="btn btn--secondary btn--sm" data-hook="home-retry"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Tentar de novo</button></p>
+    </div>
+  </div>
+</div>
+<audio id="goal-sound" data-hook="goal-sound" preload="none" src="{% static 'sounds/gol.wav' %}"></audio>
+{% endblock %}
+
+{% block templates %}
+<template id="tpl-competition-section">
+  <section class="comp-section" data-hook="competition">
+    <header class="section-head">
+      <div class="section-head__titles">
+        <h2 class="section-head__title"><a data-hook="competition-link" href="#"><span data-hook="competition-name"></span></a></h2>
+        <span class="frevo frevo--short" aria-hidden="true"></span>
+      </div>
+      <a class="stage-block__more" data-hook="competition-more" href="#">Ver competição<svg class="icon icon--sm" aria-hidden="true"><use href="#i-chevron-right"/></svg></a>
+    </header>
+    <div class="comp-section__stages" data-hook="stages"></div>
+  </section>
+</template>
+<template id="tpl-stage-block">
+  <div class="stage-block" data-hook="stage">
+    <h3 class="stage-block__title" data-hook="stage-name"></h3>
+    <div class="split" data-hook="stage-grid">
+      <div class="matches" data-hook="matches"></div>
+      <aside class="split__aside" data-hook="standings" aria-label="Classificação"></aside>
+    </div>
+  </div>
+</template>
+{% endblock %}
+
+{% block scripts %}<script type="module" src="{% static 'js/home.js' %}"></script>{% endblock %}

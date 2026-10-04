@@ -1,0 +1,401 @@
+/**
+ * Página da competição (competition.html?slug=): jogos por rodada, classificação
+ * com legenda e critérios; no mata-mata, os confrontos da rodada com agregado e
+ * vencedor (docs/PLANO.md "Página da competição", docs/FRONTEND.md §4).
+ *
+ * Abre na fase e na rodada atuais; ‹ › trocam a rodada (GET /api/matches?roundId=; no
+ * mata-mata, GET /api/competitions/:slug?stage=&round=, que traz os confrontos com todos
+ * os jogos) e o <select> troca a fase (GET /api/competitions/:slug?stage=), atualizando a URL
+ * sem recarregar. Assina o stream como a home (esta página não alerta gols).
+ */
+import { renderCompetitionNav, showToast } from './render.js';
+import { ServerClock, mountClock } from './clock.js';
+import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createTieCard } from './match-card.js';
+import { createStandings, updateStandings } from './standings.js';
+import { getCompetitions, getCompetition, listMatches, getMatch } from './api.js';
+import { createStream, liveStatusIndicator } from './stream.js';
+
+const $ = (id) => document.getElementById(id);
+const hook = (name) => document.querySelector(`[data-hook="${name}"]`);
+const els = {
+  nav: document.querySelector('#competitions-nav [data-hook="competition-links"]'),
+  clock: $('brasilia-clock'),
+  liveStatus: $('live-status'),
+  hero: document.querySelector('.comp-hero'),
+  name: hook('competition-name'),
+  season: hook('season'),
+  eyebrow: hook('competition-eyebrow'),
+  stageSelect: $('stage-select'),
+  prev: $('round-prev'),
+  next: $('round-next'),
+  roundLabel: $('round-label'),
+  grid: $('competition-grid'),
+  matches: $('round-matches'),
+  roundEmpty: $('round-empty'),
+  standings: $('stage-standings'),
+  ties: $('stage-ties'),
+  tiesList: document.querySelector('#stage-ties [data-hook="ties-list"]'),
+  missing: $('competition-missing'),
+  error: $('competition-error'),
+};
+
+const BRAND = document.title.split(' · ')[0];
+const params = new URLSearchParams(window.location.search);
+const clock = new ServerClock();
+const now = () => clock.nowMs();
+const state = {
+  slug: (params.get('slug') || '').trim(),
+  data: null,
+  stage: null, // {id, name, format}
+  rounds: [],
+  roundIndex: -1,
+  cards: new Map(), // match id → card
+  ties: new Map(), // tie id → TieDetailOut
+  tieCards: new Map(), // tie id → card
+  standingsEl: null,
+  standingsStageId: null,
+  seq: 0, // ignora respostas fora de ordem (troca rápida de rodada/fase)
+};
+let stream = null;
+let clockMounted = false;
+
+const toInt = (value) => (value != null && /^\d+$/.test(String(value)) ? Number(value) : null);
+
+function sync(data) {
+  if (data?.server_time) clock.sync(data.server_time);
+  if (!clockMounted && els.clock && clock.synced) {
+    mountClock(els.clock, clock);
+    clockMounted = true;
+  }
+}
+
+/* --- Estados da página ---------------------------------------------------------------- */
+
+function showMissing() {
+  els.hero.hidden = true;
+  els.grid.hidden = true;
+  els.error.hidden = true;
+  els.missing.hidden = false;
+  document.title = `${BRAND} · Competição não encontrada`;
+}
+
+function showError() {
+  els.grid.hidden = true;
+  els.missing.hidden = true;
+  els.error.hidden = false;
+}
+
+/* --- Desenho ----------------------------------------------------------------------------- */
+
+function loadDetail(matchId) {
+  return getMatch(matchId).then((data) => {
+    sync(data);
+    const card = state.cards.get(matchId);
+    if (card && data?.match) updateMatchCard(card, data.match);
+  });
+}
+
+/** Confrontos (TieDetailOut) a partir das partidas da rodada (cada MatchOut traz o seu TieOut). */
+function tiesFromMatches(matches) {
+  const ties = new Map();
+  for (const match of matches) {
+    if (!match.tie) continue;
+    const { leg, ...tie } = match.tie;
+    const entry = ties.get(tie.id) || { ...tie, matches: [] };
+    Object.assign(entry, tie, { matches: entry.matches });
+    entry.matches.push(match);
+    ties.set(tie.id, entry);
+  }
+  return [...ties.values()];
+}
+
+function renderTies(ties) {
+  const sorted = ties.slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.id - b.id);
+  state.ties = new Map(sorted.map((t) => [t.id, t]));
+  state.tieCards = new Map(sorted.map((t) => [t.id, createTieCard(t, { now })]));
+  els.tiesList.replaceChildren(...state.tieCards.values());
+}
+
+function renderMatches(matches, ties = null) {
+  const next = new Map();
+  const cards = matches.map((match) => {
+    let card = state.cards.get(match.id);
+    if (card) updateMatchCard(card, match);
+    else card = createMatchCard(match, { now, onExpand: loadDetail, showRound: !!match.tie }); // mata-mata: "Semifinal · Ida"
+    next.set(match.id, card);
+    return card;
+  });
+  state.cards = next;
+  els.matches.replaceChildren(...cards);
+  els.matches.removeAttribute('aria-busy');
+  els.matches.hidden = cards.length === 0;
+  els.roundEmpty.hidden = cards.length > 0;
+
+  const knockout = state.stage?.format === 'knockout';
+  if (knockout) {
+    renderTies(ties || tiesFromMatches(matches));
+    els.ties.hidden = state.ties.size === 0;
+  } else {
+    els.ties.hidden = true;
+    state.ties = new Map();
+    state.tieCards = new Map();
+    els.tiesList.replaceChildren();
+  }
+  updateAside();
+}
+
+function renderStandings(stage) {
+  if (stage.standings) {
+    if (state.standingsEl && state.standingsStageId === stage.id) {
+      updateStandings(state.standingsEl, stage.standings);
+    } else {
+      state.standingsEl = createStandings(stage.standings);
+      state.standingsStageId = stage.id;
+      els.standings.replaceChildren(state.standingsEl);
+    }
+    els.standings.hidden = false;
+  } else {
+    state.standingsEl = null;
+    state.standingsStageId = null;
+    els.standings.replaceChildren();
+    els.standings.hidden = true;
+  }
+}
+
+function updateAside() {
+  const hasAside = !els.standings.hidden || !els.ties.hidden;
+  els.grid.classList.toggle('split--no-aside', !hasAside);
+  // mata-mata no celular: o resumo dos confrontos (quem avança) vem antes dos cards
+  els.grid.classList.toggle('split--aside-first', !els.ties.hidden);
+  const aside = els.grid.querySelector('[data-hook="aside"]');
+  if (aside) aside.hidden = !hasAside;
+}
+
+function paintRoundNav() {
+  const round = state.rounds[state.roundIndex];
+  els.roundLabel.textContent = round ? round.name || `Rodada ${round.number}` : 'Sem rodadas';
+  els.prev.disabled = state.roundIndex <= 0;
+  els.next.disabled = state.roundIndex < 0 || state.roundIndex >= state.rounds.length - 1;
+}
+
+function writeUrl() {
+  const search = new URLSearchParams({ slug: state.slug });
+  if (state.stage) search.set('stage', String(state.stage.id));
+  const round = state.rounds[state.roundIndex];
+  if (round) search.set('round', String(round.id));
+  const url = `${window.location.pathname}?${search}`;
+  if (url !== `${window.location.pathname}${window.location.search}`) window.history.replaceState(null, '', url);
+}
+
+/** Rodada exibida: a pedida, senão a atual da competição, senão a dos jogos devolvidos, senão a última. */
+function displayedRoundIndex(data, requestedRoundId) {
+  const ids = state.rounds.map((r) => r.id);
+  const candidates = [
+    requestedRoundId,
+    data.current_round_id,
+    data.stage?.matches?.[0]?.round?.id,
+    data.stage?.ties?.[0]?.round?.id,
+  ];
+  for (const id of candidates) {
+    const index = id != null ? ids.indexOf(id) : -1;
+    if (index >= 0) return index;
+  }
+  return ids.length - 1;
+}
+
+function render(data, requestedRoundId = null) {
+  state.data = data;
+  const comp = data.competition || {};
+  els.name.textContent = comp.name || '';
+  els.season.textContent = data.season?.year ? String(data.season.year) : '';
+  if (els.eyebrow) els.eyebrow.textContent = comp.short_name && comp.short_name !== comp.name ? comp.short_name : 'Competição';
+  document.title = `${BRAND} · ${comp.name || 'Competição'}`;
+
+  const stages = (data.stages || []).slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  const stageMeta = stages.find((s) => s.id === data.stage?.id) || null;
+  state.stage = data.stage ? { id: data.stage.id, name: data.stage.name, format: data.stage.format } : null;
+  state.rounds = stageMeta?.rounds || [];
+  state.roundIndex = displayedRoundIndex(data, requestedRoundId);
+
+  els.stageSelect.replaceChildren(...stages.map((s) => {
+    const option = document.createElement('option');
+    option.value = String(s.id);
+    option.textContent = s.name;
+    option.selected = s.id === state.stage?.id;
+    return option;
+  }));
+  els.stageSelect.disabled = stages.length < 2;
+
+  els.hero.hidden = false;
+  els.grid.hidden = false;
+  els.missing.hidden = true;
+  els.error.hidden = true;
+  paintRoundNav();
+  renderStandings(data.stage || {});
+  renderMatches(data.stage?.matches || [], data.stage?.format === 'knockout' ? data.stage?.ties || null : null);
+  writeUrl();
+}
+
+/* --- Navegação ----------------------------------------------------------------------------- */
+
+async function fetchCompetition({ stage = null, round = null } = {}) {
+  try {
+    return await getCompetition(state.slug, { stage, round });
+  } catch (error) {
+    // fase/rodada da URL que não existe mais: tenta a competição sem elas
+    if (error?.status === 404 && (stage != null || round != null)) return getCompetition(state.slug);
+    throw error;
+  }
+}
+
+async function goToRound(index) {
+  const round = state.rounds[index];
+  if (!round || index === state.roundIndex) return;
+  const previous = state.roundIndex;
+  const seq = ++state.seq;
+  state.roundIndex = index;
+  paintRoundNav();
+  els.matches.setAttribute('aria-busy', 'true');
+  try {
+    if (state.stage?.format === 'knockout') {
+      // mata-mata: a leitura da competição traz os confrontos da rodada com todos os jogos
+      // (o jogo de ida pode estar em outra rodada)
+      const data = await getCompetition(state.slug, { stage: state.stage.id, round: round.id });
+      if (seq !== state.seq) return;
+      sync(data);
+      renderMatches(data?.stage?.matches || [], data?.stage?.ties || []);
+    } else {
+      const data = await listMatches({ roundId: round.id });
+      if (seq !== state.seq) return;
+      sync(data);
+      renderMatches(data?.matches || []);
+    }
+    writeUrl();
+  } catch {
+    if (seq !== state.seq) return;
+    state.roundIndex = previous;
+    paintRoundNav();
+    els.matches.removeAttribute('aria-busy');
+    showToast('Não deu certo agora. Tente de novo em instantes.', { kind: 'error' });
+  }
+}
+
+async function goToStage(stageId) {
+  const seq = ++state.seq;
+  els.stageSelect.disabled = true;
+  els.matches.setAttribute('aria-busy', 'true');
+  try {
+    const data = await fetchCompetition({ stage: stageId });
+    if (seq !== state.seq) return;
+    sync(data);
+    render(data);
+  } catch {
+    if (seq !== state.seq) return;
+    els.stageSelect.value = String(state.stage?.id ?? '');
+    els.stageSelect.disabled = false;
+    els.matches.removeAttribute('aria-busy');
+    showToast('Não deu certo agora. Tente de novo em instantes.', { kind: 'error' });
+  }
+}
+
+/** Estado inteiro de novo (5 min sem stream): mesma fase e rodada; devolve o cursor. */
+async function reload() {
+  const round = state.rounds[state.roundIndex];
+  const seq = ++state.seq;
+  const data = await fetchCompetition({ stage: state.stage?.id ?? null, round: round?.id ?? null });
+  if (seq === state.seq) {
+    sync(data);
+    render(data, round?.id ?? null);
+  }
+  return data.cursor ?? null;
+}
+
+/* --- Stream ------------------------------------------------------------------------------------ */
+
+function onMatch(message) {
+  const match = message?.match;
+  if (!match) return;
+  const card = state.cards.get(match.id);
+  if (card) updateMatchCard(card, match, { flash: true });
+  // confronto do mata-mata: agregado e vencedor vêm no TieOut da partida (o jogo pode
+  // ser de outra rodada, sem card na página)
+  if (match.tie && state.ties.has(match.tie.id)) {
+    const current = state.ties.get(match.tie.id);
+    const known = current.matches.find((m) => m.id === match.id);
+    if (known && typeof known.version === 'number' && typeof match.version === 'number' && match.version < known.version) return;
+    const { leg, ...tie } = match.tie;
+    const latest = (card && getCardMatch(card)) || match;
+    const updated = { ...current, ...tie, matches: current.matches.map((m) => (m.id === latest.id ? latest : m)) };
+    state.ties.set(tie.id, updated);
+    const fresh = createTieCard(updated, { now });
+    state.tieCards.get(tie.id)?.replaceWith(fresh);
+    state.tieCards.set(tie.id, fresh);
+  }
+}
+
+function onStandings(message) {
+  if (state.standingsEl && message?.stage_id === state.standingsStageId && message.standings) {
+    updateStandings(state.standingsEl, message.standings);
+  }
+}
+
+/* --- Início ---------------------------------------------------------------------------------- */
+
+async function boot() {
+  els.error.hidden = true;
+  if (!state.slug) {
+    showMissing();
+    getCompetitions().then((r) => renderCompetitionNav(els.nav, r?.competitions || []), () => renderCompetitionNav(els.nav, []));
+    return;
+  }
+  const requestedRound = toInt(params.get('round'));
+  const [compsResult, dataResult] = await Promise.allSettled([
+    getCompetitions(),
+    fetchCompetition({ stage: toInt(params.get('stage')), round: requestedRound }),
+  ]);
+  if (els.nav) renderCompetitionNav(els.nav, compsResult.status === 'fulfilled' ? compsResult.value?.competitions || [] : [], { activeSlug: state.slug });
+  if (dataResult.status !== 'fulfilled') {
+    if (dataResult.reason?.status === 404) showMissing();
+    else showError();
+    return;
+  }
+  const data = dataResult.value;
+  sync(data);
+  render(data, requestedRound);
+
+  stream = createStream({
+    clock,
+    handlers: { match: onMatch, standings: onStandings },
+    onStatus: liveStatusIndicator(els.liveStatus),
+    onStale: reload,
+  });
+  stream.start(data.cursor ?? null);
+
+  clock.onTick((ms) => tickMatchCards(els.matches, ms));
+  // virada do dia: "Hoje"/"Amanhã" dos cards mudam
+  clock.onDayChange(() => {
+    for (const card of state.cards.values()) {
+      const match = getCardMatch(card);
+      if (match) updateMatchCard(card, match);
+    }
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') clock.checkDay();
+  });
+}
+
+els.prev.addEventListener('click', () => goToRound(state.roundIndex - 1));
+els.next.addEventListener('click', () => goToRound(state.roundIndex + 1));
+els.stageSelect.addEventListener('change', () => {
+  const id = toInt(els.stageSelect.value);
+  if (id != null && id !== state.stage?.id) goToStage(id);
+});
+els.error.querySelector('[data-hook="competition-retry"]')?.addEventListener('click', () => {
+  if (stream) {
+    reload().then((cursor) => stream.restart(cursor)).catch(() => showToast('Não deu certo agora. Tente de novo em instantes.', { kind: 'error' }));
+  } else {
+    boot();
+  }
+});
+
+boot();

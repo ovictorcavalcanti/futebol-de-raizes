@@ -1,0 +1,267 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{{ brand.name }} · Guia de estilo{% endblock %}
+{% block head %}<meta name="robots" content="noindex">{% endblock %}
+{% block main %}
+<div class="container">
+  <header class="section-head">
+    <div class="section-head__titles">
+      <p class="eyebrow">Só em desenvolvimento (DEBUG)</p>
+      <h1>Guia de estilo</h1>
+      <span class="frevo frevo--short" aria-hidden="true"></span>
+    </div>
+    <p class="muted">Todos os componentes, com dados de exemplo no formato do contrato.</p>
+  </header>
+
+  <section class="sg-section" id="sg-marca" aria-labelledby="sg-marca-t">
+    <h2 id="sg-marca-t">Marca</h2>
+    <div class="sg-logos">
+      <div class="sg-logo sg-logo--light"><img src="{% static 'img/logo.svg' %}" alt="Logo para fundo claro" width="217" height="64"></div>
+      <div class="sg-logo sg-logo--dark"><img src="{% static 'img/logo-dark.svg' %}" alt="Logo para fundo escuro" width="217" height="64"></div>
+      <div class="sg-logo sg-logo--light"><img src="{% static 'img/logo-mark.svg' %}" alt="Símbolo" width="64" height="64"></div>
+      <div class="sg-logo azulejo" style="background:var(--surface)"><p class="sg-label">Azulejo (máscara no tema)</p></div>
+    </div>
+    <div class="stack">
+      <span class="sg-label">Faixa do frevo</span>
+      <span class="frevo" aria-hidden="true"></span>
+      <span class="frevo frevo--short" aria-hidden="true"></span>
+    </div>
+  </section>
+
+  <section class="sg-section" id="sg-cores" aria-labelledby="sg-cores-t">
+    <h2 id="sg-cores-t">Cores</h2>
+    <div class="sg-grid" data-hook="sg-colors"></div>
+  </section>
+
+  <section class="sg-section" id="sg-tipo" aria-labelledby="sg-tipo-t">
+    <h2 id="sg-tipo-t">Tipografia</h2>
+    <div class="sg-type">
+      <span class="sg-label">Alfa Slab One · marca, h1, h2</span>
+      <p style="font-family:var(--font-brand);font-size:2.25rem;line-height:1.1">Do Recife ao Sertão</p>
+      <span class="sg-label">Barlow Condensed · placar, minutos, rótulos</span>
+      <p class="num" style="font-weight:700;font-size:3rem;line-height:1">2 × 1 <span style="font-size:1.25rem;color:var(--vermelho-ink)">2T · 72'</span></p>
+      <span class="sg-label">Barlow · interface</span>
+      <p style="max-width:60ch">Hoje não tem jogo, visse? A bola volta a rolar logo, logo. Texto de interface em Barlow 400, com <strong>600 para destaque</strong>.</p>
+    </div>
+  </section>
+
+  <section class="sg-section" id="sg-icones" aria-labelledby="sg-icones-t">
+    <h2 id="sg-icones-t">Ícones</h2>
+    <div class="sg-icons" data-hook="sg-icons"></div>
+  </section>
+
+  <section class="sg-section" id="sg-botoes" aria-labelledby="sg-botoes-t">
+    <h2 id="sg-botoes-t">Botões, pílulas e selos</h2>
+    <div class="sg-row">
+      <button type="button" class="btn btn--primary"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Primário</button>
+      <button type="button" class="btn btn--secondary">Secundário</button>
+      <button type="button" class="btn btn--ghost">Fantasma</button>
+      <button type="button" class="btn btn--danger"><svg class="icon" aria-hidden="true"><use href="#i-undo"/></svg>Perigo</button>
+      <button type="button" class="btn btn--primary" aria-busy="true">Enviando</button>
+      <button type="button" class="btn btn--secondary" disabled>Desabilitado</button>
+      <button type="button" class="btn btn--secondary btn--icon" aria-label="Anterior"><svg class="icon" aria-hidden="true"><use href="#i-chevron-left"/></svg></button>
+      <button type="button" class="btn btn--secondary btn--sm btn--toggle" aria-pressed="false" data-sg-toggle>
+        <span class="when-off cluster"><svg class="icon" aria-hidden="true"><use href="#i-speaker-off"/></svg>Ativar som</span>
+        <span class="when-on cluster"><svg class="icon" aria-hidden="true"><use href="#i-speaker"/></svg>Som ligado</span>
+      </button>
+      <button type="button" class="btn btn--secondary btn--sm btn--toggle" aria-pressed="true" data-sg-toggle>
+        <span class="when-off cluster"><svg class="icon" aria-hidden="true"><use href="#i-bell-off"/></svg>Ativar notificações</span>
+        <span class="when-on cluster"><svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg>Notificações ligadas</span>
+      </button>
+    </div>
+    <div class="sg-row">
+      <span class="pill pill--live">Ao vivo</span>
+      <span class="pill pill--interval">Intervalo</span>
+      <span class="pill pill--finished">Encerrado</span>
+      <span class="pill pill--scheduled"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>16:30</span>
+      <span class="pill pill--postponed">Adiado</span>
+      <span class="pill pill--suspended">Suspenso</span>
+      <span class="pill pill--cancelled">Cancelado</span>
+      <span class="badge badge--live">Ao vivo</span>
+      <span class="badge badge--ok">Classificado</span>
+      <span class="badge">Operador</span>
+    </div>
+  </section>
+
+  <section class="sg-section" id="sg-escudos" aria-labelledby="sg-escudos-t">
+    <h2 id="sg-escudos-t">Escudos gerados</h2>
+    <div class="sg-row" data-hook="sg-crests"></div>
+  </section>
+
+  <section class="sg-section" id="sg-jogos" aria-labelledby="sg-jogos-t">
+    <div class="section-head">
+      <h2 id="sg-jogos-t">Card de jogo</h2>
+      <button type="button" class="btn btn--primary btn--sm" data-hook="sg-simulate-goal"><svg class="icon" aria-hidden="true"><use href="#i-ball"/></svg>Simular gol ao vivo</button>
+    </div>
+    <div class="sg-grid sg-grid--wide" data-hook="sg-matches"></div>
+  </section>
+
+  <section class="sg-section" id="sg-home" aria-labelledby="sg-home-t">
+    <h2 id="sg-home-t">Home: últimos gols e seção de competição</h2>
+    <section class="card goals" aria-labelledby="sg-goals-t">
+      <div class="goals__head">
+        <h3 id="sg-goals-t" class="goals__title"><svg class="icon" aria-hidden="true"><use href="#i-ball"/></svg>Últimos gols</h3>
+        <div class="goals__toggles">
+          <button type="button" class="btn btn--secondary btn--sm btn--toggle" aria-pressed="true" data-sg-toggle>
+            <span class="when-off cluster"><svg class="icon" aria-hidden="true"><use href="#i-speaker-off"/></svg>Ativar som</span>
+            <span class="when-on cluster"><svg class="icon" aria-hidden="true"><use href="#i-speaker"/></svg>Som ligado</span>
+          </button>
+          <button type="button" class="btn btn--secondary btn--sm btn--toggle" aria-pressed="false" data-sg-toggle>
+            <span class="when-off cluster"><svg class="icon" aria-hidden="true"><use href="#i-bell-off"/></svg>Ativar notificações</span>
+            <span class="when-on cluster"><svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg>Notificações ligadas</span>
+          </button>
+        </div>
+      </div>
+      <div class="goal-alert-region" aria-live="polite" data-hook="sg-goal-alert"></div>
+      <ol class="goals__list" data-hook="sg-goals" tabindex="0" aria-label="Gols mais recentes, do mais novo ao mais antigo"></ol>
+    </section>
+    <div class="competitions" data-hook="sg-home-competitions"></div>
+  </section>
+
+  <section class="sg-section" id="sg-tabela" aria-labelledby="sg-tabela-t">
+    <h2 id="sg-tabela-t">Classificação</h2>
+    <div class="sg-grid sg-grid--wide">
+      <div class="stack"><span class="sg-label">Pontos corridos, ao vivo (largura cheia)</span><div data-hook="sg-standings"></div></div>
+      <div class="stack" style="max-width:380px"><span class="sg-label">Grupos, compacta (coluna lateral)</span><div data-hook="sg-standings-groups"></div></div>
+    </div>
+  </section>
+
+  <section class="sg-section" id="sg-mata" aria-labelledby="sg-mata-t">
+    <h2 id="sg-mata-t">Competição: fase, rodada e mata-mata</h2>
+    <div class="controls">
+      <div class="field controls__stage">
+        <label class="field__label" for="sg-stage">Fase</label>
+        <span class="select"><select id="sg-stage"><option>Fase de grupos</option><option selected>Mata-mata</option></select><svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg></span>
+      </div>
+      <nav class="round-nav" aria-label="Rodadas">
+        <button type="button" class="btn btn--secondary btn--icon" aria-label="Rodada anterior" disabled><svg class="icon" aria-hidden="true"><use href="#i-chevron-left"/></svg></button>
+        <p class="round-nav__label">Semifinal</p>
+        <button type="button" class="btn btn--secondary btn--icon" aria-label="Próxima rodada"><svg class="icon" aria-hidden="true"><use href="#i-chevron-right"/></svg></button>
+      </nav>
+    </div>
+    <div class="sg-grid sg-grid--wide" data-hook="sg-ties"></div>
+  </section>
+
+  <section class="sg-section" id="sg-estados" aria-labelledby="sg-estados-t">
+    <h2 id="sg-estados-t">Estados vazios, carregamento e avisos</h2>
+    <div class="sg-grid sg-grid--wide">
+      <div class="empty azulejo">
+        <svg class="empty__art" viewBox="0 0 240 150" role="img" aria-label="Sol de Pernambuco e mandacaru"><use href="#ill-sertao"/></svg>
+        <p class="empty__title">Hoje não tem jogo, visse?</p>
+        <p class="empty__text">A bola volta a rolar logo, logo.</p>
+      </div>
+      <div class="stack">
+        <div class="card goals"><p class="goals__empty">Nenhum gol hoje ainda. Paciência, que ele vem.</p></div>
+        <div class="card skeleton-card" aria-hidden="true"><span class="skeleton skeleton--line" style="width:45%"></span><div class="skeleton-card__board"><span class="skeleton skeleton--line"></span><span class="skeleton" style="width:84px;height:40px"></span><span class="skeleton skeleton--line"></span></div></div>
+        <div class="notice notice--warn"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><div class="notice__body"><p><strong>Confira antes de lançar:</strong></p><ul class="notice__list"><li>Jogador fora da escalação.</li><li>Minuto menor que o do lance anterior.</li></ul></div></div>
+        <div class="notice notice--error"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><p>Não deu certo agora. Tente de novo em instantes.</p></div>
+        <p class="live-status" role="status"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Reconectando ao vivo…</p>
+        <div class="sg-row">
+          <button type="button" class="btn btn--secondary btn--sm" data-hook="sg-toast">Mostrar aviso</button>
+          <button type="button" class="btn btn--secondary btn--sm" data-hook="sg-toast-error">Mostrar erro</button>
+          <button type="button" class="btn btn--secondary btn--sm" data-hook="sg-alert">Mostrar “É gol!”</button>
+          <button type="button" class="btn btn--secondary btn--sm" data-hook="sg-correction">Mostrar correção</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sg-section" id="sg-operador" aria-labelledby="sg-operador-t">
+    <h2 id="sg-operador-t">Operador</h2>
+    <div class="sg-grid sg-grid--wide">
+      <div class="card login__card azulejo" style="justify-self:center">
+        <div class="login__head">
+          <img class="login__mark" src="{{ brand.favicon_src }}" alt="" width="64" height="64">
+          <p class="eyebrow">{{ brand.name }}</p>
+          <p class="login__title" style="font-family:var(--font-brand)">Área do operador</p>
+          <span class="frevo frevo--short" aria-hidden="true"></span>
+        </div>
+        <form class="login__form" onsubmit="return false">
+          <div class="field"><label class="field__label" for="sg-user">Usuário</label><input id="sg-user" class="input" autocomplete="off" value="operador"></div>
+          <div class="field"><label class="field__label" for="sg-pass">Senha</label><input id="sg-pass" class="input" type="password" autocomplete="off" value="senha" aria-invalid="true"></div>
+          <p class="field__error"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>Usuário ou senha incorretos.</p>
+          <button type="submit" class="btn btn--primary btn--lg btn--block"><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg>Entrar</button>
+        </form>
+      </div>
+      <div class="card match-picker" role="region" aria-label="Partidas">
+        <div class="card__head"><p class="card__title"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>Partidas</p><button type="button" class="btn btn--ghost btn--icon btn--sm" aria-label="Atualizar lista"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button></div>
+        <div class="match-picker__filters"><input class="input" type="date" aria-label="Data"></div>
+        <ul class="match-picker__list" data-hook="sg-picker"></ul>
+      </div>
+    </div>
+    <div class="op-panel">
+      <div data-hook="sg-op-scoreboard"></div>
+      <div class="op-work">
+        <div class="stack" style="--stack-gap:16px">
+          <section class="card card__body">
+            <p class="op-section-title"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Lançar lance</p>
+            <div class="action-grid" data-hook="sg-actions"></div>
+            <div class="op-flow">
+              <div class="op-flow__head">
+                <p class="op-section-title"><svg class="icon" aria-hidden="true"><use href="#i-whistle"/></svg>Andamento do jogo</p>
+                <p class="op-flow__hint">Muda o período da partida — pede confirmação.</p>
+              </div>
+              <div class="action-grid action-grid--flow" data-hook="sg-flow-actions"></div>
+            </div>
+            <p class="op-section-title" style="margin-top:20px"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>Status da partida</p>
+            <div class="status-actions" data-hook="sg-status"></div>
+          </section>
+          <section class="card card__body">
+            <form class="event-form" data-hook="sg-form" onsubmit="return false">
+              <p class="op-section-title"><svg class="icon" aria-hidden="true"><use href="#i-ball"/></svg>Gol</p>
+              <div class="event-form__fields" data-hook="sg-fields"></div>
+              <div class="event-form__actions">
+                <button type="button" class="btn btn--ghost">Cancelar</button>
+                <button type="submit" class="btn btn--primary"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Lançar</button>
+              </div>
+            </form>
+          </section>
+        </div>
+        <section class="card">
+          <div class="card__head"><p class="card__title"><svg class="icon" aria-hidden="true"><use href="#i-list"/></svg>Lançamentos</p><span class="badge num" data-hook="sg-op-count"></span></div>
+          <ol class="op-timeline" data-hook="sg-op-timeline"></ol>
+        </section>
+      </div>
+    </div>
+    <div class="sg-row"><button type="button" class="btn btn--secondary" data-hook="sg-open-dialog">Abrir diálogo de confirmação</button></div>
+  </section>
+</div>
+
+<dialog id="sg-dialog" class="dialog" aria-labelledby="sg-dialog-t">
+  <form method="dialog" class="dialog__form">
+    <div class="dialog__head"><h2 id="sg-dialog-t" class="dialog__title">Encerrar a partida?</h2></div>
+    <div class="dialog__body">
+      <p>Sport 2 × 1 Náutico. A tabela oficial será recalculada.</p>
+      <div class="field"><label class="field__label" for="sg-reason">Motivo (opcional)</label><textarea id="sg-reason" class="textarea" rows="2"></textarea></div>
+    </div>
+    <div class="dialog__foot">
+      <button type="submit" value="cancel" class="btn btn--ghost">Voltar</button>
+      <button type="submit" value="confirm" class="btn btn--primary">Encerrar</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}
+{% block templates %}{% include "partials/operator-templates.html" %}
+<template id="tpl-competition-section">
+  <section class="comp-section" data-hook="competition">
+    <header class="section-head">
+      <div class="section-head__titles">
+        <h3 class="section-head__title" style="font-family:var(--font-brand);font-size:clamp(1.3rem,1.15rem + .7vw,1.65rem);font-weight:400"><a data-hook="competition-link" href="#"><span data-hook="competition-name"></span></a></h3>
+        <span class="frevo frevo--short" aria-hidden="true"></span>
+      </div>
+      <a class="stage-block__more" data-hook="competition-more" href="#">Ver competição<svg class="icon icon--sm" aria-hidden="true"><use href="#i-chevron-right"/></svg></a>
+    </header>
+    <div class="comp-section__stages" data-hook="stages"></div>
+  </section>
+</template>
+<template id="tpl-stage-block">
+  <div class="stage-block" data-hook="stage">
+    <h4 class="stage-block__title" data-hook="stage-name"></h4>
+    <div class="split" data-hook="stage-grid">
+      <div class="matches" data-hook="matches"></div>
+      <aside class="split__aside" data-hook="standings" aria-label="Classificação"></aside>
+    </div>
+  </div>
+</template>
+{% endblock %}
+{% block scripts %}<script type="module" src="{% static 'js/styleguide.js' %}"></script>{% endblock %}

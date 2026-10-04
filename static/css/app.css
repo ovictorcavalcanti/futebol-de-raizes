@@ -310,8 +310,7 @@
   .icon--lg { width: 1.5em; height: 1.5em; }
   .sprite .fill { fill: currentColor; stroke: none; }
   .sprite .accent { stroke: var(--vermelho); }
-  .sprite .card-y { fill: var(--amarelo); stroke: color-mix(in srgb, var(--ink) 35%, transparent); stroke-width: 1; }
-  .sprite .card-r { fill: var(--vermelho); stroke: color-mix(in srgb, var(--ink) 35%, transparent); stroke-width: 1; }
+  /* cores dos cartões: no style dos <rect> do sprite (icons.svg), que vai junto na cópia do <use> */
   .sprite .up { stroke: var(--verde); }
   .sprite .down { stroke: var(--vermelho); }
   /* ilustração do sertão (sprite) */

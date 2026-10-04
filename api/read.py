@@ -130,7 +130,8 @@ def competition(
     return respond(
         cached_read(
             "competition",
-            (slug, stage_id, round_id),
+            # sem rodada pedida, a atual depende do dia (calendário): o dia entra na chave
+            (slug, stage_id, round_id, None if round_id else timeutils.local_today().isoformat()),
             lambda: selectors.competition_payload(slug, stage_id=stage_id, round_id=round_id),
         )
     )

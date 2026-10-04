@@ -1,0 +1,15 @@
+{% extends "admin/base_site.html" %}
+{% block breadcrumbs %}<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Início</a> › Jogos</div>{% endblock %}
+{% block content %}
+<p class="help">Escolha a competição para ver os jogos dela.</p>
+<table>
+  <thead><tr><th>Competição</th></tr></thead>
+  <tbody>
+  {% for c in competitions %}
+    <tr><td><a href="{% url 'admin_games_competition' c.slug %}">{{ c.name }}</a></td></tr>
+  {% empty %}
+    <tr><td>Nenhuma competição cadastrada.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

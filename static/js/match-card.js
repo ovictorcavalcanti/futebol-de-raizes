@@ -278,10 +278,9 @@ function teamBlock(team, side) {
     h('span', { class: 'team__full', text: displayName(team) }),
     h('span', { class: 'team__short', 'aria-hidden': 'true', text: team?.short_name || displayName(team) }),
   );
-  const win = icon('check', { className: 'team__win', label: 'Vencedor' });
   const crest = createCrest(team, { size: 48 });
   const band = h('span', { class: 'team__band', 'aria-hidden': 'true' });
-  const children = side === 'home' ? [band, win, name, crest] : [band, crest, name, win];
+  const children = side === 'home' ? [band, name, crest] : [band, crest, name];
   return h('div', { class: `team team--${side}`, style: teamStyle(team) }, ...children);
 }
 
@@ -400,7 +399,7 @@ function renderTie(p, match) {
     if (!parts.length) parts.push(icon('trophy'));
     else parts.push(h('span', { class: 'divider-dot', 'aria-hidden': 'true', text: '·' }));
     const how = tie.decided_by && (tie.legs === 2 || tie.decided_by !== 'aggregate') ? ` ${tie.decided_by_label || ''}` : '';
-    parts.push(h('span', null, h('strong', { text: displayName(winner) }), ` avança${how}`));
+    parts.push(h('span', null, h('strong', { text: displayName(winner) }), ' ', h('span', { class: 'tie__adv' }, icon('check'), `avança${how}`)));
   }
   p.hidden = parts.length === 0;
   p.replaceChildren(...parts);

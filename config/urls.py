@@ -5,6 +5,7 @@ from django.urls import path
 from accounts.forms import ThrottledAdminAuthenticationForm
 from api.urls import urlpatterns as api_urlpatterns
 from core import views as core_views
+from matches import admin_views as games_views
 from observability import views as observability_views
 from public_api.urls import urlpatterns as public_urlpatterns
 from realtime.views import stream
@@ -38,5 +39,7 @@ urlpatterns = [
     path("api/stream", stream, name="stream"),
     *api_urlpatterns,
     *public_urlpatterns,  # /public/v1/ (+ 404/405 em JSON)
+    path("admin/jogos/", admin.site.admin_view(games_views.games_index), name="admin_games"),
+    path("admin/jogos/<slug:slug>/", admin.site.admin_view(games_views.games_competition), name="admin_games_competition"),
     path("admin/", admin.site.urls),
 ]

@@ -861,11 +861,6 @@
   .match[data-winner="home"] .team--away .crest,
   .match[data-winner="away"] .team--home .crest { opacity: 0.7; }
   /* fora do fluxo (no canto de cima, junto da faixa do time): não aperta o nome */
-  .team__win { display: none; position: absolute; top: 2px; color: var(--verde-ink); }
-  .team--home .team__win { left: 10px; }
-  .team--away .team__win { right: 10px; }
-  .match[data-winner="home"] .team--home .team__win,
-  .match[data-winner="away"] .team--away .team__win { display: inline-block; }
 
   /* card estreito (celular até ~400 px): escudo, vão e coluna do placar menores */
   @container match (max-width: 379px) {

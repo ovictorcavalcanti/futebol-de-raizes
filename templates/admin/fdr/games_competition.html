@@ -1,0 +1,22 @@
+{% extends "admin/base_site.html" %}
+{% block breadcrumbs %}<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Início</a> › <a href="{% url 'admin_games' %}">Jogos</a> › {{ competition.name }}</div>{% endblock %}
+{% block content %}
+<table style="width:100%">
+  <thead><tr><th>Fase</th><th>Rodada</th><th>Data (Brasília)</th><th>Jogo</th><th>Placar</th><th>Status</th><th></th></tr></thead>
+  <tbody>
+  {% for m in matches %}
+    <tr>
+      <td>{{ m.stage.season.year }} · {{ m.stage.name }}</td>
+      <td>{{ m.round.label|default:"—" }}</td>
+      <td>{{ m.kickoff_at|date:"d/m/Y H:i" }}</td>
+      <td><a href="{% url 'admin:matches_match_change' m.pk %}">{{ m.home_team.name }} × {{ m.away_team.name }}</a></td>
+      <td>{% if m.status == "scheduled" or m.status == "postponed" %}—{% else %}{{ m.home_score }} × {{ m.away_score }}{% endif %}</td>
+      <td>{{ m.get_status_display }}</td>
+      <td><a href="{% url 'operator' %}?date={{ m.kickoff_at|date:'Y-m-d' }}&amp;match={{ m.pk }}">Operador</a></td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="7">Nenhum jogo nesta competição.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

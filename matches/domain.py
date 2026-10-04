@@ -19,7 +19,8 @@ Convenções
   um lance esquecido entra depois, no tempo dele (gol aos 30' lançado no 2T fica
   no 1T), desde que esse tempo já tenha sido jogado e seja da mesma fase (tempo
   normal ou prorrogação: com a prorrogação ou os pênaltis em andamento, o tempo
-  normal já está fechado). Intervalo: minuto opcional; se vier,
+  normal já está fechado). No intervalo, o gol é sempre do tempo que acabou: o
+  minuto é obrigatório. Intervalo: minuto opcional; se vier,
   é 45 (105 no intervalo da prorrogação), com ou sem acréscimo. Pênaltis:
   minuto opcional; se vier, é o do início da disputa (90 sem prorrogação, 120 com).
   Acréscimo vai de 1 a 30 (0 = sem acréscimo). `EventSpec.minute == "required"`
@@ -282,7 +283,8 @@ class EventSpec:
 _CLOCK_PERIODS = frozenset({Period.FIRST_HALF, Period.SECOND_HALF, Period.EXTRA_TIME, Period.EXTRA_SECOND_HALF})
 # Ajuste do relógio (início ou reinício lançado com atraso, relógio parado à parte da suspensão).
 CLOCK_ACTION_LABELS = {"stop": "Parar o relógio", "start": "Retomar o relógio", "set": "Acertar o minuto"}
-_PLAY_AND_INTERVAL = _CLOCK_PERIODS | {Period.HALF_TIME, Period.EXTRA_HALF_TIME}
+_INTERVALS = frozenset({Period.HALF_TIME, Period.EXTRA_HALF_TIME})
+_PLAY_AND_INTERVAL = _CLOCK_PERIODS | _INTERVALS
 _ANY_PERIOD = frozenset(Period)
 
 _F_TEAM = FieldSpec("team_id", "team", "Time")
@@ -316,7 +318,8 @@ CATALOG: dict[str, EventSpec] = {
         _structural(EventType.PENALTIES_START, "Início dos pênaltis", "ball-penalty"),
         _structural(EventType.MATCH_END, "Fim de jogo", "flag"),
         _game(
-            EventType.GOAL, "Gol", "ball", _CLOCK_PERIODS,
+            # no intervalo: gol esquecido do tempo que acabou (o minuto é obrigatório e decide o tempo)
+            EventType.GOAL, "Gol", "ball", _PLAY_AND_INTERVAL,
             FieldSpec("team_id", "team", "Time beneficiado"),
             _F_PLAYER,
             FieldSpec(
@@ -411,6 +414,8 @@ def minute_mode(event_type: str, period: str | None) -> str:
     spec = CATALOG.get(event_type)
     if spec is None:
         return "none"
+    if spec.type == EventType.GOAL and period in _INTERVALS:
+        return "required"  # gol no intervalo é do tempo que acabou: o minuto diz qual
     if spec.kind == "game" and spec.minute == "required" and period not in _CLOCK_PERIODS:
         return "optional"
     return spec.minute
@@ -1752,7 +1757,7 @@ def _event_period(state: MatchState, spec: EventSpec, new: NewEvent, ctx: MatchC
     minute = new.minute
     if minute is None or not _is_int(minute) or minute < 0:
         return current
-    if current in (Period.HALF_TIME, Period.EXTRA_HALF_TIME, Period.PENALTIES) and current in spec.periods:
+    if current in (*_INTERVALS, Period.PENALTIES) and current in spec.periods and spec.type != EventType.GOAL:
         if current == Period.PENALTIES:
             own = minute in _shootout_minutes(ctx)
         else:
@@ -1779,6 +1784,14 @@ def _step_game(
     if state.status != Status.LIVE:
         raise _error("match_not_live", "O jogo não está em andamento.", status=state.status, type=spec.type)
     period = _event_period(state, spec, new, ctx)
+    if spec.type == EventType.GOAL and period in _INTERVALS:
+        low, high, _stoppage_at = _MINUTE_RULES[_ORDER_PERIOD[PERIOD_ORDER[period] - 1]]
+        raise _error(
+            "invalid_minute",
+            f"No intervalo, o gol é do tempo que acabou: informe o minuto ({low} a {high}, com acréscimo).",
+            minute=new.minute,
+            period=period,
+        )
     if period not in spec.periods:
         what = spec.label[0].lower() + spec.label[1:]
         raise _error(

@@ -50,6 +50,8 @@ const POSITION_SHORT = { GK: 'GOL', LAD: 'LAD', DF: 'ZAG', LAE: 'LAE', VOL: 'VOL
 export function effectiveMinuteMode(spec, period) {
   if (!spec) return 'none';
   const mode = spec.minute || 'required';
+  // gol no intervalo é do tempo que acabou: o minuto é obrigatório (igual a domain.minute_mode)
+  if (spec.type === 'goal' && (period === 'half_time' || period === 'extra_half_time')) return 'required';
   if (spec.kind === 'game' && mode === 'required' && !CLOCK_PERIODS.has(period)) return 'optional';
   return mode;
 }

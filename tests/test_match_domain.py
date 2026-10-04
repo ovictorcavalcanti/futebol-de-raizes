@@ -215,9 +215,9 @@ def test_catalog_labels_kinds_and_public_flag():
 
 def test_catalog_periods():
     play = {"first_half", "second_half", "extra_time", "extra_second_half"}
-    for event_type in ("goal", "penalty_awarded", "penalty_missed", "var_review", "stoppage_time"):
+    for event_type in ("penalty_awarded", "penalty_missed", "var_review", "stoppage_time"):
         assert CATALOG[event_type].periods == play
-    for event_type in ("goal_annulled", "substitution"):
+    for event_type in ("goal", "goal_annulled", "substitution"):
         assert CATALOG[event_type].periods == play | {"half_time", "extra_half_time"}
     for event_type in ("yellow_card", "red_card"):
         assert CATALOG[event_type].periods == {period.value for period in Period}
@@ -375,7 +375,11 @@ def test_events_only_in_allowed_periods():
     rejects("invalid_period_for_event", sim, EventType.SHOOTOUT_KICK, team_id=SPORT,
             payload={"player": "Zé", "scored": True})
     sim.post(EventType.HALF_TIME)
-    rejects("invalid_period_for_event", sim, EventType.GOAL, team_id=SPORT, payload={"player": "Zé"})
+    # gol no intervalo só com o minuto do tempo que acabou
+    error = rejects("invalid_minute", sim, EventType.GOAL, team_id=SPORT, payload={"player": "Zé"})
+    assert error.message == "No intervalo, o gol é do tempo que acabou: informe o minuto (0 a 45, com acréscimo)."
+    rejects("invalid_minute", sim, EventType.GOAL, team_id=SPORT, minute=50, payload={"player": "Zé"})
+    assert minute_mode("goal", "half_time") == "required" and minute_mode("yellow_card", "half_time") == "optional"
     rejects("invalid_period_for_event", sim, EventType.STOPPAGE_TIME, payload={"minutes": 2})
     rejects("invalid_period_for_event", sim, EventType.VAR_REVIEW, payload={"incident": "a", "decision": "b"})
     # no intervalo valem cartão e substituição, sem minuto
@@ -999,7 +1003,7 @@ def test_available_actions_by_phase():
     assert available_actions(sim.state, CTX) == {"events": FIRST_HALF_EVENTS, "status": ["suspend"]}
     sim.post(EventType.HALF_TIME)
     assert available_actions(sim.state, CTX) == {
-        "events": ["second_half_start", "yellow_card", "red_card", "substitution", "goal_annulled"],
+        "events": ["second_half_start", "goal", "yellow_card", "red_card", "substitution", "goal_annulled"],
         "status": ["suspend"],
     }
     sim.post(EventType.SECOND_HALF_START)

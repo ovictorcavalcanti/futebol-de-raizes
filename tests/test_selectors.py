@@ -285,7 +285,9 @@ def test_catalog_payload():
     assert set(catalog) == {"events", "status_actions", "periods", "statuses"}
     goal = next(spec for spec in catalog["events"] if spec["type"] == "goal")
     assert set(goal) == {"type", "label", "kind", "icon", "minute", "periods", "fields"}
-    assert goal["periods"] == ["first_half", "second_half", "extra_time", "extra_second_half"] and goal["minute"] == "required"
+    assert goal["periods"] == [
+        "first_half", "half_time", "second_half", "extra_time", "extra_half_time", "extra_second_half",
+    ] and goal["minute"] == "required"
     origin = next(item for item in goal["fields"] if item["name"] == "payload.origin")
     assert origin == {
         "name": "payload.origin", "kind": "choice", "label": "Origem", "required": False,

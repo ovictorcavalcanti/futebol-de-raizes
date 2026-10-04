@@ -515,8 +515,21 @@ class _Batch:
         for match in self.matches:
             timeline = self.timeline(match)
             goals.extend((row, match, timeline) for row in timeline.valid_goals())
-        goals.sort(key=lambda item: (item[0].created_at, item[0].id), reverse=True)
-        return [serialize_latest_goal(row, match, timeline) for row, match, timeline in goals[:limit]]
+        return [serialize_latest_goal(row, match, timeline) for row, match, timeline in _latest_order(goals)[:limit]]
+
+
+def _latest_order(goals: list[tuple]) -> list[tuple]:
+    """Últimos gols, do mais novo ao mais antigo: entre jogos, pela hora do lançamento;
+    no mesmo jogo, pelo minuto (gol lançado com atraso fica no lugar do seu minuto).
+    Cada jogo mantém as posições que seus gols ocupam na ordem de lançamento."""
+    goals = sorted(goals, key=lambda item: (item[0].created_at, item[0].id), reverse=True)
+    by_match: dict[int, list[tuple]] = defaultdict(list)
+    for item in goals:
+        by_match[item[1].id].append(item)
+    for items in by_match.values():
+        clock = {row.id: n for n, row in enumerate(items[0][2].ordered)}  # ordem do jogo (Timeline)
+        items.sort(key=lambda item: clock[item[0].id], reverse=True)
+    return [by_match[item[1].id].pop(0) for item in goals]
 
 
 def _with_related(matches) -> list[Match]:
@@ -653,8 +666,7 @@ def latest_goals(day=None, now: datetime | None = None, limit: int = LATEST_GOAL
     for match in matches:
         timeline = Timeline(match, rows.get(match.id, []))
         goals.extend((row, match, timeline) for row in timeline.valid_goals())
-    goals.sort(key=lambda item: (item[0].created_at, item[0].id), reverse=True)
-    return [serialize_latest_goal(row, match, timeline) for row, match, timeline in goals[:limit]]
+    return [serialize_latest_goal(row, match, timeline) for row, match, timeline in _latest_order(goals)[:limit]]
 
 
 # Ordem dos jogos na home e na página da competição (static/js/match-card.js faz igual):

@@ -1361,8 +1361,17 @@
   .goal-chip__player { font-weight: 600; font-size: 0.875rem; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .goal-chip__player small { font-weight: 500; color: var(--ink-3); font-size: 0.75rem; }
   .goal-chip__match { display: flex; align-items: center; gap: 5px; font-family: var(--font-num); font-weight: 600; font-size: 0.875rem; color: var(--ink-2); white-space: nowrap; }
-  .goal-chip__match .is-scorer { color: var(--ink); font-weight: 700; }
-  .goal-chip__match .crest { --crest-size: 16px; }
+  .goal-chip__match span.is-scorer { color: var(--vermelho-ink); font-weight: 800; font-size: 1rem; letter-spacing: 0.02em; }
+  .goal-chip__match span.is-other { color: var(--ink-3); font-weight: 500; }
+  .goal-chip__score { color: var(--ink); font-weight: 700; }
+  .goal-chip__match .crest { --crest-size: 14px; flex: none; }
+  .goal-chip__match .crest.is-scorer {
+    --crest-size: 24px;
+    margin: 0 4px;  /* o anel fica fora do escudo: espaço até o nome */
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px color-mix(in srgb, var(--vermelho) 70%, transparent);
+  }
+  .goal-chip__match .crest.is-other { opacity: 0.6; }
   .goal-chip.is-new { animation: new-item 5s var(--ease) 1; }
 
   .goal-alert-region:empty { display: none; }

@@ -214,3 +214,25 @@ def test_serialize_matches_one_events_query(operator_user, django_assert_max_num
         out = selectors.serialize_matches(query)
     assert len(out) == 7 and sum(len(item["goals"]) for item in out) == 5
     assert all(item["cards"]["away"]["yellow"] == 1 for item in out if item["goals"])
+
+
+def test_latest_goals_follow_the_minute_within_a_match(operator_user):
+    """Entre jogos, a hora do lançamento; no mesmo jogo, o minuto: o gol dos 5' lançado
+    por último fica atrás dos gols de 30' e 10' do mesmo jogo."""
+    lg = make_league(n_teams=4)
+    t = lg["teams"]
+    start = brt(3, 15)
+    m1 = make_match(lg["stage"], t[0], t[1], kickoff_at=start)
+    m2 = make_match(lg["stage"], t[2], t[3], kickoff_at=start + timedelta(minutes=10))
+    op1 = play_first_half(m1, operator_user, start)
+    g10 = op1.goal(t[0], 10, "Dez").event.id  # lançado às 15:01
+    g30 = op1.goal(t[0], 30, "Trinta").event.id  # 15:02
+    op2 = play_first_half(m2, operator_user, start + timedelta(minutes=10))
+    g20 = op2.goal(t[2], 20, "Vinte").event.id  # 15:11
+    g5 = op1.post("goal", team_id=t[1].id, minute=5, payload={"player": "Cinco"}, confirm=True, after=30).event.id  # 15:32
+
+    latest = selectors.latest_goals(date(2026, 10, 3), brt(3, 23))
+    assert [goal["event_id"] for goal in latest] == [g30, g20, g10, g5]
+    assert [goal["score_after"] for goal in latest if goal["match"]["id"] == m1.id] == [
+        {"home": 2, "away": 1}, {"home": 1, "away": 1}, {"home": 0, "away": 1},
+    ]

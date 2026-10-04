@@ -74,6 +74,40 @@ def played(league, operator_user):
 # --- EventOut / MatchOut ------------------------------------------------------------------
 
 
+def test_chronological_orders_by_clock_and_keeps_minuteless_events_in_place():
+    from types import SimpleNamespace as Row
+
+    rows = [
+        Row(sequence=1, period=None, minute=None, stoppage=None, name="atrasado"),
+        Row(sequence=2, period="first_half", minute=0, stoppage=None, name="início"),
+        Row(sequence=3, period="first_half", minute=40, stoppage=None, name="gol 40"),
+        Row(sequence=4, period="first_half", minute=30, stoppage=None, name="gol 30 (lançado depois)"),
+        Row(sequence=5, period="first_half", minute=45, stoppage=2, name="fim 1T"),
+        Row(sequence=6, period="half_time", minute=None, stoppage=None, name="troca no intervalo"),
+        Row(sequence=7, period="second_half", minute=45, stoppage=None, name="início 2T"),
+        Row(sequence=8, period="second_half", minute=None, stoppage=None, name="suspenso"),
+        Row(sequence=9, period="second_half", minute=46, stoppage=None, name="gol 46"),
+    ]
+    assert [row.name for row in selectors.chronological(reversed(rows))] == [
+        "atrasado", "início", "gol 30 (lançado depois)", "gol 40", "fim 1T", "troca no intervalo",
+        "início 2T", "suspenso", "gol 46",
+    ]
+
+
+def test_late_goal_takes_its_minute_in_the_timeline_and_the_score(league, operator_user):
+    sport, nautico = league["teams"][0], league["teams"][1]
+    match = make_match(league["stage"], sport, nautico, kickoff_at=timeutils.now() - timedelta(minutes=50), round=league["rounds"][0])
+    op = Op(match, operator_user, start=timeutils.now() - timedelta(minutes=49))
+    op.post("match_start")
+    late_entry = op.goal(sport, 40, "Zé Roberto").event.id
+    earlier = op.post("goal", team_id=nautico.id, minute=30, payload={"player": "Kayo Lima"}, confirm=True).event.id
+    detail = selectors.serialize_match(load(match), True)
+    assert [e["minute"] for e in detail["events"]] == [0, 30, 40]
+    scores = {e["id"]: e["score_after"] for e in detail["events"] if e["type"] == "goal"}
+    assert scores == {earlier: {"home": 0, "away": 1}, late_entry: {"home": 1, "away": 1}}
+    assert [g["event_id"] for g in detail["goals"]] == [earlier, late_entry]
+
+
 def test_event_out_shape_labels_icons_and_flags(played):
     match, ids = load(played["match"]), played["ids"]
     detail = selectors.serialize_match(match, detail=True)

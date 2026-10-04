@@ -135,15 +135,33 @@ def _side(match, team_id: int | None) -> str | None:
 # --- Linha do tempo -----------------------------------------------------------------
 
 
+def chronological(rows: Iterable[MatchEvent]) -> list[MatchEvent]:
+    """Lances na ordem do jogo (período, minuto, acréscimo), não na ordem em que foram
+    lançados. Lance sem minuto (status, troca no intervalo) fica no instante do lance
+    anterior a ele na sequência, ou no início do seu período; empate → sequência."""
+    keyed = []
+    last = (0, 0, 0)
+    for row in sorted(rows, key=lambda row: row.sequence):
+        order = domain.PERIOD_ORDER.get(row.period, 0) if row.period else last[0]
+        if row.minute is not None:
+            last = (order, row.minute, row.stoppage or 0)
+        else:
+            last = max(last, (order, 0, 0))
+        keyed.append((last, row.sequence, row))
+    keyed.sort(key=lambda item: item[:2])
+    return [row for *_, row in keyed]
+
+
 class Timeline:
     """Eventos visíveis de uma partida e o que a leitura deriva deles:
-    gols anulados, placar depois de cada gol válido."""
+    gols anulados, placar depois de cada gol válido (na ordem do jogo)."""
 
-    __slots__ = ("match", "rows", "annulled", "score_after")
+    __slots__ = ("match", "rows", "ordered", "annulled", "score_after")
 
     def __init__(self, match, rows: Iterable[MatchEvent]):
         self.match = match
         self.rows = sorted((row for row in rows if row.voided_at is None), key=lambda row: row.sequence)
+        self.ordered = chronological(self.rows)  # gol lançado com atraso entra no placar do seu minuto
         self.annulled = {
             row.annuls_event_id
             for row in self.rows
@@ -151,7 +169,7 @@ class Timeline:
         }
         self.score_after: dict[int, dict] = {}
         home = away = 0
-        for row in self.rows:
+        for row in self.ordered:
             if row.type != EventType.GOAL or row.id in self.annulled:
                 continue
             if row.team_id == match.home_team_id:
@@ -161,7 +179,7 @@ class Timeline:
             self.score_after[row.id] = {"home": home, "away": away}
 
     def valid_goals(self) -> list[MatchEvent]:
-        return [row for row in self.rows if row.id in self.score_after]
+        return [row for row in self.ordered if row.id in self.score_after]
 
 
 def _payload(row) -> dict:
@@ -391,7 +409,7 @@ def _detail(match, timeline: Timeline) -> dict:
         item = stats.setdefault(stat.key, {"key": stat.key, "label": stat.get_key_display(), "home": None, "away": None})
         item[side] = stat.value
     return {
-        "events": [serialize_event(row, match, timeline=timeline) for row in timeline.rows],
+        "events": [serialize_event(row, match, timeline=timeline) for row in timeline.ordered],
         "lineups": lineups,
         "officials": [
             {"role": item.role, "role_label": item.get_role_display(), "name": item.name, "state": item.state}
@@ -639,6 +657,19 @@ def latest_goals(day=None, now: datetime | None = None, limit: int = LATEST_GOAL
     return [serialize_latest_goal(row, match, timeline) for row, match, timeline in goals[:limit]]
 
 
+# Home: ao vivo (com atrasado e suspenso) > encerrados > agendados > adiados/cancelados.
+HOME_STATUS_RANK = {
+    Status.LIVE: 0, Status.DELAYED: 0, Status.SUSPENDED: 0,
+    Status.FINISHED: 1,
+    Status.SCHEDULED: 2,
+}
+
+
+def _home_order(match: dict) -> tuple:
+    """Jogos de cada fase na home: pelo status (HOME_STATUS_RANK) e, dentro dele, pela hora."""
+    return (HOME_STATUS_RANK.get(match["status"], 3), match["kickoff_at"] or "", match["id"])
+
+
 def home_payload(day=None, now: datetime | None = None) -> dict:
     """HomeOut: jogos do dia por competição (em `position`), classificação ao vivo de
     cada fase com tabela e os 10 últimos gols válidos. `cursor` é lido ANTES do estado."""
@@ -689,6 +720,7 @@ def home_payload(day=None, now: datetime | None = None) -> dict:
         entry["stages"].sort(key=lambda block: block["_order"])
         for block in entry["stages"]:
             block.pop("_order")
+            block["matches"].sort(key=_home_order)
     return {
         "date": day.isoformat(),
         **_stamp(),

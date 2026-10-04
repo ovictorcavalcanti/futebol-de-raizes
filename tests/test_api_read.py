@@ -83,7 +83,7 @@ def test_home_day_boundary_in_brasilia_with_match_passing_midnight(operator_clie
     assert [goal["event_id"] for goal in today["latest_goals"]] == [late_goal["event"]["id"]]
     assert today["cursor"] > 0
     yesterday = get_home(operator_client, "2026-10-02")
-    assert home_ids(yesterday) == [early.id, late_scheduled.id, overnight.id]
+    assert home_ids(yesterday) == [overnight.id, early.id, late_scheduled.id]  # ao vivo > encerrado > agendado
     assert get_home(operator_client, "2026-10-04")["competitions"] == []
 
     # termina às 00:40 BRT: fica na home de hoje até 02:40
@@ -114,6 +114,23 @@ def test_home_groups_by_competition_in_position_with_standings(operator_client, 
     assert stages[0]["standings"]["kind"] == "live" and stages[0]["standings"]["stage_id"] == first["stage"].id
     assert stages[1]["standings"] is None
     assert stages[1]["matches"][0]["id"] == ko_match.id and stages[1]["matches"][0]["tie"]["legs"] == 1
+
+
+def test_home_orders_matches_live_then_finished_then_scheduled_by_time(operator_client, monkeypatch):
+    from matches.models import Match
+
+    use_clock(monkeypatch, brt(3, 12, 0))
+    league = make_league(name="Pernambucano", slug="pe", position=1, n_teams=8)
+    teams = league["teams"]
+    plan = [("scheduled", 20), ("finished", 16), ("live", 18), ("finished", 14)]
+    ids = {}
+    for n, (status, hour) in enumerate(plan):
+        match = make_match(league["stage"], teams[2 * n], teams[2 * n + 1], kickoff_at=brt(3, hour, 0))
+        Match.objects.filter(pk=match.pk).update(status=status)
+        ids[(status, hour)] = match.id
+    home = get_home(operator_client)
+    matches = home["competitions"][0]["stages"][0]["matches"]
+    assert [m["id"] for m in matches] == [ids[("live", 18)], ids[("finished", 14)], ids[("finished", 16)], ids[("scheduled", 20)]]
 
 
 def test_home_rejects_invalid_date(client):

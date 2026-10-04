@@ -577,13 +577,43 @@ function separator(def, e, score) {
   return h('li', { class: ['tl-sep', def.end && 'tl-sep--end'], 'data-event-id': e.id }, label);
 }
 
+const PERIOD_ORDER = {
+  first_half: 1, half_time: 2, second_half: 3, extra_time: 4, extra_half_time: 5, extra_second_half: 6, penalties: 7,
+};
+
+/**
+ * Lances na ordem do jogo (período, minuto, acréscimo), não na ordem em que foram
+ * lançados (igual a selectors.chronological). Lance sem minuto fica no instante do
+ * lance anterior na sequência, ou no início do seu período; empate → sequência.
+ * @param {object[]} events
+ * @param {{desc?: boolean}} [opts] desc: mais recente primeiro (histórico do operador)
+ */
+export function sortEventsByClock(events = [], { desc = false } = {}) {
+  let last = [0, 0, 0];
+  const keyed = events
+    .slice()
+    .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0))
+    .map((e) => {
+      const order = e.period ? PERIOD_ORDER[e.period] ?? 0 : last[0];
+      if (e.minute != null) last = [order, e.minute, e.stoppage ?? 0];
+      else if (order > last[0]) last = [order, 0, 0];
+      return { e, key: [...last, e.sequence ?? 0] };
+    });
+  const cmp = (a, b) => {
+    for (let i = 0; i < a.key.length; i += 1) if (a.key[i] !== b.key[i]) return a.key[i] - b.key[i];
+    return 0;
+  };
+  keyed.sort((a, b) => (desc ? cmp(b, a) : cmp(a, b)));
+  return keyed.map((k) => k.e);
+}
+
 /**
  * Linha do tempo (exportada para reuso, ex.: guia de estilo).
  * @param {object} match MatchOut com events
  * @param {Set<number>|null} [newIds] ids a destacar como novos
  */
 export function renderTimeline(match, newIds = null) {
-  const events = [...match.events].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
+  const events = sortEventsByClock(match.events);
   const byId = new Map(events.map((e) => [e.id, e]));
   const annulments = new Map(); // goalId → evento de anulação
   for (const e of events) {

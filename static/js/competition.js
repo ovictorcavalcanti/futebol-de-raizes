@@ -10,7 +10,7 @@
  */
 import { renderCompetitionNav, showToast } from './render.js';
 import { ServerClock, mountClock } from './clock.js';
-import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createTieCard } from './match-card.js';
+import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createTieCard, createTieGroup, tiesFromMatches } from './match-card.js';
 import { createStandings, updateStandings } from './standings.js';
 import { getCompetitions, getCompetition, listMatches, getMatch } from './api.js';
 import { createStream, liveStatusIndicator } from './stream.js';
@@ -95,52 +95,42 @@ function loadDetail(matchId) {
   });
 }
 
-/** Confrontos (TieDetailOut) a partir das partidas da rodada (cada MatchOut traz o seu TieOut). */
-function tiesFromMatches(matches) {
-  const ties = new Map();
-  for (const match of matches) {
-    if (!match.tie) continue;
-    const { leg, ...tie } = match.tie;
-    const entry = ties.get(tie.id) || { ...tie, matches: [] };
-    Object.assign(entry, tie, { matches: entry.matches });
-    entry.matches.push(match);
-    ties.set(tie.id, entry);
-  }
-  return [...ties.values()];
-}
-
-function renderTies(ties) {
-  const sorted = ties.slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.id - b.id);
-  state.ties = new Map(sorted.map((t) => [t.id, t]));
-  state.tieCards = new Map(sorted.map((t) => [t.id, createTieCard(t, { now })]));
-  els.tiesList.replaceChildren(...state.tieCards.values());
+function cardFor(match, next) {
+  let card = state.cards.get(match.id);
+  if (card) updateMatchCard(card, match);
+  else card = createMatchCard(match, { now, onExpand: loadDetail, showRound: !!match.tie }); // mata-mata: "Semifinal · Ida"
+  next.set(match.id, card);
+  return card;
 }
 
 function renderMatches(matches, ties = null) {
   const next = new Map();
-  const cards = matches.map((match) => {
-    let card = state.cards.get(match.id);
-    if (card) updateMatchCard(card, match);
-    else card = createMatchCard(match, { now, onExpand: loadDetail, showRound: !!match.tie }); // mata-mata: "Semifinal · Ida"
-    next.set(match.id, card);
-    return card;
-  });
-  state.cards = next;
-  els.matches.replaceChildren(...cards);
-  els.matches.removeAttribute('aria-busy');
-  els.matches.hidden = cards.length === 0;
-  els.roundEmpty.hidden = cards.length > 0;
-
   const knockout = state.stage?.format === 'knockout';
+  let blocks;
   if (knockout) {
-    renderTies(ties || tiesFromMatches(matches));
-    els.ties.hidden = state.ties.size === 0;
+    // Um bloco por confronto: "Time A × Time B", os jogos (ida e volta, mesmo de outra
+    // rodada) e o agregado à direita, alinhado com o primeiro jogo.
+    const sorted = (ties || tiesFromMatches(matches)).slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.id - b.id);
+    state.ties = new Map(sorted.map((t) => [t.id, t]));
+    state.tieCards = new Map(sorted.map((t) => [t.id, createTieCard(t, { now, legs: false })]));
+    blocks = sorted.map((tie) => {
+      const legs = (tie.matches?.length ? tie.matches : matches.filter((m) => m.tie?.id === tie.id))
+        .slice().sort((a, b) => (a.tie?.leg ?? 0) - (b.tie?.leg ?? 0) || String(a.kickoff_at).localeCompare(String(b.kickoff_at)));
+      return createTieGroup(tie, legs.map((m) => cardFor(m, next)), state.tieCards.get(tie.id));
+    });
   } else {
-    els.ties.hidden = true;
     state.ties = new Map();
     state.tieCards = new Map();
-    els.tiesList.replaceChildren();
+    blocks = matches.map((match) => cardFor(match, next));
   }
+  state.cards = next;
+  els.matches.classList.toggle('tie-groups', knockout);
+  els.matches.replaceChildren(...blocks);
+  els.matches.removeAttribute('aria-busy');
+  els.matches.hidden = blocks.length === 0;
+  els.roundEmpty.hidden = blocks.length > 0;
+  els.ties.hidden = true; // o agregado fica em cada bloco de confronto
+  els.tiesList.replaceChildren();
   updateAside();
 }
 
@@ -327,7 +317,7 @@ function onMatch(message) {
     const latest = (card && getCardMatch(card)) || match;
     const updated = { ...current, ...tie, matches: current.matches.map((m) => (m.id === latest.id ? latest : m)) };
     state.ties.set(tie.id, updated);
-    const fresh = createTieCard(updated, { now });
+    const fresh = createTieCard(updated, { now, legs: false });
     state.tieCards.get(tie.id)?.replaceWith(fresh);
     state.tieCards.set(tie.id, fresh);
   }

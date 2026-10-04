@@ -796,6 +796,36 @@ function renderStats(match) {
  * @param {{now?: () => number}} [opts]
  * @returns {HTMLElement}
  */
+/** Confrontos (TieOut + jogos) a partir das partidas (cada MatchOut traz o seu TieOut). */
+export function tiesFromMatches(matches = []) {
+  const ties = new Map();
+  for (const match of matches) {
+    if (!match.tie) continue;
+    const { leg, ...tie } = match.tie;
+    const entry = ties.get(tie.id) || { ...tie, matches: [] };
+    Object.assign(entry, tie, { matches: entry.matches });
+    entry.matches.push(match);
+    ties.set(tie.id, entry);
+  }
+  return [...ties.values()].sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.id - b.id);
+}
+
+/**
+ * Bloco de um confronto: jogos à esquerda (com o título "Time A × Time B" se `title`) e,
+ * à direita, o card do agregado (`tieCard`), alinhado com o primeiro jogo. Repete as
+ * colunas do layout jogos | classificação, para os cards terem a mesma largura.
+ */
+export function createTieGroup(tie, cards, tieCard, { title = true } = {}) {
+  const heading = title
+    ? h('h3', { class: 'tie-group__title', text: `${displayName(tie.team_a)} × ${displayName(tie.team_b)}` })
+    : null;
+  return h('section', { class: ['tie-group', !title && 'tie-group--untitled'], 'data-tie-id': tie.id, 'aria-label': heading ? null : `${displayName(tie.team_a)} × ${displayName(tie.team_b)}` },
+    heading,
+    h('div', { class: 'tie-group__games' }, ...cards),
+    h('div', { class: 'tie-group__aside' }, tieCard),
+  );
+}
+
 export function createTieCard(tie, opts = {}) {
   const now = nowOf(opts);
   const complete = !!tie.complete && tie.winner_team_id != null;
@@ -821,7 +851,7 @@ export function createTieCard(tie, opts = {}) {
     const winner = teamById(tie, tie.winner_team_id);
     card.append(h('p', { class: 'tie__decided', text: `${displayName(winner)} classificado ${tie.decided_by_label || ''}`.trim() }));
   }
-  if (legs.length) {
+  if (legs.length && opts.legs !== false) {
     card.append(h('ul', { class: 'tie__legs', 'aria-label': 'Jogos do confronto' }, ...legs.map((m, i) => {
       const label = tie.legs === 2 ? ((m.tie?.leg ?? i + 1) === 2 ? 'Volta' : 'Ida') : 'Jogo';
       const scoreText = hasScore(m) ? `${m.home?.short_name} ${formatScore(m.home_score, m.away_score)} ${m.away?.short_name}` : `${m.home?.short_name} × ${m.away?.short_name}`;

@@ -1431,6 +1431,21 @@
      CONFRONTOS DE MATA-MATA
      ========================================================================= */
   .ties { display: grid; gap: var(--s-3); }
+  /* Mata-mata: um bloco por confronto — jogos à esquerda, agregado à direita, alinhado com
+     o primeiro jogo; mesmas colunas de .split (cards da mesma largura dos jogos regulares). */
+  .matches.tie-groups { gap: var(--s-6); }
+  .tie-group { display: grid; gap: var(--s-3); grid-template-columns: minmax(0, 1fr); grid-template-areas: "title" "aside" "games"; align-items: start; }
+  .tie-group--untitled { grid-template-areas: "aside" "games"; }
+  .tie-group__title { grid-area: title; margin: 0; font-family: var(--font-num); font-weight: 700; font-size: 1.125rem; letter-spacing: 0.02em; }
+  .tie-group__games { grid-area: games; display: grid; gap: var(--s-3); }
+  .tie-group__aside { grid-area: aside; }
+  @media (min-width: 960px) {
+    .tie-group { grid-template-columns: minmax(0, 1fr) minmax(320px, 380px); column-gap: var(--s-5); grid-template-areas: "title ." "games aside"; }
+    .tie-group--untitled { grid-template-areas: "games aside"; }
+  }
+  @media (min-width: 1200px) {
+    .tie-group { grid-template-columns: minmax(0, 1fr) 400px; column-gap: var(--s-6); }
+  }
   .tie { overflow: hidden; }
   .tie__head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-2); padding: 10px var(--s-4); border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--surface-2) 55%, var(--surface)); }
   .tie__round { font-family: var(--font-num); font-weight: 700; font-size: 0.875rem; letter-spacing: 0.06em; text-transform: uppercase; }
@@ -1622,9 +1637,6 @@
   .stage-block__title { margin-bottom: var(--s-3); font-family: var(--font-num); font-weight: 700; font-size: 1rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); }
   .stage-block__more { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; font-size: 0.9375rem; text-decoration: none; }
   .stage-block__more:hover { text-decoration: underline; }
-  @media (min-width: 1200px) {
-    .split--no-aside .matches { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  }
 
   /* --- Competição -------------------------------------------------------------------- */
   .comp-hero { display: grid; gap: var(--s-4); }

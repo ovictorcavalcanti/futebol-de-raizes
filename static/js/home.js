@@ -9,7 +9,7 @@
 import { hooks, cloneTemplate, renderCompetitionNav, showToast } from './render.js';
 import { ServerClock, mountClock } from './clock.js';
 import { formatDateLong, dayKey } from './format.js';
-import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createLatestGoal } from './match-card.js';
+import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createLatestGoal, createTieCard, createTieGroup, tiesFromMatches } from './match-card.js';
 import { createStandings, updateStandings } from './standings.js';
 import { getHome, getCompetitions, getMatch } from './api.js';
 import { createStream, liveStatusIndicator } from './stream.js';
@@ -48,6 +48,7 @@ const state = {
   liveKey: '',
   cards: new Map(), // match id → card
   standings: new Map(), // stage id → <div class="standings">
+  ties: new Map(), // tie id → { tie, card } (mata-mata: agregado ao lado dos jogos)
   reloadTimer: 0,
   reloading: null,
 };
@@ -111,7 +112,7 @@ function standingsFor(stage, next) {
   return el;
 }
 
-function competitionSection(comp, nextCards, nextStandings) {
+function competitionSection(comp, nextCards, nextStandings, nextTies) {
   const section = cloneTemplate('tpl-competition-section');
   const p = hooks(section);
   const href = `/competition.html?slug=${encodeURIComponent(comp.slug)}`;
@@ -126,12 +127,22 @@ function competitionSection(comp, nextCards, nextStandings) {
     block.dataset.stageId = String(stage.id);
     b['stage-name'].textContent = stage.name;
     b['stage-name'].hidden = stages.length === 1 && stage.format !== 'knockout';
-    b.matches.replaceChildren(...(stage.matches || []).map((m) => cardFor(m, nextCards)));
-    if (stage.standings) {
-      b.standings.append(standingsFor(stage, nextStandings));
-    } else {
+    if (stage.format === 'knockout') {
+      // Mata-mata: um bloco por confronto, com o agregado no lugar da classificação
+      // (alinhado com o confronto, sem título); o bloco repete as colunas da página.
+      const groups = tiesFromMatches(stage.matches || []).map((tie) => {
+        const card = createTieCard(tie, { now, legs: false });
+        nextTies.set(tie.id, { tie, card });
+        return createTieGroup(tie, tie.matches.map((m) => cardFor(m, nextCards)), card, { title: false });
+      });
+      b.matches.classList.add('tie-groups');
+      b.matches.replaceChildren(...groups);
       b.standings.remove();
       b['stage-grid'].classList.add('split--no-aside');
+    } else {
+      b.matches.replaceChildren(...(stage.matches || []).map((m) => cardFor(m, nextCards)));
+      if (stage.standings) b.standings.append(standingsFor(stage, nextStandings));
+      else b.standings.remove();
     }
     p.stages.append(block);
   }
@@ -156,14 +167,16 @@ function render(home) {
   const competitions = home.competitions || [];
   const nextCards = new Map();
   const nextStandings = new Map();
+  const nextTies = new Map();
   const sections = competitions
     .slice()
     .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
-    .map((comp) => competitionSection(comp, nextCards, nextStandings));
+    .map((comp) => competitionSection(comp, nextCards, nextStandings, nextTies));
   els.competitions.replaceChildren(...sections);
   els.competitions.removeAttribute('aria-busy');
   state.cards = nextCards;
   state.standings = nextStandings;
+  state.ties = nextTies;
 
   const hasGames = sections.length > 0;
   els.empty.hidden = hasGames;
@@ -189,9 +202,21 @@ function onMatch(message) {
   if (card) {
     updateMatchCard(card, match, { flash: true }); // pisca no gol; acordeão e aba continuam
     paintNav();
+    refreshTie(match);
   } else if (state.date && dayKey(match.kickoff_at) === state.date) {
     scheduleReload(); // jogo novo no dia (ex.: reagendado para hoje): busca a home de novo
   }
+}
+
+/** Agregado do confronto ao lado dos jogos: o TieOut chega em cada mensagem da partida. */
+function refreshTie(match) {
+  const entry = match.tie && state.ties.get(match.tie.id);
+  if (!entry) return;
+  const { leg, ...tie } = match.tie;
+  const updated = { ...entry.tie, ...tie, matches: entry.tie.matches.map((m) => (m.id === match.id ? match : m)) };
+  const card = createTieCard(updated, { now, legs: false });
+  entry.card.replaceWith(card);
+  state.ties.set(tie.id, { tie: updated, card });
 }
 
 function onStandings(message) {

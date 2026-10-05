@@ -83,7 +83,7 @@ o "Oxe!", que é do aviso ao vivo.
 | Sem gol ainda | "Nenhum gol hoje ainda. Paciência, que ele vem." |
 | Reconectando | "Reconectando ao vivo…" |
 | Relógio | "Horário de Brasília" |
-| Rodapé | "Do Recife ao Sertão, futebol de raiz." |
+| Rodapé | "Do Recife ao Sertão, futebol de raízes." |
 | Erro genérico | "Não deu certo agora. Tente de novo em instantes." |
 | Página não encontrada (404) | "Essa página não existe, visse?" + "Ver os jogos de hoje" |
 | Erro do servidor (500) | "Não deu certo agora." + "Tivemos um problema do nosso lado. Tente de novo em instantes." |

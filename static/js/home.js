@@ -133,7 +133,14 @@ function paintDayLabels(key) {
     (diff < 0 ? 'Nesse dia não teve jogo, visse?' : 'Nesse dia não tem jogo, visse?');
   if (els.title) els.title.textContent = title;
   if (els.emptyTitle) els.emptyTitle.textContent = empty;
-  if (els.dayToday) els.dayToday.hidden = diff === 0;
+  if (els.dayToday) {
+    els.dayToday.hidden = diff === 0;
+    // "Hoje" fica do lado do caminho de volta: num dia futuro, junto do ‹ (antes dele);
+    // num passado, junto do › (depois dele). Muda no DOM, não só no CSS: a ordem do Tab
+    // acompanha a da tela.
+    if (diff > 0) els.dayPrev?.before(els.dayToday);
+    else if (diff < 0) els.dayNext?.after(els.dayToday);
+  }
 }
 
 function setDayBusy(busy) {

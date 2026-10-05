@@ -1,0 +1,4 @@
+{% extends "admin/login.html" %}
+{# Login do admin: o Django põe "Erro:" no título da aba quando a senha está errada; aqui #}
+{# o título fica sempre o mesmo (o erro continua na página, no aviso acima do formulário). #}
+{% block title %}{{ title }} | {{ brand.name }} · Administração{% endblock %}

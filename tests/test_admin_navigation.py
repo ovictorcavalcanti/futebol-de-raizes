@@ -64,6 +64,11 @@ def test_admin_index_shows_only_top_level_entries(admin_client_fdr, operator_cli
     for model in hidden:
         assert url(model) not in page, model
     assert "Comece por" in page
+    # ajuda e atalhos dentro da coluna principal: fora dela, "Ações recentes" (que
+    # flutua à direita) desce até a lista de apps e fica desalinhado
+    main = page.index('id="content-main"')
+    assert main < page.index("Comece por") < page.index("<caption>Atalhos</caption>") < page.index('id="content-related"')
+    assert page.count('id="content-main"') == 1
 
     page = operator_client.get(reverse("admin:index")).content.decode()
     assert url(Competition) in page and url(Team) in page

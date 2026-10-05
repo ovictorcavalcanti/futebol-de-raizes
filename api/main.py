@@ -3,13 +3,16 @@
 Três grupos de rotas sobre o mesmo núcleo (docs/CONTRACT.md §4): autenticação
 (`/api/auth`), operação (`/api/ops`, sessão + CSRF + permissão) e leitura (sem
 login). O stream SSE (`/api/stream`) é uma view assíncrona à parte
-(`realtime.views.stream`). Documentação interativa em `/api/docs`.
+(`realtime.views.stream`). Documentação interativa em `/api/docs` (e o esquema em
+`/api/openapi.json`) só para a equipe (`is_staff`): ela lista as rotas de operação e de
+login. A documentação aberta é a da API pública (`/public/v1/docs`), só leitura.
 """
 
 from __future__ import annotations
 
 import json
 
+from django.contrib.admin.views.decorators import staff_member_required
 from ninja import NinjaAPI, Swagger
 from ninja.openapi.docs import render_template
 
@@ -41,6 +44,7 @@ api = NinjaAPI(
     ),
     docs=CsrfSwagger(),
     docs_url="/docs",
+    docs_decorator=staff_member_required,  # docs e openapi.json: sem login de equipe, vai para o login do admin
     urls_namespace="api",
 )
 errors.register(api)

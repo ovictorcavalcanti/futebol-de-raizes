@@ -2,7 +2,7 @@
 ida e volta com prorrogação e outro de jogo único direto nos pênaltis. O
 vencedor sai certo (`winner_team_id`, `decided_by`) e o fim de jogo com o
 confronto empatado é rejeitado (422 `tie_level_requires_*`). E a documentação
-interativa da API responde em `/api/docs`."""
+interativa da API responde em `/api/docs` (só para a equipe)."""
 
 from __future__ import annotations
 
@@ -130,7 +130,20 @@ def test_single_match_tie_straight_to_penalties_end_to_end(league, operator_clie
     assert client.get("/api/home", {"date": day}).json()["latest_goals"] == []
 
 
-def test_api_docs_and_openapi_list_every_route(client):
+def test_api_docs_and_openapi_are_staff_only(client, django_user_model):
+    # a documentação interna lista as rotas de operação: anônimo vai para o login do admin
+    for url in ("/api/docs", "/api/openapi.json"):
+        response = client.get(url)
+        assert response.status_code == 302 and "/admin/login/" in response["Location"]
+    # usuário comum (sem acesso ao admin) também não vê
+    django_user_model.objects.create_user("torcedor", password="senha-forte-123")
+    client.login(username="torcedor", password="senha-forte-123")
+    assert client.get("/api/openapi.json").status_code == 302
+
+
+def test_api_docs_and_openapi_list_every_route(client, django_user_model):
+    django_user_model.objects.create_user("equipe", password="senha-forte-123", is_staff=True)
+    client.login(username="equipe", password="senha-forte-123")
     docs = client.get("/api/docs")
     assert docs.status_code == 200 and b"swagger" in docs.content.lower()
     schema = client.get("/api/openapi.json")

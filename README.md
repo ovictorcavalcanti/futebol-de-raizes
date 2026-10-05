@@ -229,7 +229,8 @@ scripts/run_dev.sh                        # http://127.0.0.1:8000 (HOST=… PORT
 | `/competition.html?slug=pernambucano-raiz` | Página da competição (rodadas, fases, classificação, confrontos) |
 | `/operator.html` | Tela do operador |
 | `/admin/` | Django Admin (competições → temporadas → fases → rodadas → jogos; times; usuários, chaves, auditoria) |
-| `/api/docs` · `/public/v1/docs` | Documentação interativa das APIs |
+| `/public/v1/docs` | Documentação da API pública (só leitura; o link "API" do rodapé) |
+| `/api/docs` | Documentação da API interna, só para a equipe (login no admin) |
 | `/health` · `/metrics` | Healthcheck e métricas Prometheus |
 
 ### Variáveis de ambiente
@@ -498,7 +499,8 @@ confrontos saíram do índice (os endereços continuam, para quem tem permissão
 | Tempo real | `GET /api/stream?after=` (SSE) | `docs/CONTRACT.md` §5 |
 | Pública | `GET /public/v1/competitions`, `/competitions/{slug}`, `/matches`, `/matches/{id}`, `/stages/{id}/standings` | `/public/v1/docs` |
 
-- **`/api/docs`** (Swagger do Django Ninja): o “Try it out” já envia o token CSRF. Faça login
+- **`/api/docs`** (Swagger do Django Ninja): só para a equipe. Sem login de um usuário com
+  acesso ao admin, `/api/docs` e `/api/openapi.json` levam ao login do admin. O “Try it out” já envia o token CSRF. Faça login
   por `POST /api/auth/login` e recarregue a página. Sem login as rotas de operação respondem
   `401`, e sem permissão `403`. Uma regra violada responde `422` com o código da regra.
 - **API pública** (`/public/v1`, fase 12): só leitura, com serializadores de lista de

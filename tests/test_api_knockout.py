@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
+from django.test import Client
 
 from core import timeutils
 from matches.models import Tie
@@ -130,20 +131,23 @@ def test_single_match_tie_straight_to_penalties_end_to_end(league, operator_clie
     assert client.get("/api/home", {"date": day}).json()["latest_goals"] == []
 
 
-def test_api_docs_and_openapi_are_staff_only(client, django_user_model):
-    # a documentação interna lista as rotas de operação: anônimo vai para o login do admin
-    for url in ("/api/docs", "/api/openapi.json"):
-        response = client.get(url)
-        assert response.status_code == 302 and "/admin/login/" in response["Location"]
-    # usuário comum (sem acesso ao admin) também não vê
-    django_user_model.objects.create_user("torcedor", password="senha-forte-123")
-    client.login(username="torcedor", password="senha-forte-123")
-    assert client.get("/api/openapi.json").status_code == 302
+def test_api_docs_and_openapi_only_for_the_administrator(client, plain_user, operator_client, admin_client_fdr):
+    # a documentação interna lista as rotas de operação: para quem não é administrador,
+    # 404 (sem redirecionar para o login, que revelaria a página)
+    logged_plain = Client()
+    logged_plain.force_login(plain_user)
+    for c in (client, logged_plain, operator_client):
+        for url in ("/api/docs", "/api/openapi.json"):
+            assert c.get(url).status_code == 404
+    assert admin_client_fdr.get("/api/openapi.json").status_code == 200
+    # o link fica no índice do admin, só para o administrador
+    assert b'href="/api/docs"' in admin_client_fdr.get("/admin/").content
+    assert b'href="/api/docs"' not in operator_client.get("/admin/").content
+    assert b"/api/docs" not in client.get("/admin/login/").content
 
 
-def test_api_docs_and_openapi_list_every_route(client, django_user_model):
-    django_user_model.objects.create_user("equipe", password="senha-forte-123", is_staff=True)
-    client.login(username="equipe", password="senha-forte-123")
+def test_api_docs_and_openapi_list_every_route(admin_client_fdr):
+    client = admin_client_fdr
     docs = client.get("/api/docs")
     assert docs.status_code == 200 and b"swagger" in docs.content.lower()
     schema = client.get("/api/openapi.json")

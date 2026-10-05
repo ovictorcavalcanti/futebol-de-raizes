@@ -95,3 +95,11 @@ def sync_roles(using="default", verbosity=0):
     if missing and verbosity >= 2:
         print(f"[roles] permissões ainda inexistentes: {sorted(set(missing))}")
     return missing
+
+
+def is_administrator(user) -> bool:
+    """Conta de administrador: superusuário ou do perfil Administrador (ativo e com acesso
+    ao admin). Só ela vê a documentação da API interna (`/api/docs`)."""
+    if not (user.is_authenticated and user.is_active and user.is_staff):
+        return False
+    return user.is_superuser or user.groups.filter(name=ADMINISTRATOR).exists()

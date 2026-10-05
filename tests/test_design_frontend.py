@@ -49,7 +49,8 @@ def test_base_tema_marca_e_fontes(client):
     assert 'alt="Futebol de Raízes"' in html
     assert "data-theme-toggle" in html and 'aria-pressed="false"' in html
     assert 'id="i-ball"' in html  # sprite embutido
-    assert "Do Recife ao Sertão, futebol de raiz." in html
+    assert "Do Recife ao Sertão, futebol de raízes." in html
+    assert "/operator.html" not in html  # a área do operador não aparece para o público
     assert "GoalNow" not in html
 
 

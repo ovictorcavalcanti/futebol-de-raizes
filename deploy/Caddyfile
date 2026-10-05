@@ -17,6 +17,11 @@
 	# do volume caddy_data (ou rode `caddy trust` fora do contêiner).
 	skip_install_trust
 
+	# Acesso pelo IP (https://157.230.x.x): o navegador não manda o nome do site
+	# (SNI) e, no Docker, o IP local do contêiner não é o público; sem isto o
+	# Caddy não acha o certificado e a conexão cai (ERR_SSL_PROTOCOL_ERROR).
+	default_sni {$SITE_ADDRESS:localhost}
+
 	servers {
 		timeouts {
 			read_header 10s

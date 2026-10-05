@@ -4,13 +4,17 @@
 # Variáveis (vêm do docker-compose / .env):
 #   SITE_ADDRESS  endereço servido            (padrão: localhost)
 #   APP_UPSTREAM  processo ASGI de destino    (padrão: app:8000)
+#   CADDY_TLS     "internal" (padrão: certificado da CA interna, só para teste)
+#                 ou um e-mail (certificado público do Let's Encrypt, renovado
+#                 sozinho; precisa de um domínio de verdade apontando para o
+#                 servidor e das portas 80 e 443 abertas)
 #
 # O navegador fala HTTP/2 ou HTTP/3 com o Caddy: várias abas com o stream
 # aberto não esbarram no limite de 6 conexões por host do HTTP/1.1.
 {
-	# Certificado da CA interna do Caddy (só para teste). Para o navegador
-	# confiar, importe /data/caddy/pki/authorities/local/root.crt do volume
-	# caddy_data (ou rode `caddy trust` fora do contêiner).
+	# Com CADDY_TLS=internal, certificado da CA interna do Caddy (só para teste).
+	# Para o navegador confiar, importe /data/caddy/pki/authorities/local/root.crt
+	# do volume caddy_data (ou rode `caddy trust` fora do contêiner).
 	skip_install_trust
 
 	servers {
@@ -23,7 +27,7 @@
 }
 
 {$SITE_ADDRESS:localhost} {
-	tls internal
+	tls {$CADDY_TLS:internal}
 
 	# Stream SSE: entrega cada quadro na hora (sem buffer), sem compressão e
 	# sem prazo curto de leitura; o ping de 20 s mantém a conexão viva.

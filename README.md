@@ -194,6 +194,9 @@ docker compose exec app python manage.py createsuperuser # ou use o admin do see
   `HTTPS_PORT`.
 - Para conferir a configuração sem subir nada: `docker compose config -q` (precisa da chave
   no `.env` ou no shell).
+- **Produção num VPS** (certificado do Let's Encrypt com `CADDY_TLS=<e-mail>`, levar os
+  dados do PC, backup diário com `scripts/backup.sh` e `scripts/restore.sh`): veja
+  [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
 ### Desenvolvimento local (PostgreSQL + `scripts/run_dev.sh`)
 

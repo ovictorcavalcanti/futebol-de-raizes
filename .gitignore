@@ -11,3 +11,6 @@ node_modules/
 htmlcov/
 /media/
 .DS_Store
+
+# backups do servidor (scripts/backup.sh)
+backups/

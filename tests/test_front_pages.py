@@ -81,6 +81,9 @@ def test_home_ganchos_e_modulos(client):
     for module in ("api.js", "stream.js", "alerts.js"):
         assert f'rel="modulepreload" href="/static/js/{module}"' in html, module
     assert "GoalNow" not in html
+    # busca: título e descrição com o Campeonato Pernambucano
+    assert "<title>Futebol de Raízes - Campeonato Pernambucano ao vivo e tabela</title>" in html
+    assert '<meta name="description" content="Campeonato Pernambucano ao vivo:' in html
 
 
 def test_competicao_ganchos_e_modulos(client):
@@ -179,6 +182,12 @@ def test_admin_usa_o_nome_da_marca(client, settings):
     html = client.get("/admin/login/").content.decode()
     assert "<title>" in html and "Raízes do Agreste · Administração" in html
     assert "Futebol de Raízes" not in html
+    # senha errada: o aviso aparece na página, mas o título da aba não vira "Erro: ..."
+    html = client.post("/admin/login/", {"username": "ninguem", "password": "errada"}).content.decode()
+    assert 'class="errornote"' in html
+    title = html[html.index("<title>") : html.index("</title>")]
+    assert "Erro" not in title and "Raízes do Agreste · Administração" in title
+    html = client.get("/admin/login/").content.decode()
     # tema do admin: sincroniza com o do site antes do theme.js do Django (claro por padrão)
     assert html.index('localStorage.getItem(k)==="dark"') < html.index("admin/js/theme.js")
 
@@ -728,12 +737,22 @@ def test_home_seletor_de_dias(open_page):
     assert page.evaluate("location.search") == f"?date={tomorrow}"
     assert [q for _, p, q, _ in api.requests if p == "/api/home"][-1] == f"date={tomorrow}"
     assert not page.evaluate("document.getElementById('day-today').hidden")
+    order = "() => [...document.querySelector('.date-nav').children].map((el) => el.id || el.className)"
+    # dia futuro: "Hoje" junto do ‹ (o caminho de volta)
+    assert page.evaluate(order) == ["day-today", "day-prev", "page-intro__date", "day-next"]
     page.click("#day-today")
     page.wait_for_function(f"() => document.getElementById('home-date').dateTime === '{today.isoformat()}'")
     assert page.evaluate("location.search") == ""
     assert page.evaluate("document.getElementById('day-today').hidden")
+    page.click("#day-prev")
+    yesterday = (today - timedelta(days=1)).isoformat()
+    page.wait_for_function(f"() => document.getElementById('home-date').dateTime === '{yesterday}'")
+    # dia passado: "Hoje" junto do ›
+    assert page.evaluate(order) == ["day-prev", "page-intro__date", "day-next", "day-today"]
+    page.go_back()
     page.go_back()  # o histórico volta para amanhã
     page.wait_for_function(f"() => document.getElementById('home-date').dateTime === '{tomorrow}'")
+    assert page.evaluate(order)[0] == "day-today"
     assert not errors, errors
 
 

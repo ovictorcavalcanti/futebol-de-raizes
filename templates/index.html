@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% load static %}
-{% block title %}{{ brand.name }} · Jogos de hoje{% endblock %}
+{% block title %}{{ brand.name }} - Campeonato Pernambucano ao vivo e tabela{% endblock %}
+{% block description %}Campeonato Pernambucano ao vivo: placar lance a lance, jogos de hoje, resultados, gols e classificação atualizada do futebol de Pernambuco.{% endblock %}
 {% block head %}
   <link rel="modulepreload" href="{% static 'js/render.js' %}">
   <link rel="modulepreload" href="{% static 'js/format.js' %}">
@@ -23,7 +24,8 @@
     </div>
     {# data do dia já no HTML (Brasília; home.js reescreve com a da API): a linha não aparece depois, sem layout shift #}
     {% now "Y-m-d" as today_iso %}{% now "l, j \d\e F" as today_long %}
-    {# seletor de dias: ‹ e › trocam o dia (?date=AAAA-MM-DD); "Hoje" volta, só aparece fora de hoje #}
+    {# seletor de dias: ‹ e › trocam o dia (?date=AAAA-MM-DD); "Hoje" volta, só aparece fora de hoje: #}
+    {# num dia futuro fica antes do ‹, num passado depois do › (home.js move o botão) #}
     <nav class="date-nav" aria-label="Dias" data-hook="date-nav">
       <button id="day-prev" type="button" class="btn btn--secondary btn--icon btn--sm" data-hook="day-prev" aria-label="Dia anterior">
         <svg class="icon" aria-hidden="true"><use href="#i-chevron-left"/></svg>

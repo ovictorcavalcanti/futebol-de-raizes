@@ -1441,6 +1441,7 @@
   .matches.match-groups { gap: var(--s-5); }
   .match-group { display: grid; gap: var(--s-3); }
   .match-group__title { margin: 0; font-family: var(--font-num); font-weight: 700; font-size: 0.875rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+  .match-group__games { display: grid; gap: var(--s-3); }
   .matches.tie-groups { gap: var(--s-6); }
   .tie-group { display: grid; gap: var(--s-3); grid-template-columns: minmax(0, 1fr); grid-template-areas: "title" "aside" "games"; align-items: start; }
   .tie-group--untitled { grid-template-areas: "aside" "games"; }

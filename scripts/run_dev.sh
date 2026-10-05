@@ -18,7 +18,17 @@ if [[ -f .env ]]; then
   set +a
 fi
 
-python manage.py migrate --noinput
+# Python do .venv do projeto, mesmo sem ativar; senão python3 (o macOS não tem
+# `python`) ou python.
+if [[ -x .venv/bin/python ]]; then
+  py=.venv/bin/python
+elif command -v python3 > /dev/null; then
+  py=python3
+else
+  py=python
+fi
+
+"$py" manage.py migrate --noinput
 
 # --reload já roda um único processo servidor (sem --workers). Com conexões SSE
 # abertas, a recarga esperaria para sempre: --timeout-graceful-shutdown as
@@ -26,7 +36,7 @@ python manage.py migrate --noinput
 # --no-access-log: o acesso já sai pelo log fdr.http (uma linha por requisição).
 # Só o processo que vigia os arquivos (--reload) escreve umas linhas em texto
 # antes de o Django carregar; o resto segue LOG_FORMAT.
-exec python -m uvicorn config.asgi:application \
+exec "$py" -m uvicorn config.asgi:application \
   --host "${HOST:-127.0.0.1}" \
   --port "${PORT:-8000}" \
   --reload \

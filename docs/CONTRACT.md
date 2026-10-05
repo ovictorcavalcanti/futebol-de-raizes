@@ -396,7 +396,7 @@ usado volta no `X-Request-ID` da resposta e vai nos logs e na auditoria.
 
 ### Decisões da API (`api/`)
 
-* Montagem: `api/main.py` (NinjaAPI, `/api/docs` com o token CSRF no "Try it out" — recarregue a
+* Montagem: `api/main.py` (NinjaAPI, `/api/docs` só para a conta de administrador, 404 para os outros, com o token CSRF no "Try it out" — recarregue a
   página depois do login), routers `api/auth.py`, `api/ops.py`, `api/read.py`; erros em
   `api/errors.py`; sessão/CSRF/permissão em `api/security.py`. As rotas devolvem os dicionários
   dos selectors como estão (os schemas de saída só documentam o 1º nível no OpenAPI).

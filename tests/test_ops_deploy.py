@@ -583,3 +583,60 @@ async def test_image_with_pool_handles_login_writes_sse_and_bursts(image_server,
     assert not any("PoolTimeout" in json.dumps(record) for record in records)
     statuses = [record["status"] for record in records if record["logger"] == "fdr.http" and record["method"] == "POST"]
     assert statuses == [200, 201]  # login e lançamento
+
+
+@needs_compose
+def test_compose_proxy_uses_the_internal_ca_by_default_and_lets_encrypt_with_an_email(compose_dir):
+    proxy = compose_model(compose_dir, DJANGO_SECRET_KEY="x")["services"]["proxy"]
+    assert proxy["environment"]["CADDY_TLS"] == "internal"
+    proxy = compose_model(compose_dir, DJANGO_SECRET_KEY="x", CADDY_TLS="eu@exemplo.com")["services"]["proxy"]
+    assert proxy["environment"]["CADDY_TLS"] == "eu@exemplo.com"
+    assert "tls {$CADDY_TLS:internal}" in (BASE_DIR / "deploy" / "Caddyfile").read_text()
+
+
+def _fake_docker_project(tmp_path, script, body):
+    """Cópia de scripts/<script> num projeto vazio + um `docker` falso (registra cada chamada)."""
+    (tmp_path / "proj" / "scripts").mkdir(parents=True)
+    shutil.copy(BASE_DIR / "scripts" / script, tmp_path / "proj" / "scripts")
+    fake = tmp_path / "bin" / "docker"
+    fake.parent.mkdir()
+    fake.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$FAKE_DOCKER_CALLS"\n' + body)
+    fake.chmod(0o755)
+    calls = tmp_path / "calls.txt"
+    env = clean_env(PATH=f"{fake.parent}:{clean_env()['PATH']}", FAKE_DOCKER_CALLS=str(calls))
+    return tmp_path / "proj", env, calls
+
+
+def test_backup_script_dumps_the_db_and_keeps_the_latest(tmp_path):
+    body = 'case "$*" in *pg_dump*) printf DUMP;; *"test -n"*) exit 1;; esac\n'  # sem escudos
+    proj, env, calls = _fake_docker_project(tmp_path, "backup.sh", body)
+    (proj / "backups").mkdir()
+    for old in ("fdr-2020-01-01_0000.dump", "fdr-2020-01-02_0000.dump"):
+        (proj / "backups" / old).write_text("velho")
+    result = subprocess.run(["bash", "scripts/backup.sh"], cwd=proj, env={**env, "KEEP": "2"}, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    dumps = sorted(p.name for p in (proj / "backups").glob("fdr-*.dump"))
+    assert len(dumps) == 2 and dumps[0] == "fdr-2020-01-02_0000.dump"  # o mais antigo saiu
+    assert (proj / "backups" / dumps[1]).read_text() == "DUMP"
+    assert not list((proj / "backups").glob("media-*"))
+    assert "pg_dump" in calls.read_text()
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_restore_script_stops_the_app_and_restores_in_one_transaction(tmp_path, fails):
+    body = 'cat > /dev/null\n' + ('case "$*" in *pg_restore*) exit 1;; esac\n' if fails else "")
+    proj, env, calls = _fake_docker_project(tmp_path, "restore.sh", body)
+    (proj / "fdr.dump").write_text("DUMP")
+    (proj / "media.tgz").write_text("TGZ")
+    script = ["bash", "scripts/restore.sh", "fdr.dump", "media.tgz"]
+    refused = subprocess.run(script, cwd=proj, env=env, input="n\n", capture_output=True, text=True, timeout=30)
+    assert refused.returncode != 0 and not calls.exists()  # sem confirmação, nada acontece
+    result = subprocess.run(script, cwd=proj, env={**env, "FORCE": "1"}, capture_output=True, text=True, timeout=30)
+    lines = calls.read_text().splitlines()
+    assert lines[:2] == ["compose up -d --wait db", "compose stop app proxy"]
+    assert "pg_restore" in lines[2] and "--single-transaction" in lines[2] and "--exit-on-error" in lines[2]
+    if fails:
+        assert result.returncode == 1 and lines[3:] == ["compose up -d"]  # volta com os dados de antes
+    else:
+        assert result.returncode == 0, result.stderr
+        assert lines[3] == "compose up -d --wait" and lines[4].startswith("compose exec -T app tar xzf")

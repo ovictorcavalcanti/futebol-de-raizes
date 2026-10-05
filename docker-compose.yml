@@ -89,6 +89,7 @@ services:
     image: caddy:2
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
+      CADDY_TLS: ${CADDY_TLS:-internal} # um e-mail = certificado do Let's Encrypt
       APP_UPSTREAM: app:8000
     ports:
       - "${HTTP_PORT:-80}:80"

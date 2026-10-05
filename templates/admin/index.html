@@ -1,4 +1,4 @@
-{% extends "admin/index.html" %}
+{% extends "admin/index.html" %}{% load fdr_roles %}
 {# Índice enxuto: só os pontos de entrada. Temporadas, fases, grupos, rodadas, jogos, #}
 {# confrontos e escalações ficam dentro de cada competição (navegação por competição). #}
 {% block content %}
@@ -12,6 +12,7 @@
     <caption>Atalhos</caption>
     {% if perms.matches.view_match %}<tr><th scope="row"><a href="{% url 'admin_games' %}">Jogos</a></th><td>Jogos de cada competição</td></tr>{% endif %}
     <tr><th scope="row"><a href="{% url 'operator' %}">Tela do operador</a></th><td>Lançar lances ao vivo</td></tr>
+    {% if request.user|is_administrator %}<tr><th scope="row"><a href="/api/docs">API interna</a></th><td>Documentação das rotas de operação (só administradores)</td></tr>{% endif %}
   </table>
 </div>
 {{ block.super }}

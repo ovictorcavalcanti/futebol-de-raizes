@@ -776,6 +776,9 @@ def test_competicao_rodadas_fase_e_slug_inexistente(open_page):
     assert page.evaluate(
         "[...document.querySelectorAll('#round-matches .match-group')].map((g) => [g.querySelector('.match-group__title').textContent, g.querySelectorAll('.match').length])"
     ) == [["Grupo A", 1], ["Grupo B", 1]]
+    assert page.evaluate(  # cards do grupo com respiro entre si
+        "parseFloat(getComputedStyle(document.querySelector('#round-matches .match-group__games')).rowGap) > 0"
+    )
     page.click("#round-prev")
     page.wait_for_function(
         "() => document.getElementById('round-label').textContent === 'Rodada 1'"

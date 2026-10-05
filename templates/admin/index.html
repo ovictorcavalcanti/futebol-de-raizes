@@ -1,12 +1,15 @@
 {% extends "admin/index.html" %}{% load fdr_roles %}
 {# Índice enxuto: só os pontos de entrada. Temporadas, fases, grupos, rodadas, jogos, #}
 {# confrontos e escalações ficam dentro de cada competição (navegação por competição). #}
+{# A ajuda fica acima das duas colunas; os atalhos, DENTRO de #content-main (a coluna que #}
+{# flutua à esquerda), para "Ações recentes" (à direita) começar na altura dos Atalhos.  #}
 {% block content %}
 <p class="help" style="margin:0 0 16px;font-size:.9rem">
   Comece por <a href="{% url 'admin:competitions_competition_changelist' %}">Competições</a>:
   dentro de cada uma ficam as temporadas, as fases (grupos, classificação e punições), as rodadas
   e os jogos. Os lances são lançados na <a href="{% url 'operator' %}">tela do operador</a>.
 </p>
+<div id="content-main">
 <div class="module" style="margin-bottom:16px">
   <table style="width:100%">
     <caption>Atalhos</caption>
@@ -15,5 +18,6 @@
     {% if request.user|is_administrator %}<tr><th scope="row"><a href="/api/docs">API interna</a></th><td>Documentação das rotas de operação (só administradores)</td></tr>{% endif %}
   </table>
 </div>
-{{ block.super }}
+{% include "admin/app_list.html" with app_list=app_list show_changelinks=True %}
+</div>
 {% endblock %}

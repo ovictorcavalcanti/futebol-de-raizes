@@ -64,6 +64,11 @@ def test_admin_index_shows_only_top_level_entries(admin_client_fdr, operator_cli
     for model in hidden:
         assert url(model) not in page, model
     assert "Comece por" in page
+    # ajuda acima das colunas; atalhos dentro da coluna principal, para "Ações recentes"
+    # (que flutua à direita) começar na altura dos Atalhos
+    main = page.index('id="content-main"')
+    assert page.index("Comece por") < main < page.index("<caption>Atalhos</caption>") < page.index('id="content-related"')
+    assert page.count('id="content-main"') == 1
 
     page = operator_client.get(reverse("admin:index")).content.decode()
     assert url(Competition) in page and url(Team) in page

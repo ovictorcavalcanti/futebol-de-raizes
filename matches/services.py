@@ -707,8 +707,9 @@ def _period_clock(state: domain.MatchState, by_seq: Mapping[int, MatchEvent]) ->
     Parte da abertura do período e percorre, em ordem, as suspensões e os ajustes do
     operador (`clock_adjust`): enquanto o relógio está parado (suspensão ou "parar"),
     o tempo não corre — ao voltar, o início anda o tempo parado. "Acertar o minuto" M
-    redefine o início para o relógio mostrar M naquele instante (ou no instante em que
-    parou, se estiver parado). Devolve `paused_at` quando o relógio está parado agora.
+    redefine o início para o relógio mostrar M naquele instante e o solta: se estava
+    parado pelo operador, volta a correr dali. Devolve `paused_at` quando o relógio
+    está parado agora.
     """
     if state.status != domain.Status.LIVE and state.status != domain.Status.SUSPENDED:
         return None, None
@@ -741,7 +742,9 @@ def _period_clock(state: domain.MatchState, by_seq: Mapping[int, MatchEvent]) ->
         elif action == "set" and minute is not None:
             # minuto exibido = offset + minutos decorridos + 1 (CONTRACT §3, "clock")
             # 0 no 1º tempo = início do período (o mesmo que o minuto 1)
-            started = (frozen_at or at) - timedelta(minutes=max(minute - offset - 1, 0))
+            started = at - timedelta(minutes=max(minute - offset - 1, 0))
+            holds.discard("stop")  # acertado, segue correndo (a suspensão, se houver, continua)
+            frozen_at = at if holds else None
     return started, frozen_at
 
 

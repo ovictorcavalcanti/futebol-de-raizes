@@ -1367,16 +1367,12 @@ function paintTimeline() {
       p.edit.setAttribute('aria-label', `Editar lance: ${title}${event.minute_label ? `, ${event.minute_label}` : ''}`);
       p.edit.addEventListener('click', () => openEditForm(event));
     }
-    if (!can('void_event')) {
+    // O vermelho automático (derivado) não tem botão: ele só cai junto com o amarelo que o gerou.
+    if (!can('void_event') || event.derived) {
       p.void.remove();
     } else {
       p.void.setAttribute('aria-label', `Cancelar lançamento: ${title}${event.minute_label ? `, ${event.minute_label}` : ''}`);
-      if (event.derived) {
-        p.void.disabled = true;
-        p.void.title = 'Cai junto com o amarelo que o gerou';
-      } else {
-        p.void.addEventListener('click', () => openVoidDialog(event));
-      }
+      p.void.addEventListener('click', () => openVoidDialog(event));
     }
     return li;
   }));

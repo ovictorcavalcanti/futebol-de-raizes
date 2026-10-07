@@ -1772,13 +1772,20 @@
     .event-form__fields > .field--wide { grid-column: 1 / -1; }
   }
 
-  .op-timeline { display: grid; margin: 0; padding: 0; list-style: none; }
-  /* Lançamento: minuto, ícone e texto na 1ª linha; Editar/Cancelar numa linha própria, embaixo
-     do texto (o texto usa a largura toda e não quebra palavra por palavra). */
+  .op-timeline { display: grid; margin: 0; padding: 0; list-style: none; container-type: inline-size; }
+  /* Lançamento: minuto, ícone e texto na 1ª linha. Lista estreita (celular, coluna do painel):
+     Editar/Cancelar numa linha própria embaixo do texto, que fica com a largura toda e não
+     quebra palavra por palavra. Lista larga: os botões voltam para a direita, na mesma linha. */
   .op-event { display: grid; grid-template-columns: 44px 22px minmax(0, 1fr); align-items: start; gap: 2px var(--s-2); padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--line); }
   .op-event__min, .op-event__icon { margin-top: 1px; }
   .op-event__actions { grid-column: 3; display: flex; flex-wrap: wrap; gap: var(--s-1); margin-left: calc(-1 * var(--s-3)); }
+  .op-event__actions .btn { min-height: 28px; }
   .op-event__actions:not(:has(.btn)) { display: none; }
+  @container (min-width: 560px) {
+    .op-event { grid-template-columns: 44px 22px minmax(0, 1fr) auto; align-items: center; }
+    .op-event__min, .op-event__icon { margin-top: 0; }
+    .op-event__actions { grid-column: 4; grid-row: 1; flex-wrap: nowrap; margin-left: 0; }
+  }
   .op-event:last-child { border-bottom: 0; }
   .op-event__min { font-family: var(--font-num); font-weight: 700; color: var(--ink-2); text-align: right; }
   .op-event__icon { width: 20px; height: 20px; color: var(--ink-2); }

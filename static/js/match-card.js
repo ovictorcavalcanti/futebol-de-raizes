@@ -576,10 +576,10 @@ function timelineItem(e, side, { title, sub = [], score = null, extraClass = '',
       ...sub.filter(Boolean).map((sline) => (typeof sline === 'string' ? h('span', { class: 'tl-item__sub', text: sline }) : sline)),
     ),
   );
-  // O placar do gol fica junto do minuto, numa linha só: "11' — 0 × 1" (celular e desktop).
+  // O placar do gol fica junto do minuto, numa linha só: "11' · 0 × 1" (celular e desktop).
   const min = h('span', { class: ['tl-item__min', !minute && !score && 'tl-item__min--dot', score && 'tl-item__min--score'] },
     minute ? h('span', { text: minute }) : null,
-    score && minute ? h('span', { class: 'tl-item__min-sep', 'aria-hidden': 'true', text: '—' }) : null,
+    score && minute ? h('span', { class: 'tl-item__min-sep', 'aria-hidden': 'true', text: '·' }) : null,
     score ? h('span', { class: 'tl-item__min-score', text: score }) : null,
   );
   if (!minute && !score) min.setAttribute('aria-hidden', 'true');
@@ -714,7 +714,12 @@ export function renderTimeline(match, newIds = null) {
           // Só o que acrescenta: "Gol" puro já está no ícone (nome acessível = tipo do lance).
           const origin = e.payload?.origin;
           if (origin && origin !== 'open_play') sub.push(ORIGIN_LABEL[origin]);
-          if (e.payload?.assist) sub.push(`Assistência: ${e.payload.assist}`);
+          // assistência entre parênteses, embaixo do autor; o leitor de tela ouve "Assistência: Fulano"
+          if (e.payload?.assist) {
+            sub.push(h('span', { class: 'tl-item__sub' },
+              h('span', { class: 'visually-hidden', text: 'Assistência: ' }),
+              h('span', { 'aria-hidden': 'true', text: '(' }), e.payload.assist, h('span', { 'aria-hidden': 'true', text: ')' })));
+          }
         }
         list.append(timelineItem(e, side, {
           title: eventPlayer(e) || GOAL_TO_CONFIRM, sub, score: annulled ? null : (e.score_after ? formatScore(e.score_after.home, e.score_after.away) : null),

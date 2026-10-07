@@ -486,6 +486,10 @@ COMPONENTS_JS = """async () => {
   // gol de jogada sem assistência: sem a legenda "Gol" (o ícone já diz); com assistência, ela fica
   const goalSubs = [...timeline.querySelectorAll('.tl-item--goal')].map((li) => [...li.querySelectorAll('.tl-item__sub')].map((x) => x.textContent));
   out.goalSubs = goalSubs;
+  // assistência: na tela "(Fulano)"; "Assistência:" só para o leitor de tela; separador do placar = ·
+  const assisted = [...timeline.querySelectorAll('.tl-item--goal')].find((li) => li.textContent.includes('Biel Ventura'));
+  out.assistHidden = assisted?.querySelector('.tl-item__sub .visually-hidden')?.textContent || '';
+  out.scoreSep = assisted?.querySelector('.tl-item__min-sep')?.textContent || '';
 
   // 5) transmissões: javascript: não vira link
   const facts = M.createMatchCard({ ...live, version: 999, broadcasts: [
@@ -556,7 +560,8 @@ def test_componentes_no_navegador(browser_page):
     # 1º amarelo + o vermelho do 2º; o tipo vai no nome acessível do ícone, sem legenda repetida
     assert out["secondYellowItems"] == [["Cartão amarelo", ""], ["Cartão vermelho", "Segundo amarelo e vermelho"]]
     assert out["plainYellowItems"] == [["Cartão amarelo", ""]]
-    assert ["Gol"] not in out["goalSubs"] and ["Assistência: Biel Ventura"] in out["goalSubs"] and ["De pênalti"] in out["goalSubs"]
+    assert ["Gol"] not in out["goalSubs"] and ["Assistência: (Biel Ventura)"] in out["goalSubs"] and ["De pênalti"] in out["goalSubs"]
+    assert out["assistHidden"] == "Assistência: " and out["scoreSep"] == "·"
     assert out["links"] == ["https://tv.example.com/"] and out["maliciousAsText"]
     assert (
         out["correctionStruck"]

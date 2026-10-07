@@ -1773,7 +1773,12 @@
   }
 
   .op-timeline { display: grid; margin: 0; padding: 0; list-style: none; }
-  .op-event { display: grid; grid-template-columns: 44px 22px minmax(0, 1fr) auto auto; align-items: center; gap: var(--s-2); padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--line); }
+  /* Lançamento: minuto, ícone e texto na 1ª linha; Editar/Cancelar numa linha própria, embaixo
+     do texto (o texto usa a largura toda e não quebra palavra por palavra). */
+  .op-event { display: grid; grid-template-columns: 44px 22px minmax(0, 1fr); align-items: start; gap: 2px var(--s-2); padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--line); }
+  .op-event__min, .op-event__icon { margin-top: 1px; }
+  .op-event__actions { grid-column: 3; display: flex; flex-wrap: wrap; gap: var(--s-1); margin-left: calc(-1 * var(--s-3)); }
+  .op-event__actions:not(:has(.btn)) { display: none; }
   .op-event:last-child { border-bottom: 0; }
   .op-event__min { font-family: var(--font-num); font-weight: 700; color: var(--ink-2); text-align: right; }
   .op-event__icon { width: 20px; height: 20px; color: var(--ink-2); }

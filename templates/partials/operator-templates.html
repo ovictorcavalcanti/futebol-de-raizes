@@ -116,11 +116,14 @@
     <span class="op-event__min num" data-hook="minute"></span>
     <svg class="icon op-event__icon" aria-hidden="true"><use data-hook="icon" href="#i-ball"/></svg>
     <span class="op-event__text"><span class="op-event__title" data-hook="title"></span><span class="op-event__sub" data-hook="sub"></span></span>
-    <button type="button" class="btn btn--ghost btn--sm op-event__edit" data-hook="edit" title="Editar lance">
-      <svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg><span class="hide-sm">Editar</span>
-    </button>
-    <button type="button" class="btn btn--ghost btn--sm op-event__void" data-hook="void" title="Cancelar lançamento">
-      <svg class="icon" aria-hidden="true"><use href="#i-undo"/></svg><span class="hide-sm">Cancelar</span>
-    </button>
+    {# ações numa linha própria, embaixo do texto: o texto fica com a largura toda #}
+    <span class="op-event__actions">
+      <button type="button" class="btn btn--ghost btn--sm op-event__edit" data-hook="edit" title="Editar lance">
+        <svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg><span>Editar</span>
+      </button>
+      <button type="button" class="btn btn--ghost btn--sm op-event__void" data-hook="void" title="Cancelar lançamento">
+        <svg class="icon" aria-hidden="true"><use href="#i-undo"/></svg><span>Cancelar</span>
+      </button>
+    </span>
   </li>
 </template>

@@ -183,7 +183,7 @@ Templates do operador (`partials/operator-templates.html`, um por `kind` do cat�
 | `tpl-field-bool` | `label`, `input` (checkbox em `.switch`) |
 | `tpl-field-event-ref` | `label`, `input` (`<select>` dos gols válidos; 1ª opção vazia = "gol ainda não lançado") |
 | `tpl-field-datetime` | `label`, `input` (`datetime-local`, horário de Brasília) |
-| `tpl-op-event` | `op-event` (raiz; classes `op-event--goal`, `--annulled`, `--structural`), `minute`, `icon` (`<use>`), `title`, `sub`, `void` (desabilite em derivados: o vermelho automático só cai com o amarelo) |
+| `tpl-op-event` | `op-event` (raiz; classes `op-event--goal`, `--annulled`, `--structural`), `minute`, `icon` (`<use>`), `title`, `sub`; `edit` e `void` dentro de `.op-event__actions`, numa linha própria embaixo do texto (some quando os dois botões saem; desabilite `void` em derivados: o vermelho automático só cai com o amarelo) |
 
 Ao clonar campos, gere `id` únicos e ligue `label.htmlFor`. Campos aparecem/somem com `hidden`.
 

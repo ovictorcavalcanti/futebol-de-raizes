@@ -714,11 +714,11 @@ export function renderTimeline(match, newIds = null) {
           // Só o que acrescenta: "Gol" puro já está no ícone (nome acessível = tipo do lance).
           const origin = e.payload?.origin;
           if (origin && origin !== 'open_play') sub.push(ORIGIN_LABEL[origin]);
-          // assistência entre parênteses, embaixo do autor; o leitor de tela ouve "Assistência: Fulano"
+          // assistência abreviada embaixo do autor ("Assist.: Fulano"); o leitor de tela ouve "Assistência: Fulano"
           if (e.payload?.assist) {
             sub.push(h('span', { class: 'tl-item__sub' },
               h('span', { class: 'visually-hidden', text: 'Assistência: ' }),
-              h('span', { 'aria-hidden': 'true', text: '(' }), e.payload.assist, h('span', { 'aria-hidden': 'true', text: ')' })));
+              h('span', { 'aria-hidden': 'true', text: 'Assist.: ' }), e.payload.assist));
           }
         }
         list.append(timelineItem(e, side, {

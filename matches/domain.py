@@ -1229,10 +1229,11 @@ def _step(
 
 
 def clock_frozen(state: MatchState) -> bool:
-    """Relógio parado pelo operador (sem contar a suspensão)."""
+    """Relógio parado pelo operador (sem contar a suspensão). "Acertar o minuto" também
+    solta o relógio: ele segue correndo a partir do minuto acertado."""
     frozen = False
     for _, action, _minute in state.clock_marks:
-        if action in ("stop", "start"):
+        if action in ("stop", "start", "set"):
             frozen = action == "stop"
     return frozen
 

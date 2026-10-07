@@ -809,6 +809,14 @@ def test_operator_clock_stop_start_and_set_minute(live_match, operator_user):
     zero = op.post("clock_adjust", after=1, payload={"action": "set", "minute": 0}).match
     assert zero.period_started_at == now + timedelta(minutes=1)
 
+    # Parado, acertar o minuto põe o relógio para correr de novo a partir dele.
+    op.post("clock_adjust", after=2, payload={"action": "stop"})
+    resumed = op.post("clock_adjust", after=3, payload={"action": "set", "minute": 30}).match
+    later = t0 + timedelta(minutes=21)
+    assert resumed.clock_paused_at is None and resumed.period_started_at == later - timedelta(minutes=29)
+    clock = selectors.serialize_match(Match.objects.select_related(*selectors.MATCH_RELATED).get(pk=resumed.pk))["clock"]
+    assert clock["running"] is True and clock["paused_at"] is None
+
 
 def test_set_partial_info_publishes_and_audits(live_match, operator_user):
     from observability.models import AuditLog

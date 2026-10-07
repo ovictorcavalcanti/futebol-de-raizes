@@ -856,10 +856,13 @@ def test_clock_adjust_stop_start_and_set():
     stop = sim.post(EventType.CLOCK_ADJUST, payload={"action": "stop"})
     assert stop.payload == {"action": "stop"} and stop.period == "first_half"
     rejects("invalid_payload", sim, EventType.CLOCK_ADJUST, payload={"action": "stop"})  # já parado
-    sim.post(EventType.CLOCK_ADJUST, payload={"action": "set", "minute": 12})
     rejects("invalid_minute", sim, EventType.CLOCK_ADJUST, payload={"action": "set", "minute": 80})
+    sim.post(EventType.CLOCK_ADJUST, payload={"action": "set", "minute": 12})
+    # acertar o minuto solta o relógio: ele segue correndo (retomar seria repetido)
+    rejects("invalid_payload", sim, EventType.CLOCK_ADJUST, payload={"action": "start"})
+    sim.post(EventType.CLOCK_ADJUST, payload={"action": "stop"})
     sim.post(EventType.CLOCK_ADJUST, payload={"action": "start"})
-    assert [m[1:] for m in sim.state.clock_marks] == [("stop", None), ("set", 12), ("start", None)]
+    assert [m[1:] for m in sim.state.clock_marks] == [("stop", None), ("set", 12), ("stop", None), ("start", None)]
     sim.post(EventType.HALF_TIME)
     assert sim.state.clock_marks == ()  # novo período zera os ajustes
     rejects("invalid_period_for_event", sim, EventType.CLOCK_ADJUST, payload={"action": "stop"})

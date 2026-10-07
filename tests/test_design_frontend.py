@@ -477,6 +477,10 @@ COMPONENTS_JS = """async () => {
   const timeline = M.renderTimeline(live);
   const varItem = [...timeline.querySelectorAll('.tl-item--neutral')].find((li) => li.textContent.includes('VAR'));
   out.varMinute = varItem?.querySelector('.tl-item__min-inline')?.textContent || '';
+  // 2º amarelo: um item só (o vermelho automático), não amarelo + amarelo + vermelho
+  const cardItems = (name) => [...timeline.querySelectorAll('.tl-item')].filter((li) => li.querySelector('.tl-item__title')?.textContent === name);
+  out.secondYellowItems = cardItems('Thiago Freitas').map((li) => li.querySelector('.tl-item__sub')?.textContent || '');
+  out.plainYellowItems = cardItems('Zé Roberto').map((li) => li.querySelector('.tl-item__sub')?.textContent || '').filter((t) => t.startsWith('Cartão'));
 
   // 5) transmissões: javascript: não vira link
   const facts = M.createMatchCard({ ...live, version: 999, broadcasts: [
@@ -544,6 +548,8 @@ def test_componentes_no_navegador(browser_page):
     )
     assert out["homeIsTeamB"] and out["aggregate"] == out["expectedAggregate"]
     assert out["varMinute"] == "31'"
+    assert out["secondYellowItems"] == ["Cartão amarelo", "Segundo amarelo e vermelho"]  # 1º amarelo + o vermelho do 2º
+    assert out["plainYellowItems"] == ["Cartão amarelo"]
     assert out["links"] == ["https://tv.example.com/"] and out["maliciousAsText"]
     assert (
         out["correctionStruck"]

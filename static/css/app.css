@@ -1338,7 +1338,7 @@
   /* a lista recebe foco (tabindex="0") para rolar pelo teclado: anel inteiro, sem a máscara */
   .goals__list:focus-visible { -webkit-mask-image: none; mask-image: none; outline-offset: -3px; box-shadow: inset 0 0 0 6px var(--focus-halo); }
   /* chip esqueleto do HTML: mesma altura de um .goal-chip (sem layout shift quando os gols chegam) */
-  .goals__list > .skeleton { flex: none; width: 220px; height: 61px; border-radius: var(--radius); }
+  .goals__list > .skeleton { flex: none; width: 180px; height: 61px; border-radius: var(--radius); }
   .goals__empty { color: var(--ink-3); font-size: 0.9375rem; }
   .goals__hint { margin: calc(-1 * var(--s-1)) 0 var(--s-3); font-size: 0.8125rem; color: var(--ink-3); }
   .goal-chip {
@@ -1347,19 +1347,19 @@
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
     align-items: center;
-    gap: 1px var(--s-3);
-    min-width: 200px;
-    max-width: 280px;
-    padding: var(--s-2) var(--s-3);
+    gap: 1px var(--s-2);
+    min-width: 0;
+    max-width: 260px;
+    padding: var(--s-2) var(--s-3) var(--s-2) var(--s-2);
     border: 1px solid var(--line);
     border-radius: var(--radius);
     background: var(--surface);
   }
   .goal-chip:first-child { border-color: color-mix(in srgb, var(--vermelho) 45%, var(--line)); background: var(--vermelho-tint); }
-  .goal-chip__min { grid-row: span 2; font-family: var(--font-num); font-weight: 700; font-size: 1.375rem; color: var(--vermelho-ink); line-height: 1; min-width: 3ch; text-align: center; }
+  .goal-chip__min { grid-row: span 2; font-family: var(--font-num); font-weight: 700; font-size: 1.0625rem; color: var(--vermelho-ink); line-height: 1; min-width: 2.5ch; text-align: center; }
   .goal-chip__player { font-weight: 600; font-size: 0.875rem; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .goal-chip__player small { font-weight: 500; color: var(--ink-3); font-size: 0.75rem; }
-  .goal-chip__match { display: flex; align-items: center; gap: 5px; font-family: var(--font-num); font-weight: 600; font-size: 0.875rem; color: var(--ink-2); white-space: nowrap; }
+  .goal-chip__match { display: flex; align-items: center; gap: 4px; min-width: 0; font-family: var(--font-num); font-weight: 600; font-size: 0.875rem; color: var(--ink-2); white-space: nowrap; }
   .goal-chip__match span.is-scorer { color: var(--vermelho-ink); font-weight: 800; font-size: 1rem; letter-spacing: 0.02em; }
   .goal-chip__match span.is-other { color: var(--ink-3); font-weight: 500; }
   .goal-chip__score { color: var(--ink); font-weight: 700; }

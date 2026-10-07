@@ -711,10 +711,10 @@ export function renderTimeline(match, newIds = null) {
         if (annulled) {
           sub.push(h('span', { class: 'tl-item__sub tl-item__sub--alert', text: annulledGoalNote(annul) }));
         } else {
+          // Só o que acrescenta: "Gol" puro já está no ícone (nome acessível = tipo do lance).
           const origin = e.payload?.origin;
           if (origin && origin !== 'open_play') sub.push(ORIGIN_LABEL[origin]);
           if (e.payload?.assist) sub.push(`Assistência: ${e.payload.assist}`);
-          if (!sub.length) sub.push('Gol');
         }
         list.append(timelineItem(e, side, {
           title: eventPlayer(e) || GOAL_TO_CONFIRM, sub, score: annulled ? null : (e.score_after ? formatScore(e.score_after.home, e.score_after.away) : null),
@@ -741,8 +741,10 @@ export function renderTimeline(match, newIds = null) {
       case 'yellow_card':
       case 'red_card': {
         if (e.type === 'yellow_card' && e.sequence != null && secondYellows.has(e.sequence)) break; // vai no vermelho
+        // "Cartão amarelo"/"Cartão vermelho" já é o nome acessível do ícone: sem legenda repetida.
+        // O 2º amarelo fica escrito, porque o vermelho direto e o do 2º amarelo não são o mesmo lance.
         const second = e.type === 'red_card' && e.payload?.reason === 'second_yellow';
-        list.append(timelineItem(e, side, { title: eventPlayer(e) || e.type_label, sub: [second ? 'Segundo amarelo e vermelho' : e.type_label], isNew }));
+        list.append(timelineItem(e, side, { title: eventPlayer(e) || e.type_label, sub: [second ? 'Segundo amarelo e vermelho' : null], isNew }));
         break;
       }
       case 'penalty_awarded':

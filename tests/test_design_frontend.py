@@ -479,8 +479,13 @@ COMPONENTS_JS = """async () => {
   out.varMinute = varItem?.querySelector('.tl-item__min-inline')?.textContent || '';
   // 2º amarelo: um item só (o vermelho automático), não amarelo + amarelo + vermelho
   const cardItems = (name) => [...timeline.querySelectorAll('.tl-item')].filter((li) => li.querySelector('.tl-item__title')?.textContent === name);
-  out.secondYellowItems = cardItems('Thiago Freitas').map((li) => li.querySelector('.tl-item__sub')?.textContent || '');
-  out.plainYellowItems = cardItems('Zé Roberto').map((li) => li.querySelector('.tl-item__sub')?.textContent || '').filter((t) => t.startsWith('Cartão'));
+  // cada cartão: [nome acessível do ícone, legenda]; a legenda só aparece quando acrescenta algo
+  const describe = (li) => [li.querySelector('.tl-item__icon')?.getAttribute('aria-label') || '', li.querySelector('.tl-item__sub')?.textContent || ''];
+  out.secondYellowItems = cardItems('Thiago Freitas').map(describe);
+  out.plainYellowItems = cardItems('Zé Roberto').map(describe).filter(([label]) => label.startsWith('Cartão'));
+  // gol de jogada sem assistência: sem a legenda "Gol" (o ícone já diz); com assistência, ela fica
+  const goalSubs = [...timeline.querySelectorAll('.tl-item--goal')].map((li) => [...li.querySelectorAll('.tl-item__sub')].map((x) => x.textContent));
+  out.goalSubs = goalSubs;
 
   // 5) transmissões: javascript: não vira link
   const facts = M.createMatchCard({ ...live, version: 999, broadcasts: [
@@ -548,8 +553,10 @@ def test_componentes_no_navegador(browser_page):
     )
     assert out["homeIsTeamB"] and out["aggregate"] == out["expectedAggregate"]
     assert out["varMinute"] == "31'"
-    assert out["secondYellowItems"] == ["Cartão amarelo", "Segundo amarelo e vermelho"]  # 1º amarelo + o vermelho do 2º
-    assert out["plainYellowItems"] == ["Cartão amarelo"]
+    # 1º amarelo + o vermelho do 2º; o tipo vai no nome acessível do ícone, sem legenda repetida
+    assert out["secondYellowItems"] == [["Cartão amarelo", ""], ["Cartão vermelho", "Segundo amarelo e vermelho"]]
+    assert out["plainYellowItems"] == [["Cartão amarelo", ""]]
+    assert ["Gol"] not in out["goalSubs"] and ["Assistência: Biel Ventura"] in out["goalSubs"] and ["De pênalti"] in out["goalSubs"]
     assert out["links"] == ["https://tv.example.com/"] and out["maliciousAsText"]
     assert (
         out["correctionStruck"]

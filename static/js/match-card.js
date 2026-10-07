@@ -680,6 +680,16 @@ export function renderTimeline(match, newIds = null) {
   for (const e of events) {
     if (e.type === 'goal_annulled' && e.annuls_event_id != null && byId.has(e.annuls_event_id)) annulments.set(e.annuls_event_id, e);
   }
+  // 2º amarelo: o vermelho automático já conta a história ("Segundo amarelo e vermelho",
+  // ícone amarelo + vermelho); o amarelo de origem (derived_from_sequence, ou a sequence
+  // anterior) sai da lista para não parecer um terceiro cartão.
+  const secondYellows = new Set();
+  for (const e of events) {
+    if (e.type === 'red_card' && e.payload?.reason === 'second_yellow') {
+      const from = e.payload.derived_from_sequence ?? (e.sequence != null ? e.sequence - 1 : null);
+      if (from != null) secondYellows.add(from);
+    }
+  }
   const list = h('ol', { class: 'timeline', 'aria-label': 'Lances do jogo' });
   let score = '0 × 0';
   let shootout = { home: 0, away: 0 };
@@ -730,8 +740,9 @@ export function renderTimeline(match, newIds = null) {
       }
       case 'yellow_card':
       case 'red_card': {
+        if (e.type === 'yellow_card' && e.sequence != null && secondYellows.has(e.sequence)) break; // vai no vermelho
         const second = e.type === 'red_card' && e.payload?.reason === 'second_yellow';
-        list.append(timelineItem(e, side, { title: eventPlayer(e) || e.type_label, sub: [second ? 'Segundo amarelo' : e.type_label], isNew }));
+        list.append(timelineItem(e, side, { title: eventPlayer(e) || e.type_label, sub: [second ? 'Segundo amarelo e vermelho' : e.type_label], isNew }));
         break;
       }
       case 'penalty_awarded':

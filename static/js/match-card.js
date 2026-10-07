@@ -576,10 +576,10 @@ function timelineItem(e, side, { title, sub = [], score = null, extraClass = '',
       ...sub.filter(Boolean).map((sline) => (typeof sline === 'string' ? h('span', { class: 'tl-item__sub', text: sline }) : sline)),
     ),
   );
-  // O placar do gol fica junto do minuto: "11' — 0 × 1" (empilhado em cards estreitos).
+  // O placar do gol fica junto do minuto, numa linha só: "11' · 0 × 1" (celular e desktop).
   const min = h('span', { class: ['tl-item__min', !minute && !score && 'tl-item__min--dot', score && 'tl-item__min--score'] },
     minute ? h('span', { text: minute }) : null,
-    score && minute ? h('span', { class: 'tl-item__min-sep', 'aria-hidden': 'true', text: '—' }) : null,
+    score && minute ? h('span', { class: 'tl-item__min-sep', 'aria-hidden': 'true', text: '·' }) : null,
     score ? h('span', { class: 'tl-item__min-score', text: score }) : null,
   );
   if (!minute && !score) min.setAttribute('aria-hidden', 'true');
@@ -711,10 +711,15 @@ export function renderTimeline(match, newIds = null) {
         if (annulled) {
           sub.push(h('span', { class: 'tl-item__sub tl-item__sub--alert', text: annulledGoalNote(annul) }));
         } else {
+          // Só o que acrescenta: "Gol" puro já está no ícone (nome acessível = tipo do lance).
           const origin = e.payload?.origin;
           if (origin && origin !== 'open_play') sub.push(ORIGIN_LABEL[origin]);
-          if (e.payload?.assist) sub.push(`Assistência: ${e.payload.assist}`);
-          if (!sub.length) sub.push('Gol');
+          // assistência entre parênteses, embaixo do autor; o leitor de tela ouve "Assistência: Fulano"
+          if (e.payload?.assist) {
+            sub.push(h('span', { class: 'tl-item__sub' },
+              h('span', { class: 'visually-hidden', text: 'Assistência: ' }),
+              h('span', { 'aria-hidden': 'true', text: '(' }), e.payload.assist, h('span', { 'aria-hidden': 'true', text: ')' })));
+          }
         }
         list.append(timelineItem(e, side, {
           title: eventPlayer(e) || GOAL_TO_CONFIRM, sub, score: annulled ? null : (e.score_after ? formatScore(e.score_after.home, e.score_after.away) : null),
@@ -741,8 +746,10 @@ export function renderTimeline(match, newIds = null) {
       case 'yellow_card':
       case 'red_card': {
         if (e.type === 'yellow_card' && e.sequence != null && secondYellows.has(e.sequence)) break; // vai no vermelho
+        // "Cartão amarelo"/"Cartão vermelho" já é o nome acessível do ícone: sem legenda repetida.
+        // O 2º amarelo fica escrito, porque o vermelho direto e o do 2º amarelo não são o mesmo lance.
         const second = e.type === 'red_card' && e.payload?.reason === 'second_yellow';
-        list.append(timelineItem(e, side, { title: eventPlayer(e) || e.type_label, sub: [second ? 'Segundo amarelo e vermelho' : e.type_label], isNew }));
+        list.append(timelineItem(e, side, { title: eventPlayer(e) || e.type_label, sub: [second ? 'Segundo amarelo e vermelho' : null], isNew }));
         break;
       }
       case 'penalty_awarded':

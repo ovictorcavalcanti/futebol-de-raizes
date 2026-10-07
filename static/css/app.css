@@ -1045,7 +1045,9 @@
   .tl-item {
     position: relative;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 48px minmax(0, 1fr);
+    /* coluna do meio do tamanho da pílula (o gol traz "7' 2T — 2 × 1" numa linha só); os dois
+       lados com a mesma largura mantêm o trilho no centro */
+    grid-template-columns: minmax(0, 1fr) minmax(48px, auto) minmax(0, 1fr);
     align-items: center;
     min-height: 40px;
   }
@@ -1086,8 +1088,10 @@
   .tl-item__sub { font-size: 0.75rem; line-height: 1.3; color: var(--ink-3); overflow-wrap: anywhere; }
   .tl-item__sub--in { color: var(--verde-ink); }
   .tl-item__sub--alert { color: var(--vermelho-ink); font-weight: 600; }
-  .tl-item__min-sep { display: none; }
-  .tl-item__min-score { display: block; font-size: 0.75rem; white-space: nowrap; }
+  /* minuto e placar do gol na mesma linha, também no celular (igual ao desktop) */
+  .tl-item__min--score { white-space: nowrap; }
+  .tl-item__min-sep { display: inline; margin-inline: 3px; }
+  .tl-item__min-score { display: inline; }
   .tl-item--goal .tl-item__min { background: var(--vermelho); border-color: var(--vermelho); color: var(--on-vermelho); }
   .tl-item--goal .tl-item__icon { color: var(--ink); }
   .tl-item--goal .tl-item__title { font-weight: 700; }
@@ -1143,9 +1147,7 @@
 
   @container match (min-width: 520px) {
     .tl-item { grid-template-columns: minmax(0, 1fr) 104px minmax(0, 1fr); min-height: 44px; }
-    .tl-item__min--score { white-space: nowrap; }
-    .tl-item__min-sep { display: inline; margin-inline: 4px; }
-    .tl-item__min-score { display: inline; font-size: inherit; }
+    .tl-item__min-sep { margin-inline: 4px; }
     .tl-item__title { font-size: 0.9375rem; }
     .tl-item__sub { font-size: 0.8125rem; }
     .tl-item__min { font-size: 0.875rem; min-width: 46px; }

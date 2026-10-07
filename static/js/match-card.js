@@ -576,7 +576,7 @@ function timelineItem(e, side, { title, sub = [], score = null, extraClass = '',
       ...sub.filter(Boolean).map((sline) => (typeof sline === 'string' ? h('span', { class: 'tl-item__sub', text: sline }) : sline)),
     ),
   );
-  // O placar do gol fica junto do minuto: "11' — 0 × 1" (empilhado em cards estreitos).
+  // O placar do gol fica junto do minuto, numa linha só: "11' — 0 × 1" (celular e desktop).
   const min = h('span', { class: ['tl-item__min', !minute && !score && 'tl-item__min--dot', score && 'tl-item__min--score'] },
     minute ? h('span', { text: minute }) : null,
     score && minute ? h('span', { class: 'tl-item__min-sep', 'aria-hidden': 'true', text: '—' }) : null,

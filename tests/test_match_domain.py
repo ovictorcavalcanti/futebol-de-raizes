@@ -1229,6 +1229,24 @@ def test_old_second_yellow_without_red_does_not_block_unrelated_edit_and_void():
     assert info.value.code == "void_breaks_sequence" and info.value.details["sequence"] == sim.events[-1].sequence
 
 
+def test_events_that_no_longer_replay_keep_the_void_and_edit_rules():
+    """Partida editada que deixou os eventos inconsistentes (já não se refazem): sem base
+    de cartões a comparar, vale a regra de sempre."""
+    sim = live_sim()
+    goal = sim.goal(SPORT, "Zé", 10)
+    other = sim.goal(NAUTICO, "Kieza", 20)
+    broken = [replace(goal, period="second_half") if event.id == goal.id else event for event in sim.events]
+    # cancelar o lance culpado continua sendo a saída
+    assert check_void(broken, goal.id, CTX).voided_ids == (goal.id,)
+    # cancelar outro lance segue recusado como void_breaks_sequence, com a regra em cause
+    with pytest.raises(DomainError) as info:
+        check_void(broken, other.id, CTX)
+    assert info.value.code == "void_breaks_sequence" and info.value.details["cause"] == "period_mismatch"
+    assert info.value.message.startswith("Cancelar este lançamento deixa a sequência inválida:")
+    # corrigir o lance culpado também
+    assert check_edit(broken, replace(goal, minute=11), CTX).voided_ids == ()
+
+
 def test_period_pauses_track_suspensions_of_the_current_period():
     sim = live_sim()
     suspended = sim.status("suspend")

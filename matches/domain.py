@@ -740,7 +740,7 @@ def check_void(events: Sequence[Event], event_id: int, ctx: MatchContext) -> Voi
             {"event_id": event_id, "origin_sequence": origin},
         )
 
-    old = _card_issues(visible, _replay(visible, ctx))
+    old = _old_card_issues(visible, ctx)
     try:
         replay, dropped, missing = _settle(visible, {target.sequence}, ctx, old)
     except DomainError as exc:
@@ -777,7 +777,7 @@ def check_edit(events: Sequence[Event], edited: Event, ctx: MatchContext) -> Voi
     """
     before = visible_events(events)
     visible = [edited if event.id == edited.id else event for event in before]
-    replay, dropped, missing = _settle(visible, set(), ctx, _card_issues(before, _replay(before, ctx)))
+    replay, dropped, missing = _settle(visible, set(), ctx, _old_card_issues(before, ctx))
     if missing:
         raise DomainError(
             "event_not_editable",
@@ -1088,13 +1088,23 @@ def _card_issues(events: Sequence[Event], replay: _Replay) -> tuple[set[int], se
     return orphans, set(replay.second_yellows) - {derived_from(event) for event in reds}
 
 
+def _old_card_issues(events: Sequence[Event], ctx: MatchContext) -> tuple[set[int], set[int]]:
+    """`_card_issues` dos eventos de antes da mudança. Se eles já não se refazem (partida
+    editada que deixou os eventos inconsistentes), não há base de cartões a comparar e a
+    mudança segue a regra de sempre — cancelar o lance culpado continua sendo a saída."""
+    try:
+        return _card_issues(events, _replay(events, ctx))
+    except DomainError:
+        return set(), set()
+
+
 def _settle(
     visible: Sequence[Event], sequences: set[int], ctx: MatchContext, old: tuple[set[int], set[int]]
 ) -> tuple[_Replay, set[int], list[int]]:
     """Refaz `visible` sem `sequences` (e o que cai com eles, em cascata), derrubando
     também o vermelho automático cujo amarelo de origem deixou de ser o 2º do jogador.
 
-    `old` = `_card_issues` dos eventos de antes da mudança: o que já estava inconsistente
+    `old` = `_old_card_issues` dos eventos de antes da mudança: o que já estava inconsistente
     (partidas gravadas pela correção antiga, que não refazia o vermelho automático) fica
     como está — não cai nem trava a mudança. Devolve (replay, sequences derrubadas,
     amarelos que passam a ser o 2º do jogador sem o vermelho automático — ex.: um 3º

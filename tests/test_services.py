@@ -218,6 +218,17 @@ def test_old_card_inconsistency_does_not_block_unrelated_edit_or_void(league, li
     assert cards()[:len(before)] == before  # os cartões antigos continuam como estavam
 
 
+def test_void_of_the_culprit_still_works_when_events_no_longer_replay(league, live_match, operator_user):
+    """Partida editada que deixou os eventos inconsistentes: o operador fica sem ações,
+    e cancelar o lance culpado continua sendo a saída."""
+    sport = league["teams"][0]
+    op = Op(live_match, operator_user)
+    op.post("match_start")
+    goal = op.goal(sport, 10, "Zé")
+    MatchEvent.objects.filter(pk=goal.event.id).update(period="second_half")
+    assert op.void(goal.event.id).voided_ids == [goal.event.id]
+
+
 def test_void_already_voided_is_idempotent(league, live_match, operator_user):
     op = Op(live_match, operator_user)
     op.post("match_start")

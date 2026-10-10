@@ -477,9 +477,11 @@ function onMatch(message) {
   if (!match) return;
   rankingOnMatch(message.stage_id, match);
   const card = state.cards.get(match.id);
-  const before = card ? getCardMatch(card)?.status : null;
+  const before = card ? getCardMatch(card) : null;
   if (card) updateMatchCard(card, match, { flash: true });
-  if (card && before && before !== match.status && state.stage?.format !== 'knockout') reorderCards();
+  // a ordem depende do status; grupo trocado no admin leva o card para a linha do outro grupo
+  const placement = (m) => `${m.status}|${m.group?.id ?? ''}`;
+  if (card && before && placement(before) !== placement(getCardMatch(card)) && state.stage?.format !== 'knockout') reorderCards();
   // mata-mata: agregado e vencedor vêm no TieOut da partida e valem para o card do outro jogo
   syncTieCards(state.cards.values(), match);
 }

@@ -687,13 +687,13 @@ def test_team_with_matches_cannot_leave_the_group(admin_client_fdr, league, oper
     data[f"group_teams-{index}-DELETE"] = "on"
     response = admin_client_fdr.post(change_url(group), data)
     assert response.status_code == 200
-    assert "Time com partidas neste grupo não sai dele: Sport." in response.content.decode()
+    assert "Time com partidas nesta fase não sai do grupo: Sport." in response.content.decode()
     assert GroupTeam.objects.filter(group=group, team=sport).exists()
     # Trocar o time da linha também é tirá-lo do grupo.
     data[f"group_teams-{index}-DELETE"] = ""
     data[f"group_teams-{index}-team"] = str(Team.objects.create(name="Central", short_name="CEN").pk)
     response = admin_client_fdr.post(change_url(group), data)
-    assert "Time com partidas neste grupo não sai dele: Sport." in response.content.decode()
+    assert "Time com partidas nesta fase não sai do grupo: Sport." in response.content.decode()
 
 
 def test_group_with_matches_keeps_its_stage(admin_client_fdr, league, roles):
@@ -853,6 +853,65 @@ def test_team_swap_in_finished_match_between_groups_recomputes_the_group_it_left
     }
     assert played[("Grupo B", "Santa Cruz")] == 0
     assert played[("Grupo C", "Náutico")] == 1
+
+
+def test_away_team_of_match_between_groups_cannot_leave_its_group(admin_client_fdr, two_groups, operator_user):
+    """A partida fica no grupo do mandante, mas o visitante a joga pelo grupo dele: sair do
+    grupo tiraria o resultado de todas as tabelas."""
+    group_a, group_b = two_groups["groups"]
+    sport, _nautico, santa_cruz, retro = two_groups["teams"]
+    assert add_match(admin_client_fdr, two_groups["stage"], group_a, sport, santa_cruz).status_code == 302
+    finish(Match.objects.get(stage=two_groups["stage"]), operator_user, 1, 0)
+    data = post_data(admin_client_fdr.get(change_url(group_b)))
+    index = {data[f"group_teams-{n}-team"]: n for n in range(2)}
+    data[f"group_teams-{index[str(santa_cruz.pk)]}-DELETE"] = "on"
+    response = admin_client_fdr.post(change_url(group_b), data)
+    assert response.status_code == 200
+    assert "Time com partidas nesta fase não sai do grupo: Santa Cruz." in response.content.decode()
+    assert GroupTeam.objects.filter(group=group_b, team=santa_cruz).exists()
+    assert Standing.objects.get(group=group_b, team=santa_cruz, kind="official").played == 1
+    # Quem não jogou na fase continua saindo.
+    data[f"group_teams-{index[str(santa_cruz.pk)]}-DELETE"] = ""
+    data[f"group_teams-{index[str(retro.pk)]}-DELETE"] = "on"
+    assert admin_client_fdr.post(change_url(group_b), data).status_code == 302
+    assert not GroupTeam.objects.filter(group=group_b, team=retro).exists()
+
+
+def test_group_of_the_away_team_in_match_between_groups_is_kept(admin_client_fdr, two_groups, operator_user, roles):
+    """Nenhuma partida aponta para o grupo do visitante (o PROTECT não o vê), mas o jogo conta
+    para ele: o grupo não é apagado (página, ação em lote, página da fase) nem muda de fase."""
+    group_a, group_b = two_groups["groups"]
+    sport, _nautico, santa_cruz, _retro = two_groups["teams"]
+    stage = two_groups["stage"]
+    assert add_match(admin_client_fdr, stage, group_a, sport, santa_cruz).status_code == 302
+    finish(Match.objects.get(stage=stage), operator_user, 1, 0)
+    assert not group_b.matches.exists()
+
+    page = admin_client_fdr.get(url(Group, "delete", group_b.pk))
+    assert [str(item) for item in page.context["protected"]] == [
+        f'Partida: <a href="{url(Match, "change", Match.objects.get(stage=stage).pk)}">Sport × Santa Cruz</a>'
+    ]
+    admin_client_fdr.post(url(Group, "delete", group_b.pk), {"post": "yes"})
+    admin_client_fdr.post(url(Group), {"action": "delete_selected", "_selected_action": [str(group_b.pk)], "post": "yes"})
+    assert Group.objects.filter(pk=group_b.pk).exists()
+
+    data = stage_form(admin_client_fdr, stage)
+    index = next(n for n in range(2) if data[f"groups-{n}-id"] == str(group_b.pk))
+    data[f"groups-{index}-DELETE"] = "on"
+    response = admin_client_fdr.post(change_url(stage), data)
+    assert response.status_code == 200
+    assert "Grupo com partidas nesta fase não é apagado: Grupo B." in response.content.decode()
+    assert Group.objects.filter(pk=group_b.pk).exists()
+
+    other = make_stage(stage.season, Stage.Format.GROUPS, name="Grupos 2", position=3)
+    data = post_data(admin_client_fdr.get(change_url(group_b)))
+    data["stage"] = str(other.pk)
+    response = admin_client_fdr.post(change_url(group_b), data)
+    assert response.status_code == 200
+    assert "O grupo já tem partidas" in response.content.decode()
+    group_b.refresh_from_db()
+    assert group_b.stage_id == stage.pk
+    assert Standing.objects.get(group=group_b, team=santa_cruz, kind="official").played == 1
 
 
 def test_tie_change_that_breaks_events_is_rejected(admin_client_fdr, league, operator_user):

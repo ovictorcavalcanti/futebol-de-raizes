@@ -840,6 +840,16 @@ def test_home_fase_de_grupos_em_linhas_so_com_os_grupos_com_jogo(open_page, fixt
     assert page.evaluate(loose) == 0
     assert not errors, errors
 
+    def cross_yesterday(api):  # outro dia no seletor: o aviso não diz "hoje"
+        cross_groups(api)
+        yesterday = (datetime.fromisoformat(api.fx["HOME"]["date"]) - timedelta(days=1)).date().isoformat()
+        api.fx = {**api.fx, "HOME": {**api.fx["HOME"], "date": yesterday}}
+
+    page, _, errors = open_page("/", prepare=cross_yesterday)
+    page.wait_for_selector(".group-row__table .standings__group")
+    assert [r[2] for r in page.evaluate(rows)][:2] == ["Só jogo entre grupos ontem (veja abaixo)."] * 2
+    assert not errors, errors
+
     # o admin troca os times e o grupo do jogo (status e início iguais): a home busca de novo
     moved = {**base, "home": nautico, "away": santa, "group": {"id": group_b["id"], "name": group_b["name"]}, "version": base["version"] + 1}
 
@@ -973,6 +983,22 @@ def test_competicao_rodadas_fase_e_slug_inexistente(open_page, fixtures):
     page, _, errors = open_page("/competition.html?slug=nao-existe")
     page.wait_for_selector("#competition-missing:not([hidden])")
     assert page.evaluate("document.getElementById('competition-grid').hidden")
+    assert not errors, errors
+
+
+def test_competicao_grupos_tabelas_atualizam_no_lugar(open_page, fixtures):
+    """Mensagem `standings` na fase de grupos: as tabelas redesenham no lugar, sem refazer as
+    linhas (os cards e as tabelas continuam os mesmos elementos), mesmo com os jogos da API
+    numa ordem diferente da dos cards na tela."""
+    page, api, errors = open_page("/competition.html?slug=copa-pernambuco&stage=6")
+    page.wait_for_selector("#round-matches .group-row__table .standings__group")
+    page.evaluate("window.__table = document.querySelector('.group-row__table .standings'); window.__card = document.querySelector('#round-matches .match')")
+    update = copy.deepcopy({**fixtures["STANDINGS_GROUPS"], "stage_id": 6})
+    update["groups"][0]["rows"][0]["points"] = 99
+    ping = _sse([("ping", {"server_time": _now_iso()}, None)])
+    api.streams = [_sse([("standings", {"stage_id": 6, "standings": update}, 7001)]), ping]
+    page.wait_for_function("() => document.querySelector('.group-row__table td.col-pts')?.textContent.startsWith('99')", timeout=10_000)
+    assert page.evaluate("document.contains(window.__table) && document.contains(window.__card)")
     assert not errors, errors
 
 

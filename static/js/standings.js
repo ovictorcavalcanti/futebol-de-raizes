@@ -92,7 +92,7 @@ function teamCell(row) {
   );
 }
 
-function groupTable(standings, group, opts, multiple) {
+function groupTable(standings, group, opts, multiple, last) {
   const rows = group.rows || [];
   const anyPlaying = rows.some((r) => r.playing);
   const highlight = opts.highlightTeamIds;
@@ -119,10 +119,31 @@ function groupTable(standings, group, opts, multiple) {
     return tr;
   }));
   const table = h('table', { class: 'table' }, groupCaption(standings, group, multiple, anyPlaying), thead, tbody);
-  return h('div', { class: 'card standings__group', 'data-group-id': group.id }, h('div', { class: 'table-scroll' }, table), multiple ? null : footer(standings, opts, rows));
+  return h('div', { class: 'card standings__group', 'data-group-id': group.id }, h('div', { class: 'table-scroll' }, table),
+    footer(standings, opts, groupFoot(standings, group, multiple, last)));
 }
 
-function footer(standings, opts, rows = []) {
+const teamIdsOf = (groups) => new Set(groups.flatMap((g) => (g.rows || []).map((r) => r.team?.id)).filter((id) => id != null));
+
+/** Embaixo de cada grupo: a legenda das cores e as punições dos times dele; os critérios de
+ *  desempate só no último grupo (uma vez, dentro do card, sem caixa à parte). */
+function groupFoot(standings, group, multiple, last) {
+  const groups = standings.groups || [];
+  let adjustments = standings.adjustments || [];
+  if (multiple) {
+    const mine = teamIdsOf([group]);
+    const anywhere = teamIdsOf(groups);
+    // punição de time fora de todos os grupos fica no último, para não sumir
+    adjustments = adjustments.filter((a) => mine.has(a.team?.id) || (last && !anywhere.has(a.team?.id)));
+  }
+  return { adjustments, criteria: last, rows: groups.flatMap((g) => g.rows || []) };
+}
+
+/**
+ * Rodapé de uma tabela. `opts.tied` (opcional) diz se há empate não desfeito em alguma
+ * tabela da fase, para a nota "=" quando os grupos são desenhados um a um.
+ */
+function footer(standings, opts, { adjustments = [], criteria = true, rows = [] } = {}) {
   const parts = [];
   if (opts.legend !== false && standings.legend?.length) {
     parts.push(h('ul', { class: 'legend', 'aria-label': 'Legenda das zonas' }, ...standings.legend.map((item) => h('li', { class: 'legend__item' },
@@ -131,18 +152,18 @@ function footer(standings, opts, rows = []) {
       item.condition ? h('span', { class: 'legend__range', text: `(${item.condition})` }) : null,
     ))));
   }
-  if (standings.adjustments?.length) {
+  if (adjustments.length) {
     // Punição muda a tabela: aparece sempre (mesmo sem legenda), com o motivo.
     parts.push(h('ul', { class: 'adjustments', 'aria-label': 'Punições e bonificações em pontos' },
-      ...standings.adjustments.map((item) => h('li', { class: 'adjustments__item' },
+      ...adjustments.map((item) => h('li', { class: 'adjustments__item' },
         h('span', { class: 'adj-mark', 'aria-hidden': 'true', text: '*' }),
         h('span', { text: adjustmentNote(item) }),
       ))));
   }
-  if (opts.criteria !== false && standings.criteria?.length) {
-    const tied = rows.some((r) => r.tied);
+  if (criteria && opts.criteria !== false && standings.criteria?.length) {
+    const tied = opts.tied ?? rows.some((r) => r.tied);
     parts.push(h('div', { class: 'criteria' },
-      h('p', { class: 'criteria__title', text: 'Desempate: ' }),
+      h('p', { class: 'criteria__title', text: 'Critérios de desempate' }),
       h('ol', { class: 'criteria__list' }, ...standings.criteria.map((c) => h('li', { text: c.label }))),
       tied ? h('p', { class: 'criteria__note' }, h('span', { class: 'tied-mark', 'aria-hidden': 'true', text: '=' }), ' empate que os critérios não desfizeram (ordem alfabética).') : null,
     ));
@@ -150,27 +171,10 @@ function footer(standings, opts, rows = []) {
   return parts.length ? h('div', { class: 'standings__foot' }, ...parts) : null;
 }
 
-/** Legenda, punições e critérios de todos os grupos num card à parte (ou null). */
-function footerCard(standings, opts) {
-  const foot = footer(standings, opts, (standings?.groups || []).flatMap((g) => g.rows || []));
-  return foot ? h('div', { class: 'card' }, foot) : null;
-}
-
-/**
- * Rodapé comum das tabelas de grupo mostradas uma a uma (página da competição: cada tabela
- * ao lado dos jogos do grupo, criadas com legend/criteria false e sem punições).
- * @param {object} standings StageStandingsOut
- * @returns {HTMLElement|null} <div class="standings"> com o card, ou null sem nada a mostrar
- */
-export function createStandingsFooter(standings, opts = {}) {
-  const card = footerCard(standings, opts);
-  return card ? h('div', { class: 'standings' }, card) : null;
-}
-
 /**
  * Classificação de uma fase (StageStandingsOut, CONTRACT §3).
  * @param {object} standings StageStandingsOut
- * @param {{compact?: boolean, legend?: boolean, criteria?: boolean, highlightTeamIds?: Set<number>}} [opts]
+ * @param {{compact?: boolean, legend?: boolean, criteria?: boolean, tied?: boolean, highlightTeamIds?: Set<number>}} [opts]
  *   compact força a versão enxuta (sem GC; GP fica, é critério de desempate); sem ela, colunas somem por container query.
  * @returns {HTMLElement} <div class="standings">
  */
@@ -193,11 +197,7 @@ export function updateStandings(el, standings, opts = undefined) {
   el.classList.toggle('standings--compact', !!opts.compact);
   const groups = standings?.groups || [];
   const multiple = groups.length > 1;
-  const parts = groups.map((g) => groupTable(standings, g, opts, multiple));
-  if (multiple) {
-    const foot = footerCard(standings, opts);
-    if (foot) parts.push(foot);
-  }
+  const parts = groups.map((g, i) => groupTable(standings, g, opts, multiple, i === groups.length - 1));
   if (!parts.length) parts.push(h('p', { class: 'muted', text: 'Classificação ainda sem jogos.' }));
   el.dataset.stageId = standings?.stage_id ?? '';
   el.replaceChildren(...parts);

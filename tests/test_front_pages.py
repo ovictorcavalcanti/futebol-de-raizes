@@ -774,6 +774,46 @@ def test_home_sem_jogo(open_page, fixtures):
     assert not errors, errors
 
 
+def test_home_fase_de_grupos_so_com_as_tabelas_dos_grupos_com_jogo(open_page, fixtures):
+    """Fase de grupos na home: só a tabela dos grupos com jogo no dia (também depois da
+    mensagem `standings`, que traz todos os grupos); critérios dentro do card, sem caixa à parte."""
+    groups = fixtures["STANDINGS_GROUPS"]
+    group_a, group_b = groups["groups"]
+    sport, central = group_a["rows"][0]["team"], group_a["rows"][1]["team"]
+    nautico = group_b["rows"][0]["team"]
+    base = {**_summary(fixtures["MATCHES"]["finished"]), "group": {"id": group_a["id"], "name": group_a["name"]}}
+
+    def home_with(*matches):
+        stage = {"id": groups["stage_id"], "name": "Fase de grupos", "format": "groups", "position": 1, "matches": list(matches), "standings": groups}
+        home = copy.deepcopy(fixtures["HOME"])
+        home["competitions"] = [{**home["competitions"][0], "stages": [stage]}]
+        return home
+
+    tables = "() => [...document.querySelectorAll('[data-hook=\"standings\"] .standings__group')].map((g) => [g.querySelector('caption').firstChild.textContent, !!g.querySelector('.legend'), !!g.querySelector('.criteria')])"
+    loose = "() => document.querySelectorAll('[data-hook=\"standings\"] .standings > .card:not(.standings__group)').length"
+    update = copy.deepcopy(groups)
+    update["groups"][0]["rows"][0]["points"] = 99
+
+    def only_group_a(api):
+        api.fx = {**api.fx, "HOME": home_with({**base, "home": sport, "away": central})}
+        api.streams = [_sse([("standings", {"stage_id": groups["stage_id"], "standings": update}, 9001)])]
+
+    page, _, errors = open_page("/", prepare=only_group_a)
+    page.wait_for_function("() => document.querySelector('[data-hook=\"standings\"] .col-pts.is-adjusted, [data-hook=\"standings\"] td.col-pts')?.textContent.startsWith('99')")
+    assert page.evaluate(tables) == [["Grupo A", True, True]]  # Grupo B sem jogo no dia: fora
+    assert page.evaluate(loose) == 0
+    assert not errors, errors
+
+    def cross_groups(api):  # jogo entre grupos: os dois grupos aparecem
+        api.fx = {**api.fx, "HOME": home_with({**base, "home": sport, "away": nautico})}
+
+    page, _, errors = open_page("/", prepare=cross_groups)
+    page.wait_for_selector('[data-hook="standings"] .standings__group')
+    assert page.evaluate(tables) == [["Grupo A", True, False], ["Grupo B", True, True]]
+    assert page.evaluate(loose) == 0
+    assert not errors, errors
+
+
 def test_home_seletor_de_dias(open_page):
     today = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
     tomorrow = (today + timedelta(days=1)).isoformat()
@@ -857,13 +897,21 @@ def test_competicao_rodadas_fase_e_slug_inexistente(open_page):
     # fase de grupos: uma linha por grupo (na ordem da tabela), com os jogos e a tabela dele
     rows = "() => [...document.querySelectorAll('#round-matches .group-row:not(.group-row--head):not(.group-row--foot)')].map((g) => [g.querySelector('.match-group__title').textContent, g.querySelectorAll('.match').length, g.querySelector('.group-row__empty')?.textContent || '', g.querySelector('.group-row__table caption')?.textContent || ''])"
     assert page.evaluate(rows) == [["Grupo A", 1, "", "Grupo A"], ["Grupo B", 1, "", "Grupo B"]]
-    assert page.evaluate("document.querySelector('#round-matches .group-row--foot .legend') !== null")  # legenda uma vez, no fim
+    # legenda das cores embaixo de cada grupo; os critérios de desempate uma vez, dentro do card
+    # do último grupo (sem caixa à parte depois das tabelas)
+    assert page.evaluate("[...document.querySelectorAll('#round-matches .group-row__table')].map((t) => [!!t.querySelector('.standings__group .legend'), !!t.querySelector('.standings__group .criteria')])") == [[True, False], [True, True]]
+    assert page.evaluate("document.querySelectorAll('#round-matches .criteria').length") == 1
+    assert page.evaluate("document.querySelectorAll('#round-matches .standings > .card:not(.standings__group)').length") == 0
     assert page.evaluate(  # cards do grupo com respiro entre si
         "parseFloat(getComputedStyle(document.querySelector('#round-matches .match-group__games')).rowGap) > 0"
     )
     page.set_viewport_size({"width": 1280, "height": 900})
     aligned = "() => [...document.querySelectorAll('#round-matches .group-row__table')].map((t) => { const first = t.parentElement.querySelector('.match-group__games, .group-row__empty'); return [Math.round(first.getBoundingClientRect().top - t.getBoundingClientRect().top), t.getBoundingClientRect().left > first.getBoundingClientRect().right]; })"
     assert page.evaluate(aligned) == [[0, True], [0, True]]  # tabela à direita, topo com o primeiro jogo
+    # a tabela (com a legenda) é mais alta que o jogo do grupo: ela define a altura da linha
+    sizes = page.evaluate("[...document.querySelectorAll('#round-matches .group-row__table')].map((t) => { const row = t.closest('.group-row'); const games = row.querySelector('.match-group__games'); const next = row.nextElementSibling; return {table: t.getBoundingClientRect().bottom, games: games.getBoundingClientRect().bottom, row: row.getBoundingClientRect().bottom, next: next ? next.getBoundingClientRect().top : null}; })")
+    assert all(s["table"] > s["games"] and s["row"] >= s["table"] - 0.5 and (s["next"] is None or s["next"] > s["table"]) for s in sizes), sizes
+    assert sizes[0]["next"] is not None  # o grupo seguinte começa depois da tabela do primeiro
     assert page.evaluate("document.getElementById('competition-grid').classList.contains('split--no-aside')")
     page.set_viewport_size({"width": 390, "height": 844})
     page.click("#round-prev")

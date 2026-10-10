@@ -139,7 +139,7 @@ for (const stage of comp.stages) {
 | `[data-hook="competition-name"]`, `[data-hook="season"]`, `[data-hook="competition-eyebrow"]` | Título (contém um esqueleto até ser preenchido), ano da temporada, rótulo acima. |
 | `#stage-select` (`disabled`) | `<option value=stage.id>` por fase; habilite ao preencher. |
 | `#round-prev`, `#round-next` (`disabled`), `#round-label` (`aria-live="polite"`) | Navegação ‹ Rodada 5 ›. |
-| `#round-matches` (`aria-busy="true"`) | Cards da rodada (`createMatchCard`); mata-mata: um bloco por confronto (`createTieGroup`); fase de grupos com tabela: uma linha por grupo (`.group-row`: jogos do grupo ou "Não há jogos deste grupo nesta rodada." e a tabela do grupo ao lado, topo alinhado; legenda e critérios no fim, `createStandingsFooter`). |
+| `#round-matches` (`aria-busy="true"`) | Cards da rodada (`createMatchCard`); mata-mata: um bloco por confronto (`createTieGroup`); fase de grupos com tabela: uma linha por grupo (`.group-row`: jogos do grupo ou "Não há jogos deste grupo nesta rodada." e a tabela do grupo ao lado, topo alinhado, com a legenda das cores e as punições do grupo embaixo; a linha tem a altura do mais alto dos dois; critérios de desempate uma vez, dentro do card do último grupo). |
 | `#round-empty` (`hidden`) | "Nenhum jogo nesta rodada." |
 | `#stage-standings` | `createStandings(stage.standings)` (liga; na fase de grupos as tabelas vão para as linhas de `#round-matches`). |
 | `#stage-ties` (`hidden`) › `[data-hook="ties-list"]` | Sem uso (fica `hidden`): o agregado vem no card do jogo de volta. |
@@ -261,7 +261,7 @@ riscado (`<s>`), nunca como placar atual.
 ### `standings.js`
 * `createStandings(stageStandings, {compact?, legend = true, criteria = true, highlightTeamIds?: Set}) → <div class="standings">`
 * `updateStandings(el, stageStandings, opts?)` — redesenha no lugar; sem `opts`, valem as da criação (a mensagem `standings` do stream não precisa repassá-las).
-* Uma `<table>` por grupo com `<caption>`; faixa de zona (cor da API em `--zone`) + nome da zona em texto (visível no início de cada zona, e no texto acessível de toda linha); ponto pulsante em quem está `playing`; `=` em `tied`; legenda com `<svg><rect fill="cor da API">`; critérios em `<ol>` na ordem configurada. Colunas somem por container query (GP/GC abaixo de 440 px; V/E/D abaixo de 330 px; sigla abaixo de 280 px); `compact` força a versão sem GP/GC.
+* Uma `<table>` por grupo com `<caption>`; faixa de zona (cor da API em `--zone`) + nome da zona em texto (visível no início de cada zona, e no texto acessível de toda linha); ponto pulsante em quem está `playing`; `=` em `tied`; legenda com `<svg><rect fill="cor da API">`; critérios em `<ol>` na ordem configurada, num bloco à parte da legenda ("Critérios de desempate", numerados em colunas). Vários grupos: legenda das cores e punições dos times de cada grupo embaixo da tabela dele; critérios só no card do último (sem caixa à parte). A home mostra, na fase de grupos, só as tabelas dos grupos com jogo no dia (o grupo da partida e o de cada time), também nas mensagens `standings`. Colunas somem por container query (GP/GC abaixo de 440 px; V/E/D abaixo de 330 px; sigla abaixo de 280 px); `compact` força a versão sem GP/GC.
 * Punição/bonificação em pontos: linha com `points_adjustment ≠ 0` ganha `<abbr class="adj-mark">*</abbr>` nos pontos (título acessível "Punição: perdeu 3 pontos fora de campo", mais texto escondido para leitor de tela); `adjustments` vira a lista `.adjustments` embaixo da legenda ("Santa Cruz: −3 pts — escalação irregular", sempre visível, mesmo com `legend: false`). Funções puras exportadas: `adjustmentLabel(points)`, `adjustmentNote(item)`, `adjustmentTitle(points)` (tests/js/standings.test.mjs).
 
 ### `api.js`
@@ -330,7 +330,9 @@ document.addEventListener('visibilitychange', () => document.hidden || clock.che
   Botões desabilitados nas pontas. O `<select>` troca a fase.
 * Liga: cards + classificação (legenda e critérios) no aside. Grupos (com a tabela da fase
   exibida): uma linha por grupo, jogos à esquerda e a tabela do grupo à direita, alinhada com o
-  primeiro jogo; os botões das classificações sobem para a primeira linha. Mata-mata: um bloco
+  primeiro jogo e a legenda das cores embaixo (critérios de desempate uma vez, no card do
+  último grupo); os
+  botões das classificações sobem para a primeira linha. Mata-mata: um bloco
   por confronto com os cards (com "Semifinal · Ida" na faixa de meta, também na home); o card
   da ida diz "Jogo de ida", o da volta traz o agregado (parcial até o fim) e, no fim, quem
   avança e como; a mensagem `match` atualiza o confronto nos dois cards (`syncTieCards`,

@@ -55,7 +55,8 @@ DETAIL_PREFETCH = (
     "stats",
 )
 LATEST_GOALS_LIMIT = 10
-MATCHES_LIST_LIMIT = 500  # GET /api/matches sem filtro nenhum
+MATCHES_LIST_LIMIT = 500  # teto por página de GET /api/matches, com ou sem filtro
+MATCHES_LIST_MAX_OFFSET = 100_000  # `offset` maior → 400 (e nada de bigint estourado no banco)
 # Jogo da véspera que passa da meia-noite fica na home até 2 h depois do fim.
 OVERNIGHT_GRACE = timedelta(hours=2)
 CLOCK_STATUSES = frozenset({Status.LIVE, Status.SUSPENDED})
@@ -890,30 +891,40 @@ def _ranking_refs(query) -> list[dict]:
     return [{"id": item.id, "name": item.name, "scope": item.scope} for item in query.order_by("position", "id")]
 
 
-def matches_list(round_id: int | None = None, date=None, status=None, stage_id: int | None = None) -> dict:
+def matches_list(
+    round_id: int | None = None,
+    date=None,
+    status=None,
+    stage_id: int | None = None,
+    *,
+    limit: int = MATCHES_LIST_LIMIT,
+    offset: int = 0,
+) -> dict:
     """GET /api/matches. `date` = dia de Brasília (date ou "AAAA-MM-DD"); `status` aceita
-    vários separados por vírgula. Sem filtro, no máximo MATCHES_LIST_LIMIT partidas.
+    vários separados por vírgula. Com ou sem filtro, uma página de no máximo
+    MATCHES_LIST_LIMIT partidas (`limit`, a partir de `offset`, em ordem de início);
+    `has_more` diz se há partidas depois desta página.
     Status desconhecido ou data inválida → ValueError (a API responde 400)."""
     query = Match.objects.all()
-    filtered = False
     if round_id is not None:
-        query, filtered = query.filter(round_filter(round_id)), True
+        query = query.filter(round_filter(round_id))
     if stage_id is not None:
-        query, filtered = query.filter(stage_id=stage_id), True
+        query = query.filter(stage_id=stage_id)
     if date not in (None, ""):
         day = _as_day(date)
         start, end = timeutils.day_bounds(day)
-        query, filtered = query.filter(kickoff_at__gte=start, kickoff_at__lt=end), True
+        query = query.filter(kickoff_at__gte=start, kickoff_at__lt=end)
     if status not in (None, ""):
         wanted = [item.strip() for item in (status.split(",") if isinstance(status, str) else status) if item.strip()]
         unknown = [item for item in wanted if item not in Match.Status.values]
         if unknown:
             raise ValueError(f"Status desconhecido: {', '.join(unknown)}.")
-        query, filtered = query.filter(status__in=wanted), True
-    query = query.order_by("kickoff_at", "id")
-    if not filtered:
-        query = query[:MATCHES_LIST_LIMIT]
-    return {**_stamp(), "matches": serialize_matches(list(query.select_related(*MATCH_RELATED)))}
+        query = query.filter(status__in=wanted)
+    limit = max(1, min(limit, MATCHES_LIST_LIMIT))
+    offset = max(0, min(offset, MATCHES_LIST_MAX_OFFSET))
+    # Um a mais que a página só para saber se há mais; o custo fica limitado pelo teto.
+    rows = list(query.select_related(*MATCH_RELATED).order_by("kickoff_at", "id")[offset : offset + limit + 1])
+    return {**_stamp(), "matches": serialize_matches(rows[:limit]), "has_more": len(rows) > limit}
 
 
 # --- Catálogo do operador -------------------------------------------------------------------

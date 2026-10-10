@@ -169,4 +169,4 @@ def test_api_docs_and_openapi_list_every_route(admin_client_fdr):
         "/api/matches/{match_id}",
     }
     params = {param["name"] for param in paths["/api/matches"]["get"]["parameters"]}
-    assert params == {"roundId", "date", "status", "stageId"}
+    assert params == {"roundId", "date", "status", "stageId", "limit", "offset"}

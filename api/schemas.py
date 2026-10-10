@@ -211,6 +211,7 @@ class RankingStandingsOut(Stamped):
 
 class MatchesOut(Stamped):
     matches: list[dict[str, Any]] = Field(..., description="[MatchOut]")
+    has_more: bool = Field(..., description="Há partidas depois desta página (peça com offset)")
 
 
 class MatchDetailOut(Stamped):

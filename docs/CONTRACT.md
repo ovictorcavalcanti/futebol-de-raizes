@@ -321,7 +321,7 @@ Sem vencedor: `winner_team_id`, `decided_by` e `decided_by_label` são `null` e 
   `serialize_event(event, match, timeline=)`, `serialize_match(match, detail=False, events=None, tie_legs=None)`,
   `serialize_matches(qs_ou_lista, detail=False)` (uma consulta de eventos para todas),
   `home_payload(day=None, now=None)`, `latest_goals(day, now, limit=10)`, `competitions_menu()`,
-  `competition_payload(slug, stage_id=None, round_id=None)`, `matches_list(round_id, date, status, stage_id)`,
+  `competition_payload(slug, stage_id=None, round_id=None)`, `matches_list(round_id, date, status, stage_id, *, limit=500, offset=0)`,
   `match_detail(match_id)`, `match_state(match)` → `{"match", "available"}`, `catalog_payload()` e os
   corpos das respostas do operador: `post_payload(PostResult)`, `status_payload(PostResult)`,
   `void_payload(VoidOutcome)`. Inexistente → `Model.DoesNotExist` (404); filtro inválido → `ValueError` (400).
@@ -375,7 +375,7 @@ usado volta no `X-Request-ID` da resposta e vai nos logs e na auditoria.
 | `GET /api/competitions` | `{"competitions": [{"id","name","slug","short_name","position"}]}` |
 | `GET /api/competitions/{slug}?stage=&round=` | CompetitionOut (micro-cache no servidor, §3) |
 | `GET /api/stages/{id}/standings?live=1` | StageStandingsOut + `server_time`, `timezone` |
-| `GET /api/matches?roundId=&date=&status=&stageId=` | `{"server_time","timezone","matches": [MatchOut]}` (`date` = dia de Brasília pelo `kickoff_at`; `status` aceita vários separados por vírgula; sem filtro, no máximo 500) |
+| `GET /api/matches?roundId=&date=&status=&stageId=&limit=&offset=` | `{"server_time","timezone","matches": [MatchOut],"has_more": bool}` (`date` = dia de Brasília pelo `kickoff_at`; `status` aceita vários separados por vírgula; em ordem de início, com ou sem filtro, no máximo 500 por resposta: `limit` 1–500, padrão 500, `offset` 0–100000, padrão 0, fora disso `400`; `has_more` = há partidas depois desta página, peça a próxima com `offset` + `limit`) |
 | `GET /api/matches/{id}` | `{"server_time","timezone","cursor","match": MatchOut(detalhe), "available": Available}` |
 | `GET /api/stream?after=N` | SSE (seção 5) |
 

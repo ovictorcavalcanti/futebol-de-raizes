@@ -16,6 +16,7 @@ import pytest
 from django.test import Client
 
 from competitions.models import StageCriterion, StandingZone
+from matches.models import Match
 from core import timeutils
 from standings import services as standings_services
 from tests.factories import make_knockout, make_league, make_match, make_tie_matches
@@ -223,7 +224,7 @@ def test_matches_list_filters_with_camel_case_names(client, operator_client):
         assert response.status_code == 200, response.content.decode()
         assert response["Cache-Control"] == "no-store"
         body = response.json()
-        assert set(body) == {"server_time", "timezone", "matches"}
+        assert set(body) == {"server_time", "timezone", "matches", "has_more"} and body["has_more"] is False
         return [match["id"] for match in body["matches"]]
 
     assert ids() == [a.id, b.id, c.id]
@@ -233,6 +234,37 @@ def test_matches_list_filters_with_camel_case_names(client, operator_client):
     assert ids(status="live") == [a.id]
     assert ids(status="live,scheduled", roundId=r1.id) == [a.id, b.id]
     for params, field in [({"status": "jogando"}, "status"), ({"date": "3/10"}, "date"), ({"roundId": "x"}, "roundId")]:
+        response = client.get("/api/matches", params)
+        assert response.status_code == 400, params
+        assert response.json()["code"] == "invalid_input" and response.json()["details"]["field"] == field
+
+
+def test_matches_list_caps_every_filter_and_pages(client):
+    """O teto da lista (500) vale com ou sem filtro: o custo de cada requisição não cresce
+    com o banco. `limit` (até 500) e `offset` paginam; `has_more` diz se há mais."""
+    lg = make_league(n_teams=2)
+    home, away = lg["teams"]
+    r1 = lg["rounds"][0]
+    start = brt(3, 10, 0)  # 501 jogos, um por minuto, todos no dia 03/10 de Brasília
+    Match.objects.bulk_create(
+        Match(stage=lg["stage"], group=lg["group"], round=r1, home_team=home, away_team=away,
+              kickoff_at=start + timedelta(minutes=n), venue="Arena", city="Recife")
+        for n in range(501)
+    )
+    every_id = list(Match.objects.order_by("kickoff_at", "id").values_list("id", flat=True))
+
+    def page(**params) -> tuple[list[int], bool]:
+        response = client.get("/api/matches", params)
+        assert response.status_code == 200, response.content.decode()
+        body = response.json()
+        return [match["id"] for match in body["matches"]], body["has_more"]
+
+    for params in [{}, {"status": "scheduled"}, {"roundId": r1.id}, {"stageId": lg["stage"].id}, {"date": "2026-10-03"}]:
+        assert page(**params) == (every_id[:500], True), params
+    assert page(status="scheduled", offset=500) == (every_id[500:], False)
+    assert page(roundId=r1.id, limit=10, offset=495) == (every_id[495:501], False)
+    assert page(limit=2) == (every_id[:2], True)
+    for params, field in [({"limit": 501}, "limit"), ({"limit": 0}, "limit"), ({"offset": -1}, "offset"), ({"offset": 10**19}, "offset")]:
         response = client.get("/api/matches", params)
         assert response.status_code == 400, params
         assert response.json()["code"] == "invalid_input" and response.json()["details"]["field"] == field

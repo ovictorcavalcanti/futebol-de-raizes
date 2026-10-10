@@ -188,6 +188,7 @@ def recompute_group(group: Group) -> dict[str, list[domain.Row]]:
                 yellow_cards=row.yellow_cards,
                 red_cards=row.red_cards,
                 tied=row.tied,
+                rank=row.rank,
             )
             for kind, rows in tables.items()
             for row in rows
@@ -235,6 +236,7 @@ def _row_out(row, team, zones: Sequence[Zone], playing: set[int], qualified: dic
             zone = None
     return {
         "position": row.position,
+        "rank": row.rank or row.position,  # linha gravada antes do campo: a ordem
         "team": serialize_team(team),
         "played": row.played,
         "won": row.won,

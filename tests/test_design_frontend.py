@@ -524,6 +524,9 @@ COMPONENTS_JS = """async () => {
   const table = S.createStandings(F.STANDINGS, { compact: true, legend: false });
   S.updateStandings(table, F.STANDINGS);
   out.standingsKeepsOpts = table.classList.contains('standings--compact') && !table.querySelector('.legend');
+  // empatados em todos os critérios: a posição exibida (rank) se repete; a nota explica o "="
+  out.tiedRanks = [...table.querySelectorAll('tbody tr')].map((tr) => tr.querySelector('.col-pos').firstChild.textContent);
+  out.tiedNote = table.querySelector('.criteria__note')?.textContent;
 
   // 8) brilho do gol: animationend de um filho não encerra o destaque do card
   const goal = { ...live, version: live.version + 5, home_score: live.home_score + 1 };
@@ -581,6 +584,8 @@ def test_componentes_no_navegador(browser_page):
         and out["goalNotStruck"]
     )
     assert out["standingsKeepsOpts"]
+    assert out["tiedRanks"][3:7] == ["4", "5", "5", "7"]
+    assert out["tiedNote"] == "= Empatados em todos os critérios de desempate"
     assert out["goalRingKept"] and out["goalRingCleared"]
     assert out["colorSanitized"]
     assert out["themeDark"] and out["themeLabel"] == "Tema escuro"

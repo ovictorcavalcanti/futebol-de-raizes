@@ -107,9 +107,10 @@ function groupTable(standings, group, opts, multiple, last) {
       class: [row.playing && 'is-playing', highlight?.has(row.team?.id) && 'is-highlight'],
       'data-team-id': row.team?.id,
     },
+      // rank: empatados em todos os critérios repetem a posição (1, 2, 2, 4)
       h('td', { class: 'col-pos', style: zone ? { '--zone': zone } : null, title: row.zone?.name || null },
-        String(row.position),
-        row.tied ? h('abbr', { class: 'tied-mark', title: 'Empate não desfeito pelos critérios (ordem alfabética)', text: '=' }) : null,
+        String(row.rank ?? row.position),
+        row.tied ? h('abbr', { class: 'tied-mark', title: 'Empatado em todos os critérios de desempate', text: '=' }) : null,
       ),
       teamCell(row),
       ...COLUMNS.map((c) => (c.key === 'points'
@@ -165,7 +166,7 @@ function footer(standings, opts, { adjustments = [], criteria = true, rows = [] 
     parts.push(h('div', { class: 'criteria' },
       h('p', { class: 'criteria__title', text: 'Critérios de desempate' }),
       h('ol', { class: 'criteria__list' }, ...standings.criteria.map((c) => h('li', { text: c.label }))),
-      tied ? h('p', { class: 'criteria__note' }, h('span', { class: 'tied-mark', 'aria-hidden': 'true', text: '=' }), ' empate que os critérios não desfizeram (ordem alfabética).') : null,
+      tied ? h('p', { class: 'criteria__note' }, h('span', { class: 'tied-mark', 'aria-hidden': 'true', text: '=' }), ' Empatados em todos os critérios de desempate') : null,
     ));
   }
   return parts.length ? h('div', { class: 'standings__foot' }, ...parts) : null;

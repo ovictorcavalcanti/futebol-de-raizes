@@ -339,13 +339,18 @@ Sem vencedor: `winner_team_id`, `decided_by` e `decided_by_label` são `null` e 
  "criteria": [{"key": "points", "label": "Pontos"}, ...],
  "legend": [{"name": "Classificados", "color": "#1B7F3B", "from": 1, "to": 4}],
  "groups": [{"id": 4, "name": "Tabela", "rows": [
-   {"position": 1, "team": TeamOut, "played": 5, "won": 4, "drawn": 1, "lost": 0,
+   {"position": 1, "rank": 1, "team": TeamOut, "played": 5, "won": 4, "drawn": 1, "lost": 0,
     "goals_for": 11, "goals_against": 3, "goal_difference": 8, "points": 13, "points_adjustment": 0,
     "yellow_cards": 6, "red_cards": 0, "tied": false,
     "zone": {"name": "Classificados", "color": "#1B7F3B"} | null,
     "playing": true}]}],
  "adjustments": [{"team": TeamOut, "points": -3, "reason": "escalação irregular"}]}
 ```
+`position` = a ordem na tabela (1..n, sem repetir; o empate que sobra depois de todos os
+critérios fica em ordem alfabética, com `tied: true`) — é ela que define a zona e a "posição nos
+grupos". `rank` = a posição exibida: os empatados em todos os critérios repetem a posição e a
+contagem segue depois deles (1, 2, 2, 4). Jogo entre grupos conta para a tabela de cada time
+(cada um na do seu grupo); o confronto direto só olha os jogos entre os empatados.
 `playing` = o time está em jogo ao vivo agora (destaque visual). `points` já inclui
 `points_adjustment` (soma das punições, negativas, e bonificações, positivas, do time na fase; 0
 sem ajuste). `adjustments` = cada punição/bonificação da fase, na ordem de cadastro (o front marca

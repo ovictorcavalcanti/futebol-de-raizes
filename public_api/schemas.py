@@ -321,7 +321,8 @@ class ZoneOut(Schema):
 
 
 class StandingRowOut(Schema):
-    position: int
+    position: int = Field(..., description="Ordem na tabela, 1..n (empate que sobrou: ordem alfabética)")
+    rank: int = Field(..., description="Posição exibida: empatados em todos os critérios repetem a posição (1, 2, 2, 4)")
     team: TeamOut
     played: int
     won: int

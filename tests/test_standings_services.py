@@ -23,7 +23,7 @@ pytestmark = pytest.mark.django_db
 
 ROW_KEYS = {
     "position", "team", "played", "won", "drawn", "lost", "goals_for", "goals_against", "goal_difference",
-    "points", "points_adjustment", "yellow_cards", "red_cards", "tied", "zone", "playing",
+    "points", "points_adjustment", "yellow_cards", "red_cards", "tied", "rank", "zone", "playing",
 }
 ZONES = [
     {"name": "Classificados", "color": "#1B7F3B", "position_from": 1, "position_to": 2},
@@ -120,7 +120,12 @@ def test_rows_computed_on_the_fly_without_cache_or_with_stale_cache(league):
     rows = table["groups"][0]["rows"]
     assert [row["team"]["name"] for row in rows] == ["Íbis", "Náutico", "Santa Cruz", "Sport"]  # sem acento na ordem
     assert all(row["tied"] and row["played"] == 0 for row in rows)
+    assert [row["rank"] for row in rows] == [1, 1, 1, 1] and [row["position"] for row in rows] == [1, 2, 3, 4]
     assert not Standing.objects.exists()  # leitura não grava
+    # gravado no cache: a posição exibida também
+    services.recompute_stage(league["stage"])
+    assert set(Standing.objects.values_list("rank", flat=True)) == {1}
+    assert [row["rank"] for row in services.stage_standings(league["stage"])["groups"][0]["rows"]] == [1, 1, 1, 1]
 
     services.recompute_group(league["group"])
     newcomer = make_team("Afogados")

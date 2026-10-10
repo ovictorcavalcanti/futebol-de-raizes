@@ -18,6 +18,10 @@ e devolve as linhas em ordem. Pontuação, critérios e legenda são dados da fa
    times ainda empatados e devolve um valor por time (maior = melhor). Assim o
    confronto direto olha só os jogos entre os empatados (2 ou mais times).
 5. Se o empate sobrar, ordena pelo nome e marca as linhas com tied=True.
+
+`position` é a ordem (1..n, sem repetir: vale para as zonas e para "posição nos grupos");
+`rank` é a posição exibida, que se repete entre os empatados em todos os critérios e segue a
+contagem depois deles (1, 2, 2, 4).
 """
 
 from __future__ import annotations
@@ -76,6 +80,7 @@ class Row:
     red_cards: int
     tied: bool = False
     adjustment: int = 0  # já somado em `points` (punição < 0, bonificação > 0)
+    rank: int = 0  # posição exibida: empatados em todos os critérios repetem (1, 2, 2, 4)
 
     @property
     def goal_difference(self) -> int:
@@ -258,7 +263,7 @@ def compute_standings(
     live: bool = False,
     adjustments: Mapping[int, int] = NO_ADJUSTMENTS,
 ) -> list[Row]:
-    """Linhas da classificação, já ordenadas e com posições 1..n.
+    """Linhas da classificação, já ordenadas, com posições 1..n e `rank` (1, 2, 2, 4 no empate).
 
     `adjustments` = {team_id: pontos} somados aos pontos dos jogos (negativo = punição);
     time fora de `teams` é ignorado. Todo time de `teams` ganha uma linha, mesmo sem jogos.
@@ -319,8 +324,9 @@ def compute_standings(
         tied = len(block) > 1
         if tied:
             block = sorted(block, key=lambda row: (name_key(row.name), row.name, row.team_id))
+        rank = len(ordered) + 1  # o bloco empatado divide a posição do primeiro
         for row in block:
-            ordered.append(replace(row, position=len(ordered) + 1, tied=tied))
+            ordered.append(replace(row, position=len(ordered) + 1, rank=rank, tied=tied))
     return ordered
 
 

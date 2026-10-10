@@ -925,10 +925,9 @@
   /* linha do confronto (mata-mata) */
   .match__tie {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
     align-items: center;
-    justify-content: center;
-    gap: 4px var(--s-2);
+    gap: 2px;
     margin: 0 var(--s-4) var(--s-3);
     padding: 7px var(--s-3);
     border-radius: var(--radius);
@@ -937,6 +936,9 @@
     color: var(--ink-2);
     text-align: center;
   }
+  /* uma linha por informação: agregado em cima, quem avança embaixo */
+  .match__tie-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px var(--s-2); }
+  .match__tie .tie__adv { margin-left: 0; }
   .match__tie .icon { width: 16px; height: 16px; color: var(--amarelo-ink); }
   .match__tie strong { color: var(--ink); font-weight: 600; }
   .match__tie-agg { font-family: var(--font-num); font-weight: 700; font-size: 0.9375rem; color: var(--ink); }

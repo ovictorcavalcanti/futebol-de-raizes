@@ -412,30 +412,31 @@ function renderTie(p, match) {
     p.replaceChildren();
     return;
   }
-  const parts = [];
+  // uma linha por informação (agregado; quem avança), centradas; o espaço entre elas
+  // mantém o texto legível para leitor de tela e cópia
+  const rows = [];
+  const spaced = (items) => items.filter(Boolean).flatMap((item, i) => (i ? [' ', item] : [item]));
+  const row = (lead, ...children) => h('span', { class: 'match__tie-row' }, lead, ...spaced(children)); // lead: ícone
   const winner = tie.winner_team_id != null ? teamById(tie, tie.winner_team_id) : null;
   if (tie.legs === 2 && tie.leg === 1) {
-    parts.push(icon('trophy'), h('span', { text: tie.complete ? 'Jogo de ida' : 'Jogo de ida · a vaga sai na volta' }));
-    p.hidden = false;
-    p.replaceChildren(...parts);
-    return;
+    rows.push(row(icon('trophy'), h('span', { text: tie.complete ? 'Jogo de ida' : 'Jogo de ida · a vaga sai na volta' })));
+  } else {
+    if (tie.legs === 2 && tie.aggregate) {
+      // agregado na mesma ordem do placar do card (mandante à esquerda), não na ordem team_a/team_b
+      const flip = match.home?.id != null && match.home.id === tie.team_b?.id;
+      const [left, right] = flip ? [tie.team_b, tie.team_a] : [tie.team_a, tie.team_b];
+      const [aggLeft, aggRight] = flip ? [tie.aggregate.team_b, tie.aggregate.team_a] : [tie.aggregate.team_a, tie.aggregate.team_b];
+      rows.push(row(icon('trophy'), h('span', { text: tie.complete ? 'Agregado' : 'Agregado parcial' }),
+        h('span', { class: 'match__tie-agg', text: `${left?.short_name || ''} ${formatScore(aggLeft, aggRight)} ${right?.short_name || ''}` })));
+    }
+    if (winner && tie.complete) {
+      const how = tie.decided_by && (tie.legs === 2 || tie.decided_by !== 'aggregate') ? ` ${tie.decided_by_label || ''}` : '';
+      rows.push(row(rows.length ? null : icon('trophy'),
+        h('strong', { text: displayName(winner) }), h('span', { class: 'tie__adv' }, icon('check'), `avança${how}`)));
+    }
   }
-  if (tie.legs === 2 && tie.aggregate) {
-    // agregado na mesma ordem do placar do card (mandante à esquerda), não na ordem team_a/team_b
-    const flip = match.home?.id != null && match.home.id === tie.team_b?.id;
-    const [left, right] = flip ? [tie.team_b, tie.team_a] : [tie.team_a, tie.team_b];
-    const [aggLeft, aggRight] = flip ? [tie.aggregate.team_b, tie.aggregate.team_a] : [tie.aggregate.team_a, tie.aggregate.team_b];
-    parts.push(icon('trophy'), h('span', { text: tie.complete ? 'Agregado' : 'Agregado parcial' }),
-      h('span', { class: 'match__tie-agg', text: `${left?.short_name || ''} ${formatScore(aggLeft, aggRight)} ${right?.short_name || ''}` }));
-  }
-  if (winner && tie.complete) {
-    if (!parts.length) parts.push(icon('trophy'));
-    else parts.push(h('span', { class: 'divider-dot', 'aria-hidden': 'true', text: '·' }));
-    const how = tie.decided_by && (tie.legs === 2 || tie.decided_by !== 'aggregate') ? ` ${tie.decided_by_label || ''}` : '';
-    parts.push(h('span', null, h('strong', { text: displayName(winner) }), ' ', h('span', { class: 'tie__adv' }, icon('check'), `avança${how}`)));
-  }
-  p.hidden = parts.length === 0;
-  p.replaceChildren(...parts);
+  p.hidden = rows.length === 0;
+  p.replaceChildren(...spaced(rows));
 }
 
 /* ==========================================================================

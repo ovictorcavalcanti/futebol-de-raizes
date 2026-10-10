@@ -39,6 +39,7 @@ from whitenoise.middleware import WhiteNoiseMiddleware
 
 from config.settings import is_weak_secret_key
 from core import timeutils
+from observability import metrics as metrics_module
 from observability.logging import JsonFormatter
 from observability.metrics import metrics
 from tests.deploy_files import BASE_DIR, clean_env, dockerfile_cmd, dockerfile_env, dockerfile_instructions, env_example_value
@@ -130,6 +131,56 @@ def test_http_metrics_label_home_static_and_unmatched_routes(client, caplog):
     routes = {record.path: record.route for record in caplog.records if record.name == "fdr.http"}
     assert routes["/"] == "/" and routes["/nao-existe-mesmo"] == "unmatched"
     assert "/static/css/app.css" not in routes  # estático não entra no log de acesso
+
+
+@pytest.mark.django_db
+def test_http_metrics_fold_unknown_methods_into_a_single_label(client):
+    """Cada rótulo novo vira uma série eterna na memória: método inventado pelo cliente
+    cai em "OTHER", senão 100 métodos contra /health (fora do limite da API) criariam
+    100 séries."""
+
+    def health_series() -> set[str]:
+        lines = metrics.render().splitlines()
+        return {
+            line.rsplit(" ", 1)[0]
+            for line in lines
+            if line.startswith("fdr_http_requests_total{") and 'route="/health"' in line
+        }
+
+    def count(method: str) -> float:
+        return metrics.value("fdr_http_requests_total", method=method, route="/health", status=405)
+
+    before_series, before_other, before_delete = health_series(), count("OTHER"), count("DELETE")
+    for i in range(100):
+        assert client.generic(f"FDR-{i}", "/health").status_code == 405
+    assert client.generic("DELETE", "/health").status_code == 405  # método conhecido mantém o nome
+    assert health_series() - before_series <= {
+        'fdr_http_requests_total{method="OTHER",route="/health",status="405"}',
+        'fdr_http_requests_total{method="DELETE",route="/health",status="405"}',
+    }
+    assert count("OTHER") == before_other + 100
+    assert count("DELETE") == before_delete + 1
+
+
+def test_metrics_registry_drops_new_series_past_the_cap(monkeypatch):
+    """Teto defensivo: passou de MAX_SERIES, série nova é descartada e contada; as que
+    já existem continuam contando."""
+    monkeypatch.setattr(metrics_module, "MAX_SERIES", 3)
+    registry = metrics_module.Registry()
+    registry.inc("fdr_audit_records_total", action="a")
+    registry.set_gauge("fdr_sse_connections", 2)
+    registry.observe("fdr_http_request_duration_seconds", 0.5, route="/")
+    registry.inc("fdr_audit_records_total", action="b")  # quarta série: descartada
+    registry.add_gauge("fdr_sse_connections", 1, extra="x")  # descartada
+    registry.observe("fdr_http_request_duration_seconds", 0.1, route="/outra")  # descartada
+    registry.inc("fdr_audit_records_total", action="a")  # existente: segue contando
+    assert registry.value("fdr_audit_records_total", action="a") == 2
+    assert registry.value("fdr_audit_records_total", action="b") == 0
+    assert registry.value("fdr_metrics_series_dropped_total") == 3
+    exposition = registry.render()
+    assert 'action="b"' not in exposition and 'route="/outra"' not in exposition
+    assert "# TYPE fdr_metrics_series_dropped_total counter" in exposition
+    assert "fdr_metrics_series_dropped_total 3" in exposition
 
 
 # --- Estáticos: hash no nome, .gz e .br ----------------------------------------------

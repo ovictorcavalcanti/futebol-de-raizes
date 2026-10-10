@@ -558,13 +558,19 @@ por Redis ou Memcached (e, no login, a trava do processo por uma do cache). Mét
 - **Métricas** em `GET /metrics`, no formato texto do Prometheus. O acesso é por
   `Authorization: Bearer $METRICS_TOKEN` ou por usuário logado com
   `observability.view_metrics` (o Administrador). Séries principais:
-  - `fdr_http_requests_total` e `fdr_http_request_duration_seconds`, por rota;
+  - `fdr_http_requests_total` e `fdr_http_request_duration_seconds`, por rota (a primeira
+    também por método e status; método fora de GET, HEAD, POST, PUT, PATCH, DELETE e
+    OPTIONS vira `OTHER`);
   - `fdr_events_posted_total`, `fdr_events_voided_total`, `fdr_status_changes_total` e
     `fdr_domain_rejections_total`;
   - `fdr_outbox_messages_total`, `fdr_stream_messages_published_total`, `fdr_sse_connections`
     e `fdr_outbox_lag_seconds`;
   - `fdr_public_api_requests_total`, `fdr_public_api_throttled_total` e
     `fdr_audit_records_total`.
+
+  O processo guarda no máximo 10 000 séries (`MAX_SERIES`). Passado esse teto, uma série
+  nova é descartada e contada em `fdr_metrics_series_dropped_total`; as existentes seguem
+  contando.
 - **Logs** em JSON, uma linha por registro (`LOG_FORMAT=json`), incluindo os do uvicorn. Sai
   uma linha `fdr.http` por requisição, com rota, status, duração e `request_id`. O
   `X-Request-ID` recebido só é aceito se tiver de 1 a 64 caracteres de `[A-Za-z0-9._:-]`;

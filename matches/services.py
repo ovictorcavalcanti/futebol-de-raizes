@@ -156,8 +156,9 @@ def on_match_edited(match: Match, changed_fields, user=None, request=None) -> No
 
     `changed_fields`: nomes dos campos alterados (ex.: `form.changed_data`) ou um
     dicionário {campo: valor antigo}. Com o valor antigo de `group`/`tie`, o grupo e
-    o confronto antigos também são recalculados; só com os nomes, recalcula todos os
-    grupos da fase atual da partida. Refaz o cache a partir dos eventos quando os
+    o confronto antigos também são recalculados (com o de `stage`/`home_team`/
+    `away_team`, os grupos dos times de antes na fase de antes: jogo entre grupos);
+    só com os nomes, recalcula todos os grupos da fase atual da partida. Refaz o cache a partir dos eventos quando os
     times ou o confronto mudam, recalcula classificação/confronto, `version += 1`
     e publica `match` (+ `standings`) sob a trava. Início (`kickoff_at`) editado que
     põe ou tira de hoje uma partida com gols válidos → também `goals` (`changes` vazio,
@@ -184,6 +185,20 @@ def on_match_edited(match: Match, changed_fields, user=None, request=None) -> No
                 groups.add(old_group)
             elif "group" in names or "stage" in names:
                 groups.update(Group.objects.filter(stage_id=match.stage_id).values_list("id", flat=True))
+            if names & {"stage", "home_team", "away_team"}:
+                # Os grupos dos times de antes, na fase de antes, também perdem o jogo: num
+                # jogo entre grupos o time que saiu pode não ser do grupo do jogo nem do antigo.
+                old = {
+                    name: _pk(previous[name]) if name in previous else getattr(match, f"{name}_id")
+                    for name in ("stage", "home_team", "away_team")
+                }
+                old_teams = [team for team in (old["home_team"], old["away_team"]) if team]
+                if old["stage"] and old_teams:
+                    groups.update(
+                        Group.objects.filter(stage_id=old["stage"], group_teams__team_id__in=old_teams).values_list(
+                            "id", flat=True
+                        )
+                    )
             for group in Group.objects.filter(id__in=groups).select_related("stage"):
                 standings_services.recompute_group(group)
                 if group.stage.has_table:

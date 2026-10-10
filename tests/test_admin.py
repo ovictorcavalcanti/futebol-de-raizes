@@ -820,6 +820,41 @@ def test_match_team_outside_the_stage_or_group_not_of_the_home_team_is_rejected(
     assert not Match.objects.filter(stage=two_groups["stage"]).exists()
 
 
+def test_team_swap_in_finished_match_between_groups_recomputes_the_group_it_left(
+    admin_client_fdr, two_groups, operator_user
+):
+    """Visitante trocado num jogo entre grupos já encerrado: o grupo do time que saiu (que
+    não é o do jogo nem o antigo) também é recalculado, e a mensagem `standings` sai certa."""
+    group_a, group_b = two_groups["groups"]
+    sport, nautico, santa_cruz, _retro = two_groups["teams"]
+    group_c = Group.objects.create(stage=two_groups["stage"], name="Grupo C")
+    GroupTeam.objects.create(group=group_c, team=nautico)
+    assert add_match(admin_client_fdr, two_groups["stage"], group_a, sport, santa_cruz).status_code == 302
+    match = Match.objects.get(stage=two_groups["stage"])
+    finish(match, operator_user, 1, 0)
+    assert Standing.objects.get(group=group_b, team=santa_cruz, kind="official").played == 1
+    mark = last_outbox_id()
+    data = post_data(admin_client_fdr.get(change_url(match)))
+    data["away_team"] = str(nautico.pk)
+    response = admin_client_fdr.post(change_url(match), data)
+    assert response.status_code == 302, response.content.decode()[:3000]
+    for kind in ("official", "live"):
+        rows = Standing.objects.filter(group__stage=two_groups["stage"], kind=kind, played=1)
+        assert {(row.group_id, row.team_id): (row.won, row.lost) for row in rows} == {
+            (group_a.pk, sport.pk): (1, 0),
+            (group_c.pk, nautico.pk): (0, 1),
+        }
+    assert Standing.objects.get(group=group_b, team=santa_cruz, kind="official").played == 0
+    message = Outbox.objects.filter(id__gt=mark, topic="standings").last().payload
+    played = {
+        (group["name"], row["team"]["name"]): row["played"]
+        for group in message["standings"]["groups"]
+        for row in group["rows"]
+    }
+    assert played[("Grupo B", "Santa Cruz")] == 0
+    assert played[("Grupo C", "Náutico")] == 1
+
+
 def test_tie_change_that_breaks_events_is_rejected(admin_client_fdr, league, operator_user):
     knockout = make_knockout(league["season"], legs=1, extra_time=True)
     match = make_tie_matches(knockout["tie"])[0]

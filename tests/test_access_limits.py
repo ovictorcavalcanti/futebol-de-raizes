@@ -34,6 +34,7 @@ THROTTLE = {
 @pytest.fixture
 def limits_on(settings):
     cache.clear()
+    throttle._in_flight.clear()  # vaga presa por outro teste não vaza para este
     settings.LOGIN_THROTTLE = dict(THROTTLE)
     yield settings
     cache.clear()
@@ -209,6 +210,7 @@ def concurrent_logins(monkeypatch, attempts, ip="10.0.0.9"):
     for thread in threads:
         thread.join(timeout=10)
     assert not any(thread.is_alive() for thread in threads)
+    assert not throttle._in_flight  # toda tentativa aberta foi encerrada
     return len(checked), locks
 
 
@@ -250,6 +252,82 @@ def test_simultaneous_attempts_beyond_the_limit_never_reach_the_password(limits_
     assert checked == 3
     assert len(locks) == 6  # o da 3ª falha + as 5 que esperavam
     assert all(0 < lock.retry_after <= 60 for lock in locks)
+
+
+@pytest.fixture
+def short_wait(monkeypatch):
+    # Com uma vaga presa, a próxima tentativa esperaria WAIT_LIMIT e seria recusada:
+    # espera curta para o teste falhar logo em vez de levar 30 s.
+    monkeypatch.setattr(throttle, "WAIT_LIMIT", 0.3)
+
+
+class BrokenWrites:
+    """O cache de verdade, mas a gravação das chaves que contêm `fail_on` falha,
+    como um Redis/Memcached que cai no meio da tentativa."""
+
+    def __init__(self, real, fail_on):
+        self.real = real
+        self.fail_on = fail_on
+
+    def set(self, key, *args, **kwargs):
+        if self.fail_on in key:
+            raise ConnectionError("cache fora do ar")
+        return self.real.set(key, *args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self.real, name)
+
+
+def backend_login(password, ip="10.0.0.20"):
+    request = RequestFactory().post("/api/auth/login", REMOTE_ADDR=ip)
+    return ThrottledModelBackend().authenticate(request, username="operador", password=password)
+
+
+def test_password_check_error_releases_the_attempt_once(limits_on, monkeypatch):
+    def broken_password_check(self, request, username=None, password=None, **kwargs):
+        raise RuntimeError("banco fora do ar")
+
+    monkeypatch.setattr(ModelBackend, "authenticate", broken_password_check)
+    other = RequestFactory().post("/api/auth/login", REMOTE_ADDR="10.0.0.20")
+    assert throttle.begin(other, "operador") is None  # outra tentativa do par, em andamento
+    with pytest.raises(RuntimeError):
+        backend_login("errada")
+    _ip, user_key, ip_key = throttle._keys(other, "operador")
+    assert dict(throttle._in_flight) == {user_key: 1, ip_key: 1}  # só a vaga da outra
+    throttle.release(other, "operador")
+    assert not throttle._in_flight
+
+
+def test_cache_error_on_failure_releases_the_attempt(limits_on, operator_user, monkeypatch, short_wait):
+    limits_on.LOGIN_THROTTLE = {**THROTTLE, "USER_FAILURES": 2}
+    monkeypatch.setattr(throttle, "cache", BrokenWrites(cache, fail_on=":ip:"))
+    with pytest.raises(ConnectionError):
+        backend_login("errada")  # a falha do par foi gravada; a do IP, não
+    monkeypatch.setattr(throttle, "cache", cache)
+    assert not throttle._in_flight
+    # 1 falha de 2: com a vaga presa, esta esperaria e seria recusada.
+    assert backend_login("senha-forte-123") == operator_user
+
+
+def test_cache_error_on_success_releases_the_attempt(limits_on, operator_user, monkeypatch, short_wait):
+    limits_on.LOGIN_THROTTLE = {**THROTTLE, "USER_FAILURES": 2}
+    assert backend_login("errada") is None  # 1 falha de 2
+    monkeypatch.setattr(throttle, "cache", BrokenWrites(cache, fail_on=":u:"))
+    with pytest.raises(ConnectionError):
+        backend_login("senha-forte-123")  # zerar a contagem falha
+    monkeypatch.setattr(throttle, "cache", cache)
+    assert not throttle._in_flight
+    assert backend_login("senha-forte-123") == operator_user
+
+
+@pytest.mark.parametrize("limit", ["USER_FAILURES", "IP_FAILURES"])
+def test_zero_limit_counts_as_one(limits_on, operator_user, short_wait, limit):
+    # Limite 0 vale 1: o login certo passa (sem esperar vaga) e a 1ª falha bloqueia.
+    limits_on.LOGIN_THROTTLE = {**THROTTLE, limit: 0}
+    assert api_login(Client(enforce_csrf_checks=True), "operador", "senha-forte-123").status_code == 200
+    assert api_login(Client(enforce_csrf_checks=True), "operador", "errada").status_code == 429
+    assert api_login(Client(enforce_csrf_checks=True), "operador", "senha-forte-123").status_code == 429
+    assert not throttle._in_flight
 
 
 # --- Limite de requisições por IP -------------------------------------------------

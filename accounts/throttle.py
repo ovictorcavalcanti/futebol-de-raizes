@@ -22,7 +22,11 @@ do processo serializa o ler-modificar-gravar das contagens, e cada tentativa
 aberta (`begin`) conta como uma falha possível até terminar. Se as abertas,
 somadas às falhas já contadas, puderem chegar ao limite, a próxima espera por
 elas antes de conferir a senha — e encontra o bloqueio se elas o dispararem.
-Assim, N falhas simultâneas contam N, como em sequência.
+Assim, N falhas simultâneas contam N, como em sequência. A tentativa aberta é
+encerrada mesmo se o cache falhar no meio, para a vaga não ficar presa.
+
+Limites de falhas (`USER_FAILURES`, `IP_FAILURES`) abaixo de 1 valem 1: bloqueia
+na primeira falha, e o login certo continua passando.
 
 O estado fica no cache `default` do processo e a trava vale para o processo,
 suficiente com um processo ASGI só; com mais processos, troque o cache por
@@ -58,6 +62,12 @@ _in_flight: Counter[str] = Counter()
 
 def _cfg() -> dict:
     return settings.LOGIN_THROTTLE
+
+
+def _limit(cfg: dict, name: str) -> int:
+    """Limite de falhas, no mínimo 1: com 0 nenhuma tentativa caberia em `begin` e
+    até o login certo esperaria `WAIT_LIMIT` para ser recusado."""
+    return max(1, cfg[name])
 
 
 def _user_key(username: str, ip: str) -> str:
@@ -132,8 +142,8 @@ def begin(request, username: str) -> Lock | None:
                 return Lock(wait)
             hits = [t for t in ip_state.get("hits", []) if t > now - cfg["IP_WINDOW"]]
             if (
-                user_state.get("failures", 0) + _in_flight[user_key] < cfg["USER_FAILURES"]
-                and len(hits) + _in_flight[ip_key] < cfg["IP_FAILURES"]
+                user_state.get("failures", 0) + _in_flight[user_key] < _limit(cfg, "USER_FAILURES")
+                and len(hits) + _in_flight[ip_key] < _limit(cfg, "IP_FAILURES")
             ):
                 _in_flight[user_key] += 1
                 _in_flight[ip_key] += 1
@@ -159,9 +169,10 @@ def record_failure(request, username: str) -> Lock | None:
         return None
     ip, key, ip_key = _keys(request, username)
     with _guard:
-        lock = _count_failure(ip, key, ip_key)
-        _release(key, ip_key)
-    return lock
+        try:
+            return _count_failure(ip, key, ip_key)
+        finally:
+            _release(key, ip_key)  # mesmo com erro no cache
 
 
 def _count_failure(ip: str, key: str, ip_key: str) -> Lock | None:
@@ -171,7 +182,7 @@ def _count_failure(ip: str, key: str, ip_key: str) -> Lock | None:
 
     state = cache.get(key) or {"failures": 0, "strikes": 0, "until": None}
     state["failures"] += 1
-    if state["failures"] >= cfg["USER_FAILURES"]:
+    if state["failures"] >= _limit(cfg, "USER_FAILURES"):
         seconds = min(cfg["BASE_LOCK"] * 2 ** state["strikes"], cfg["MAX_LOCK"])
         state.update(failures=0, strikes=state["strikes"] + 1, until=now + seconds)
         lock = Lock(int(seconds))
@@ -182,7 +193,7 @@ def _count_failure(ip: str, key: str, ip_key: str) -> Lock | None:
     ip_state = cache.get(ip_key) or {"hits": [], "until": None}
     window_start = now - cfg["IP_WINDOW"]
     ip_state["hits"] = [t for t in ip_state["hits"] if t > window_start] + [now]
-    if len(ip_state["hits"]) >= cfg["IP_FAILURES"] and not _remaining(ip_state.get("until"), now):
+    if len(ip_state["hits"]) >= _limit(cfg, "IP_FAILURES") and not _remaining(ip_state.get("until"), now):
         ip_state.update(hits=[], until=now + cfg["IP_LOCK"])
         lock = Lock(int(cfg["IP_LOCK"]))
         metrics.inc("fdr_login_lockouts_total", scope="ip")
@@ -198,11 +209,13 @@ def record_success(request, username: str) -> None:
         return
     _ip, key, ip_key = _keys(request, username)
     with _guard:
-        state = cache.get(key)
-        if state:
-            state.update(failures=0, until=None)
-            cache.set(key, state, _cfg()["STRIKE_MEMORY"])
-        _release(key, ip_key)
+        try:
+            state = cache.get(key)
+            if state:
+                state.update(failures=0, until=None)
+                cache.set(key, state, _cfg()["STRIKE_MEMORY"])
+        finally:
+            _release(key, ip_key)  # mesmo com erro no cache
 
 
 def lock_message(lock: Lock) -> str:

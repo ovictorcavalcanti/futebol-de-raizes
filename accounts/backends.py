@@ -32,6 +32,8 @@ class ThrottledModelBackend(ModelBackend):
         except BaseException:
             throttle.release(request, username)
             raise
+        # Fora do try: record_* encerram a tentativa mesmo se levantarem (erro no
+        # cache); dentro, ela seria encerrada duas vezes.
         if user is None:
             lock = throttle.record_failure(request, username)
             if lock is not None:

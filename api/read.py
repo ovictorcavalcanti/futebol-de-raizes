@@ -173,7 +173,9 @@ def matches(
     limit: int = Query(selectors.MATCHES_LIST_LIMIT, ge=1, le=selectors.MATCHES_LIST_LIMIT, description="Partidas por página (no máximo 500)"),
     offset: int = Query(0, ge=0, le=selectors.MATCHES_LIST_MAX_OFFSET, description="Quantas partidas pular (paginação)"),
 ):
-    """Com ou sem filtro, no máximo 500 partidas por resposta; `has_more` indica a próxima página (`offset`)."""
+    """Com ou sem filtro, no máximo 500 partidas por resposta; `has_more` indica a próxima página
+    (`offset` + `limit`). O `offset` tem teto (MATCHES_LIST_MAX_OFFSET): perto dele `has_more` fica
+    false, e para ir além filtre por `date` ou `roundId`."""
     day = parse_day(date)
     try:
         payload = selectors.matches_list(round_id=round_id, date=day, status=status, stage_id=stage_id, limit=limit, offset=offset)

@@ -312,7 +312,9 @@ document.addEventListener('visibilitychange', () => document.hidden || clock.che
   esquerda e classificação ao vivo à direita; sem jogo no dia: menu, relógio e
   `#home-empty` (sem o bloco de últimos gols).
 * `match` → `updateMatchCard(card, match, {flash: true})` (acordeão e aba continuam);
-  jogo desconhecido com início no dia → busca a home de novo. `standings` →
+  status ou início (`kickoff_at`) mudou → busca a home de novo (reordena a fase e tira o
+  jogo remarcado para outro dia); jogo desconhecido com início no dia → busca a home de
+  novo. `standings` →
   `updateStandings` da fase. `goals` → `alerts.handle` + lista da mensagem
   (gols alertados com `isNew`). Acordeão sem lances → `GET /api/matches/:id`.
 * Recarga (virada do dia, 5 min sem stream, "Tentar de novo") reaproveita os cards

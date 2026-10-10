@@ -723,6 +723,43 @@ def test_home_gol_pelo_stream_alerta_uma_vez_e_corrige(open_page, fixtures):
     assert not errors, errors
 
 
+def test_home_jogo_remarcado_para_outro_dia_sai_da_pagina(open_page, fixtures):
+    scheduled = copy.deepcopy(fixtures["MATCHES"]["scheduledToday"])
+    date = fixtures["HOME"]["date"]
+    tomorrow = (datetime.fromisoformat(date) + timedelta(days=1)).date().isoformat()
+    moved = {
+        **scheduled,
+        "kickoff_at": f"{tomorrow}T15:00:00Z",  # meio-dia de amanhã em Brasília
+        "version": scheduled["version"] + 1,
+    }
+
+    def prepare(api):
+        api.streams = [
+            _sse(
+                [
+                    ("ping", {"server_time": _now_iso()}, None),
+                    ("match", {"stage_id": 3, "competition_id": 1, "match": moved}, 4183),
+                ]
+            ),
+            _sse([("ping", {"server_time": _now_iso()}, None)]),
+        ]
+
+    page, api, errors = open_page("/", prepare=prepare)
+    page.wait_for_selector(f'.match[data-match-id="{scheduled["id"]}"]')
+    # a home pedida de novo já não traz o jogo (o servidor filtra pelo dia do kickoff_at)
+    home = copy.deepcopy(fixtures["HOME"])
+    for comp in home["competitions"]:
+        for stage in comp["stages"]:
+            stage["matches"] = [m for m in stage["matches"] if m["id"] != scheduled["id"]]
+    api.fx = {**api.fx, "HOME": home}
+    page.wait_for_selector(
+        f'.match[data-match-id="{scheduled["id"]}"]', state="detached", timeout=10_000
+    )
+    assert len([r for r in api.requests if r[1] == "/api/home"]) >= 2
+    assert page.locator('.match[data-match-id="12"]').count() == 1  # os outros ficam
+    assert not errors, errors
+
+
 def test_home_sem_jogo(open_page, fixtures):
     def prepare(api):
         api.fx = {

@@ -1447,6 +1447,7 @@
   /* Competição, fase de grupos com a tabela: uma linha por grupo — jogos à esquerda, tabela
      do grupo à direita, alinhada com o primeiro jogo; mesmas colunas de .split. */
   .group-row { display: grid; gap: var(--s-3); grid-template-columns: minmax(0, 1fr); align-items: start; }
+  .group-row__table { display: grid; gap: var(--s-3); } /* jogos entre grupos: uma tabela abaixo da outra */
   .group-row__empty { margin: 0; padding: var(--s-4); border: 1px dashed var(--line); border-radius: var(--radius); font-size: 0.875rem; color: var(--ink-3); text-align: center; }
   @media (min-width: 960px) {
     .group-row { grid-template-columns: minmax(0, 1fr) minmax(320px, 380px); column-gap: var(--s-5); }

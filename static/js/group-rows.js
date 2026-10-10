@@ -4,8 +4,9 @@
  * altura do mais alto dos dois, então a tabela de um grupo nunca invade a linha do seguinte.
  *
  * Jogo entre times de grupos diferentes (pelos times da tabela, não pelo grupo cadastrado na
- * partida) vai para a seção "Jogos entre grupos", depois dos grupos; o grupo que só tem jogo
- * entre grupos mostra a tabela com o aviso no lugar dos jogos.
+ * partida) vai para a seção "Jogos entre grupos", depois dos grupos, com as tabelas dos grupos
+ * envolvidos uma abaixo da outra (o único lugar com mais de uma tabela ao lado dos jogos). O
+ * grupo que só tem jogo entre grupos não ganha linha própria: a tabela dele fica nessa seção.
  *
  * Embaixo de cada tabela: a legenda das cores e as punições dos times do grupo; os critérios de
  * desempate ficam uma vez, no card do último grupo exibido.
@@ -62,6 +63,16 @@ function shownGroups(standings, split, only) {
   return playing.length ? playing : groups; // nada casou (dado incompleto): mostra todos
 }
 
+/** Onde fica a tabela de cada grupo exibido: na linha do grupo (tem jogo dentro do grupo, ou
+ *  nenhum jogo no recorte) ou na seção dos jogos entre grupos (só jogo entre grupos). `order` é
+ *  a ordem das tabelas na tela (a última leva os critérios de desempate). */
+function placeGroups(standings, split, only) {
+  const shown = shownGroups(standings, split, only);
+  const own = shown.filter((g) => split.byGroup.has(g.id) || !split.crossGroups.has(g.id));
+  const cross = shown.filter((g) => !split.byGroup.has(g.id) && split.crossGroups.has(g.id));
+  return { own, cross, order: [...own, ...cross] };
+}
+
 /** Tabela do grupo `index` dos exibidos: legenda e punições dos times dele; o último leva os
  *  critérios de desempate e a punição de time fora de todos os grupos. */
 function tableArgs(standings, shown, index) {
@@ -74,24 +85,25 @@ function tableArgs(standings, shown, index) {
   return [{ ...standings, groups: [group], adjustments }, { criteria: last, tied }];
 }
 
-/** O que muda as linhas (grupos exibidos, jogos de cada um, jogos entre grupos). Não depende
- *  da ordem em que os jogos chegam (a da API ou a dos cards na tela). */
-function layoutKey(shown, split) {
+/** O que muda as linhas (grupos exibidos e onde, jogos de cada um, jogos entre grupos). Não
+ *  depende da ordem em que os jogos chegam (a da API ou a dos cards na tela). */
+function layoutKey(place, split) {
   const ids = (matches) => matches.map((m) => m.id).sort((a, b) => a - b);
   return JSON.stringify([
-    shown.map((g) => g.id),
+    place.own.map((g) => g.id),
+    place.cross.map((g) => g.id),
     [...split.byGroup].map(([key, entry]) => [String(key), ids(entry.matches)]).sort((a, b) => a[0].localeCompare(b[0])),
     ids(split.cross),
   ]);
 }
 
-function groupRow(title, id, cards, empty, table, cls = null) {
+function groupRow(title, id, cards, empty, tables = [], cls = null) {
   return h('section', { class: ['group-row', cls], 'data-group-id': id ?? null },
     h('h3', { class: 'match-group__title', text: title || 'Sem grupo' }),
     cards.length
       ? h('div', { class: 'match-group__games' }, ...cards)
       : h('p', { class: 'group-row__empty', text: empty }),
-    table ? h('div', { class: 'group-row__table' }, table) : null,
+    tables.length ? h('div', { class: 'group-row__table' }, ...tables) : null,
   );
 }
 
@@ -106,23 +118,25 @@ function groupRow(title, id, cards, empty, table, cls = null) {
  */
 export function createGroupRows(standings, matches, card, { only = 'all', when = 'nesta rodada' } = {}) {
   const split = splitGroupMatches(matches, standings);
-  const shown = shownGroups(standings, split, only);
-  const key = layoutKey(shown, split);
+  const place = placeGroups(standings, split, only);
   const tables = new Map();
+  const tableOf = (g) => {
+    const table = createStandings(...tableArgs(standings, place.order, place.order.indexOf(g)));
+    tables.set(g.id, table);
+    return table;
+  };
   const rest = new Map(split.byGroup);
-  const rows = shown.map((g, i) => {
+  const rows = place.own.map((g) => {
     const games = rest.get(g.id)?.matches || [];
     rest.delete(g.id);
-    const table = createStandings(...tableArgs(standings, shown, i));
-    tables.set(g.id, table);
-    const empty = split.crossGroups.has(g.id) ? `Só jogo entre grupos ${when} (veja abaixo).` : `Não há jogos deste grupo ${when}.`;
-    return groupRow(g.name, g.id, games.map(card), empty, table);
+    return groupRow(g.name, g.id, games.map(card), `Não há jogos deste grupo ${when}.`, [tableOf(g)]);
   });
-  if (split.cross.length) rows.push(groupRow('Jogos entre grupos', null, split.cross.map(card), '', null, 'group-row--cross'));
+  // jogos entre grupos, com as tabelas dos grupos que só jogam entre grupos, uma abaixo da outra
+  if (split.cross.length) rows.push(groupRow('Jogos entre grupos', null, split.cross.map(card), '', place.cross.map(tableOf), 'group-row--cross'));
   // jogo de grupo que não está na tabela (ex.: sem grupo): linha sem tabela, no fim
   const leftovers = [...rest.values()].sort((a, b) => String(a.group?.name || '').localeCompare(String(b.group?.name || ''), 'pt-BR', { numeric: true }));
-  rows.push(...leftovers.map((g) => groupRow(g.group?.name, g.group?.id, g.matches.map(card), '', null)));
-  return { rows, tables, key };
+  rows.push(...leftovers.map((g) => groupRow(g.group?.name, g.group?.id, g.matches.map(card), '')));
+  return { rows, tables, key: layoutKey(place, split) };
 }
 
 /**
@@ -153,8 +167,8 @@ export function createMatchGroupBlocks(matches, standings, card) {
  */
 export function updateGroupRows(layout, standings, matches, { only = 'all' } = {}) {
   const split = splitGroupMatches(matches, standings);
-  const shown = shownGroups(standings, split, only);
-  if (!layout || layoutKey(shown, split) !== layout.key) return false;
-  shown.forEach((g, i) => updateStandings(layout.tables.get(g.id), ...tableArgs(standings, shown, i)));
+  const place = placeGroups(standings, split, only);
+  if (!layout || layoutKey(place, split) !== layout.key) return false;
+  place.order.forEach((g, i) => updateStandings(layout.tables.get(g.id), ...tableArgs(standings, place.order, i)));
   return true;
 }

@@ -784,8 +784,8 @@ def test_home_sem_jogo(open_page, fixtures):
 def test_home_fase_de_grupos_em_linhas_so_com_os_grupos_com_jogo(open_page, fixtures):
     """Fase de grupos na home: um grupo por linha (jogos | tabela do grupo, topo alinhado; a linha
     tem a altura da tabela), só os grupos com jogo no dia (também depois da mensagem
-    `standings`, que traz todos os grupos); jogos entre grupos numa seção à parte; critérios
-    dentro do card do último grupo, sem caixa à parte."""
+    `standings`, que traz todos os grupos); jogos entre grupos numa seção à parte, com as tabelas
+    dos dois grupos uma abaixo da outra; critérios dentro do card da última tabela."""
     groups = fixtures["STANDINGS_GROUPS"]
     group_a, group_b = groups["groups"]
     sport, central = _team(fixtures, 0, 0), _team(fixtures, 0, 1)
@@ -799,7 +799,8 @@ def test_home_fase_de_grupos_em_linhas_so_com_os_grupos_com_jogo(open_page, fixt
         home["competitions"] = [{**home["competitions"][0], "stages": [stage]}]
         return home
 
-    rows = "() => [...document.querySelectorAll('[data-hook=\"matches\"] .group-row')].map((g) => [g.querySelector('.match-group__title').textContent, g.querySelectorAll('.match').length, g.querySelector('.group-row__empty')?.textContent || '', g.querySelector('.group-row__table caption')?.firstChild.textContent || '', !!g.querySelector('.group-row__table .legend'), !!g.querySelector('.group-row__table .criteria')])"
+    # [título, jogos, aviso, legendas das tabelas ao lado, nº de legendas, nº de blocos de critérios]
+    rows = "() => [...document.querySelectorAll('[data-hook=\"matches\"] .group-row')].map((g) => [g.querySelector('.match-group__title').textContent, g.querySelectorAll('.match').length, g.querySelector('.group-row__empty')?.textContent || '', [...g.querySelectorAll('.group-row__table caption')].map((c) => c.firstChild.textContent).join('|'), g.querySelectorAll('.group-row__table .legend').length, g.querySelectorAll('.group-row__table .criteria').length])"
     loose = "() => document.querySelectorAll('[data-hook=\"matches\"] .standings > .card:not(.standings__group), [data-hook=\"standings\"]').length"
     update = copy.deepcopy(groups)
     update["groups"][0]["rows"][0]["points"] = 99
@@ -810,7 +811,7 @@ def test_home_fase_de_grupos_em_linhas_so_com_os_grupos_com_jogo(open_page, fixt
 
     page, _, errors = open_page("/", prepare=only_group_a)
     page.wait_for_function("() => document.querySelector('.group-row__table td.col-pts')?.textContent.startsWith('99')")
-    assert page.evaluate(rows) == [["Grupo A", 1, "", "Grupo A", True, True]]  # Grupo B sem jogo no dia: fora
+    assert page.evaluate(rows) == [["Grupo A", 1, "", "Grupo A", 1, 1]]  # Grupo B sem jogo no dia: fora
     assert page.evaluate(loose) == 0  # sem aside e sem caixa à parte
     assert not errors, errors
 
@@ -820,34 +821,35 @@ def test_home_fase_de_grupos_em_linhas_so_com_os_grupos_com_jogo(open_page, fixt
 
     page, _, errors = open_page("/", prepare=two_groups, width=1280)
     page.wait_for_selector(".group-row__table .standings__group")
-    assert page.evaluate(rows) == [["Grupo A", 1, "", "Grupo A", True, False], ["Grupo B", 1, "", "Grupo B", True, True]]
+    assert page.evaluate(rows) == [["Grupo A", 1, "", "Grupo A", 1, 0], ["Grupo B", 1, "", "Grupo B", 1, 1]]
     sizes = page.evaluate("[...document.querySelectorAll('.group-row__table')].map((t) => { const row = t.closest('.group-row'); const games = row.querySelector('.match-group__games').getBoundingClientRect(); const box = t.getBoundingClientRect(); const next = row.nextElementSibling; return {top: Math.round(games.top - box.top), right: box.left > games.right, taller: box.bottom > games.bottom, row: row.getBoundingClientRect().bottom - box.bottom, next: next ? next.getBoundingClientRect().top - box.bottom : null}; })")
     assert all(s["top"] == 0 and s["right"] and s["taller"] and s["row"] >= -0.5 for s in sizes), sizes
     assert sizes[0]["next"] > 0  # o Grupo B começa depois da tabela do Grupo A
     assert not errors, errors
 
-    def cross_groups(api):  # só jogo entre grupos: os dois grupos aparecem, com o aviso
+    # só jogo entre grupos: uma seção, com as tabelas dos dois grupos uma abaixo da outra
+    def cross_groups(api):
         api.fx = {**api.fx, "HOME": home_with({**base, "home": sport, "away": nautico})}
 
-    page, _, errors = open_page("/", prepare=cross_groups)
+    page, _, errors = open_page("/", prepare=cross_groups, width=1280)
     page.wait_for_selector(".group-row__table .standings__group")
-    note = "Só jogo entre grupos hoje (veja abaixo)."
-    assert page.evaluate(rows) == [
-        ["Grupo A", 0, note, "Grupo A", True, False],
-        ["Grupo B", 0, note, "Grupo B", True, True],
-        ["Jogos entre grupos", 1, "", "", False, False],
-    ]
+    assert page.evaluate(rows) == [["Jogos entre grupos", 1, "", "Grupo A|Grupo B", 2, 1]]
+    stack = page.evaluate("(() => { const t = [...document.querySelectorAll('.group-row--cross .group-row__table .standings')].map((x) => x.getBoundingClientRect()); const games = document.querySelector('.group-row--cross .match-group__games').getBoundingClientRect(); return {top: Math.round(games.top - t[0].top), below: t[1].top >= t[0].bottom, right: t[0].left > games.right}; })()")
+    assert stack == {"top": 0, "below": True, "right": True}, stack
     assert page.evaluate(loose) == 0
     assert not errors, errors
 
-    def cross_yesterday(api):  # outro dia no seletor: o aviso não diz "hoje"
-        cross_groups(api)
-        yesterday = (datetime.fromisoformat(api.fx["HOME"]["date"]) - timedelta(days=1)).date().isoformat()
-        api.fx = {**api.fx, "HOME": {**api.fx["HOME"], "date": yesterday}}
+    # nada casa com a tabela (dado incompleto) em outro dia: todos os grupos, e o aviso não diz "hoje"
+    stranger = {"id": 9901, "name": "Time de Fora", "short_name": "FOR", "city": "Recife", "color_primary": "#123456", "color_secondary": "#ffffff", "crest_url": ""}
 
-    page, _, errors = open_page("/", prepare=cross_yesterday)
+    def unknown_yesterday(api):
+        home = home_with({**base, "home": stranger, "away": {**stranger, "id": 9902, "short_name": "FO2"}, "group": None})
+        home["date"] = (datetime.fromisoformat(home["date"]) - timedelta(days=1)).date().isoformat()
+        api.fx = {**api.fx, "HOME": home}
+
+    page, _, errors = open_page("/", prepare=unknown_yesterday)
     page.wait_for_selector(".group-row__table .standings__group")
-    assert [r[2] for r in page.evaluate(rows)][:2] == ["Só jogo entre grupos ontem (veja abaixo)."] * 2
+    assert [r[2] for r in page.evaluate(rows)][:2] == ["Não há jogos deste grupo ontem."] * 2
     assert not errors, errors
 
     # o admin troca os times e o grupo do jogo (status e início iguais): a home busca de novo
@@ -975,6 +977,11 @@ def test_competicao_rodadas_fase_e_slug_inexistente(open_page, fixtures):
     # grupo sem jogo na rodada: o aviso no lugar dos jogos, a tabela continua ao lado
     page.wait_for_function("() => document.querySelectorAll('#round-matches .group-row__empty').length > 0")
     assert page.evaluate(rows) == [["Grupo A", 1, "", "Grupo A"], ["Grupo B", 0, "Não há jogos deste grupo nesta rodada.", "Grupo B"]]
+    # rodada só com jogo entre grupos: uma seção, com as tabelas dos dois grupos empilhadas
+    api.round_matches = [_summary(fixtures["MATCHES"]["scheduledToday"])]  # Central (A) × Salgueiro (B)
+    page.click("#round-next")
+    page.wait_for_function("() => document.querySelector('#round-matches .group-row--cross .group-row__table')")
+    assert page.evaluate("[...document.querySelectorAll('#round-matches .group-row')].map((g) => [g.querySelector('.match-group__title').textContent, g.querySelectorAll('.match').length, [...g.querySelectorAll('.group-row__table caption')].map((c) => c.firstChild.textContent), g.querySelectorAll('.criteria').length])") == [["Jogos entre grupos", 1, ["Grupo A", "Grupo B"], 1]]
     assert page.evaluate(
         "document.documentElement.scrollWidth <= document.documentElement.clientWidth"
     )

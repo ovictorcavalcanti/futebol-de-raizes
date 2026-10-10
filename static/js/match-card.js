@@ -400,6 +400,11 @@ function teamById(tie, id) {
   return null;
 }
 
+/**
+ * Linha do confronto no card. Ida e volta: a ida só avisa que a vaga sai na volta; a volta
+ * traz o agregado (parcial até o fim do confronto) e, no fim, quem avança e como. Jogo
+ * único: só quem avança, no fim.
+ */
 function renderTie(p, match) {
   const tie = match.tie;
   if (!tie) {
@@ -409,16 +414,19 @@ function renderTie(p, match) {
   }
   const parts = [];
   const winner = tie.winner_team_id != null ? teamById(tie, tie.winner_team_id) : null;
-  const firstLeg = tie.legs === 2 && tie.leg === 1 && !tie.complete;
-  if (tie.legs === 2 && !firstLeg && tie.aggregate) {
+  if (tie.legs === 2 && tie.leg === 1) {
+    parts.push(icon('trophy'), h('span', { text: tie.complete ? 'Jogo de ida' : 'Jogo de ida · a vaga sai na volta' }));
+    p.hidden = false;
+    p.replaceChildren(...parts);
+    return;
+  }
+  if (tie.legs === 2 && tie.aggregate) {
     // agregado na mesma ordem do placar do card (mandante à esquerda), não na ordem team_a/team_b
     const flip = match.home?.id != null && match.home.id === tie.team_b?.id;
     const [left, right] = flip ? [tie.team_b, tie.team_a] : [tie.team_a, tie.team_b];
     const [aggLeft, aggRight] = flip ? [tie.aggregate.team_b, tie.aggregate.team_a] : [tie.aggregate.team_a, tie.aggregate.team_b];
     parts.push(icon('trophy'), h('span', { text: tie.complete ? 'Agregado' : 'Agregado parcial' }),
       h('span', { class: 'match__tie-agg', text: `${left?.short_name || ''} ${formatScore(aggLeft, aggRight)} ${right?.short_name || ''}` }));
-  } else if (firstLeg) {
-    parts.push(icon('trophy'), h('span', { text: 'Jogo de ida · a vaga sai na volta' }));
   }
   if (winner && tie.complete) {
     if (!parts.length) parts.push(icon('trophy'));
@@ -902,12 +910,6 @@ function renderStats(match) {
    Confronto de mata-mata (TieDetailOut)
    ========================================================================== */
 
-/**
- * Card de confronto: agregado, vencedor em destaque, forma da decisão e jogos.
- * @param {object} tie TieDetailOut (TieOut sem leg + matches: [MatchOut])
- * @param {{now?: () => number}} [opts]
- * @returns {HTMLElement}
- */
 /** Confrontos (TieOut + jogos) a partir das partidas (cada MatchOut traz o seu TieOut). */
 export function tiesFromMatches(matches = []) {
   const ties = new Map();
@@ -923,59 +925,37 @@ export function tiesFromMatches(matches = []) {
 }
 
 /**
- * Bloco de um confronto: jogos à esquerda (com o título "Time A × Time B" se `title`) e,
- * à direita, o card do agregado (`tieCard`), alinhado com o primeiro jogo. Repete as
- * colunas do layout jogos | classificação, para os cards terem a mesma largura.
+ * Bloco de um confronto: os jogos (ida e volta), com o título "Time A × Time B" se `title`.
+ * O agregado e quem avança ficam no card do jogo de volta (renderTie).
  */
-export function createTieGroup(tie, cards, tieCard, { title = true } = {}) {
+export function createTieGroup(tie, cards, { title = true } = {}) {
   const heading = title
     ? h('h3', { class: 'tie-group__title', text: `${displayName(tie.team_a)} × ${displayName(tie.team_b)}` })
     : null;
   return h('section', { class: ['tie-group', !title && 'tie-group--untitled'], 'data-tie-id': tie.id, 'aria-label': heading ? null : `${displayName(tie.team_a)} × ${displayName(tie.team_b)}` },
     heading,
     h('div', { class: 'tie-group__games' }, ...cards),
-    h('div', { class: 'tie-group__aside' }, tieCard),
   );
 }
 
-export function createTieCard(tie, opts = {}) {
-  const now = nowOf(opts);
-  const complete = !!tie.complete && tie.winner_team_id != null;
-  const started = complete || (tie.matches || []).some(hasScore);
-  const row = (team, agg) => {
-    const isWinner = complete && team?.id === tie.winner_team_id;
-    return h('li', { class: ['tie__team', isWinner && 'is-winner', complete && !isWinner && 'is-loser'] },
-      createCrest(team, { size: 28 }),
-      h('span', { class: 'tie__name' }, displayName(team), isWinner ? h('span', { class: 'tie__adv' }, icon('check'), 'avança') : null),
-      h('span', { class: 'tie__agg', text: started ? (agg ?? 0) : '–' }),
-    );
-  };
-  const format = tie.legs === 2 ? 'Ida e volta' : 'Jogo único';
-  const legs = (tie.matches || []).slice().sort((a, b) => (a.tie?.leg ?? 0) - (b.tie?.leg ?? 0) || String(a.kickoff_at).localeCompare(String(b.kickoff_at)));
-  const card = h('article', { class: 'card tie', 'data-tie-id': tie.id },
-    h('header', { class: 'tie__head' },
-      h('span', { class: 'tie__round', text: tie.round?.name || 'Confronto' }),
-      h('span', { class: 'tie__format', text: `${format}${tie.extra_time ? ' · com prorrogação' : ''}` }),
-    ),
-    h('ol', { class: 'tie__teams', 'aria-label': 'Agregado do confronto' }, row(tie.team_a, tie.aggregate?.team_a), row(tie.team_b, tie.aggregate?.team_b)),
-  );
-  if (complete && tie.decided_by) {
-    const winner = teamById(tie, tie.winner_team_id);
-    card.append(h('p', { class: 'tie__decided', text: `${displayName(winner)} classificado ${tie.decided_by_label || ''}`.trim() }));
+/**
+ * O TieOut (agregado, vencedor) chega na mensagem de um jogo do confronto e vale para os
+ * outros: atualiza o confronto nos cards dos outros jogos (cada um mantém o seu `leg`).
+ * Mensagem mais velha que o card do próprio jogo não espalha o agregado antigo.
+ * @param {Iterable<HTMLElement>} cards cards da página
+ * @param {object} match MatchOut da mensagem
+ */
+export function syncTieCards(cards, match) {
+  if (!match?.tie) return;
+  const { leg, ...tie } = match.tie;
+  const all = [...cards];
+  const own = all.map(getCardMatch).find((m) => m?.id === match.id);
+  if (own && typeof own.version === 'number' && typeof match.version === 'number' && match.version < own.version) return;
+  for (const el of all) {
+    const other = getCardMatch(el);
+    if (!other || other.id === match.id || other.tie?.id !== tie.id) continue;
+    updateMatchCard(el, { ...other, tie: { ...other.tie, ...tie } }, { flash: false });
   }
-  if (legs.length && opts.legs !== false) {
-    card.append(h('ul', { class: 'tie__legs', 'aria-label': 'Jogos do confronto' }, ...legs.map((m, i) => {
-      const label = tie.legs === 2 ? ((m.tie?.leg ?? i + 1) === 2 ? 'Volta' : 'Ida') : 'Jogo';
-      const scoreText = hasScore(m) ? `${m.home?.short_name} ${formatScore(m.home_score, m.away_score)} ${m.away?.short_name}` : `${m.home?.short_name} × ${m.away?.short_name}`;
-      return h('li', { class: 'tie__leg' },
-        h('span', { class: 'tie__leg-label', text: label }),
-        h('span', { class: 'tie__leg-score', text: scoreText }),
-        m.home_penalties != null ? h('span', { text: `(${m.home_penalties}–${m.away_penalties} pên.)` }) : null,
-        h('span', { class: 'muted', text: m.status === 'live' ? (m.status_label || 'Ao vivo') : formatWhen(m.kickoff_at, now) }),
-      );
-    })));
-  }
-  return card;
 }
 
 /* ==========================================================================

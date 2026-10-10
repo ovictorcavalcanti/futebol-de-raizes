@@ -8,10 +8,10 @@
  * os jogos) e o <select> troca a fase (GET /api/competitions/:slug?stage=), atualizando a URL
  * sem recarregar. Assina o stream como a home (esta página não alerta gols).
  */
-import { renderCompetitionNav, showToast } from './render.js';
+import { h, renderCompetitionNav, showToast } from './render.js';
 import { ServerClock, mountClock } from './clock.js';
-import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createTieCard, createTieGroup, tiesFromMatches, refreshMatchCards, sortMatchesForDisplay, groupMatchesByGroup, createMatchGroup } from './match-card.js';
-import { createStandings, updateStandings } from './standings.js';
+import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createTieGroup, tiesFromMatches, syncTieCards, refreshMatchCards, sortMatchesForDisplay, groupMatchesByGroup, createMatchGroup } from './match-card.js';
+import { createStandings, updateStandings, createStandingsFooter } from './standings.js';
 import { getCompetitions, getCompetition, listMatches, getMatch, getRanking } from './api.js';
 import { createStream, liveStatusIndicator } from './stream.js';
 
@@ -30,6 +30,7 @@ const els = {
   next: $('round-next'),
   roundLabel: $('round-label'),
   grid: $('competition-grid'),
+  aside: document.querySelector('#competition-grid [data-hook="aside"]'),
   matches: $('round-matches'),
   roundEmpty: $('round-empty'),
   standings: $('stage-standings'),
@@ -52,10 +53,11 @@ const state = {
   rounds: [],
   roundIndex: -1,
   cards: new Map(), // match id → card
-  ties: new Map(), // tie id → TieDetailOut
-  tieCards: new Map(), // tie id → card
   standingsEl: null,
   standingsStageId: null,
+  standingsData: null, // StageStandingsOut da fase exibida
+  groupTables: new Map(), // fase de grupos: group id → tabela do grupo, ao lado dos jogos dele
+  groupFoot: null, // legenda e critérios das tabelas de grupo
   view: 'stage', // 'stage' (tabela da fase) ou o id da classificação geral/personalizada exibida
   rankingStageIds: [], // fases que entram na classificação exibida (atualiza com o stream)
   rankingTimer: 0,
@@ -111,8 +113,56 @@ function cardFor(match, next) {
   return card;
 }
 
+/** Fase de grupos com a tabela da fase exibida: cada grupo numa linha, com os jogos dele à
+ *  esquerda e a tabela dele à direita, topo alinhado (a tabela sai do aside). */
+function groupRowsMode() {
+  return state.stage?.format === 'groups' && state.view === 'stage' && !!state.standingsData?.groups?.length;
+}
+
+const groupStandings = (standings, group) => ({ ...standings, groups: [group], adjustments: [] });
+
+/** Linhas dos grupos: título, jogos da rodada (ou o aviso) e a tabela do grupo. Jogo de grupo
+ *  sem tabela (ex.: sem grupo) fica numa linha sem tabela, no fim. */
+function groupRows(matches, card) {
+  const standings = state.standingsData;
+  const byGroup = new Map(groupMatchesByGroup(matches).map((g) => [g.group?.id ?? null, g]));
+  const row = (group, games, table) => h('section', { class: 'group-row', 'data-group-id': group?.id ?? null },
+    h('h3', { class: 'match-group__title', text: group?.name || 'Sem grupo' }),
+    games.length
+      ? h('div', { class: 'match-group__games' }, ...games.map(card))
+      : h('p', { class: 'group-row__empty', text: 'Não há jogos deste grupo nesta rodada.' }),
+    table ? h('div', { class: 'group-row__table' }, table) : null,
+  );
+  state.groupTables = new Map();
+  const rows = standings.groups.map((g) => {
+    const games = byGroup.get(g.id)?.matches || [];
+    byGroup.delete(g.id);
+    const table = createStandings(groupStandings(standings, g), { legend: false, criteria: false });
+    state.groupTables.set(g.id, table);
+    return row({ id: g.id, name: g.name }, games, table);
+  });
+  rows.push(...[...byGroup.values()].map((g) => row(g.group, g.matches, null)));
+  if (!els.standingsSwitch.hidden) rows.unshift(h('div', { class: 'group-row group-row--head' }, els.standingsSwitch));
+  state.groupFoot = createStandingsFooter(standings);
+  if (state.groupFoot) rows.push(h('div', { class: 'group-row group-row--foot' }, state.groupFoot));
+  return rows;
+}
+
+/** Fora das linhas de grupo: os botões das classificações voltam para o aside. */
+function leaveGroupRows() {
+  els.matches.classList.remove('group-rows');
+  if (els.standingsSwitch.parentElement !== els.aside) els.aside.prepend(els.standingsSwitch);
+  state.groupTables = new Map();
+  state.groupFoot = null;
+}
+
 /** Cards da rodada na ordem da home; na fase de grupos, separados por grupo. */
 function matchBlocks(matches, card) {
+  if (groupRowsMode()) {
+    els.matches.classList.add('group-rows');
+    return groupRows(matches, card);
+  }
+  leaveGroupRows();
   if (state.stage?.format !== 'groups') return sortMatchesForDisplay(matches).map(card);
   return groupMatchesByGroup(matches).map((g) => createMatchGroup(g.group, g.matches.map(card)));
 }
@@ -122,19 +172,16 @@ function renderMatches(matches, ties = null) {
   const knockout = state.stage?.format === 'knockout';
   let blocks;
   if (knockout) {
-    // Um bloco por confronto: "Time A × Time B", os jogos (ida e volta, mesmo de outra
-    // rodada) e o agregado à direita, alinhado com o primeiro jogo.
+    // Um bloco por confronto: "Time A × Time B" e os jogos (ida e volta, mesmo de outra
+    // rodada); o agregado e quem avança vêm no card da volta.
     const sorted = (ties || tiesFromMatches(matches)).slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.id - b.id);
-    state.ties = new Map(sorted.map((t) => [t.id, t]));
-    state.tieCards = new Map(sorted.map((t) => [t.id, createTieCard(t, { now, legs: false })]));
     blocks = sorted.map((tie) => {
       const legs = (tie.matches?.length ? tie.matches : matches.filter((m) => m.tie?.id === tie.id))
         .slice().sort((a, b) => (a.tie?.leg ?? 0) - (b.tie?.leg ?? 0) || String(a.kickoff_at).localeCompare(String(b.kickoff_at)));
-      return createTieGroup(tie, legs.map((m) => cardFor(m, next)), state.tieCards.get(tie.id));
+      return createTieGroup(tie, legs.map((m) => cardFor(m, next)));
     });
+    leaveGroupRows();
   } else {
-    state.ties = new Map();
-    state.tieCards = new Map();
     blocks = matchBlocks(matches, (match) => cardFor(match, next)); // mesma ordem da home
   }
   state.cards = next;
@@ -144,12 +191,13 @@ function renderMatches(matches, ties = null) {
   els.matches.removeAttribute('aria-busy');
   els.matches.hidden = blocks.length === 0;
   els.roundEmpty.hidden = blocks.length > 0;
-  els.ties.hidden = true; // o agregado fica em cada bloco de confronto
+  els.ties.hidden = true; // o agregado fica no card do jogo de volta
   els.tiesList.replaceChildren();
   updateAside();
 }
 
 function renderStandings(stage) {
+  state.standingsData = stage.standings || null;
   if (stage.standings) {
     if (state.standingsEl && state.standingsStageId === stage.id) {
       updateStandings(state.standingsEl, stage.standings);
@@ -194,13 +242,14 @@ function paintStandingsSwitch() {
       if (state.view === view) return;
       state.view = view;
       paintStandingsSwitch();
+      if (state.stage?.format === 'groups') reorderCards(); // linhas de grupo × jogos por grupo
     });
     return b;
   };
   const buttons = [...(hasStage ? [button('stage', data.stage.name || 'Fase')] : []), ...refs.map((r) => button(r.id, r.name))];
   els.standingsSwitch.replaceChildren(...buttons);
   els.standingsSwitch.hidden = buttons.length < 2 && state.view === 'stage';
-  els.standings.hidden = state.view !== 'stage' || !hasStage;
+  els.standings.hidden = state.view !== 'stage' || !hasStage || groupRowsMode(); // grupos: tabela ao lado dos jogos
   els.rankingStandings.hidden = state.view === 'stage';
   if (state.view !== 'stage') loadRanking(state.view);
   else state.rankingStageIds = [];
@@ -232,8 +281,7 @@ function updateAside() {
   els.grid.classList.toggle('split--no-aside', !hasAside);
   // mata-mata no celular: o resumo dos confrontos (quem avança) vem antes dos cards
   els.grid.classList.toggle('split--aside-first', !els.ties.hidden);
-  const aside = els.grid.querySelector('[data-hook="aside"]');
-  if (aside) aside.hidden = !hasAside;
+  els.aside.hidden = !hasAside;
 }
 
 function paintRoundNav() {
@@ -422,27 +470,35 @@ function onMatch(message) {
   const before = card ? getCardMatch(card)?.status : null;
   if (card) updateMatchCard(card, match, { flash: true });
   if (card && before && before !== match.status && state.stage?.format !== 'knockout') reorderCards();
-  // confronto do mata-mata: agregado e vencedor vêm no TieOut da partida (o jogo pode
-  // ser de outra rodada, sem card na página)
-  if (match.tie && state.ties.has(match.tie.id)) {
-    const current = state.ties.get(match.tie.id);
-    const known = current.matches.find((m) => m.id === match.id);
-    if (known && typeof known.version === 'number' && typeof match.version === 'number' && match.version < known.version) return;
-    const { leg, ...tie } = match.tie;
-    const latest = (card && getCardMatch(card)) || match;
-    const updated = { ...current, ...tie, matches: current.matches.map((m) => (m.id === latest.id ? latest : m)) };
-    state.ties.set(tie.id, updated);
-    const fresh = createTieCard(updated, { now, legs: false });
-    state.tieCards.get(tie.id)?.replaceWith(fresh);
-    state.tieCards.set(tie.id, fresh);
-  }
+  // mata-mata: agregado e vencedor vêm no TieOut da partida e valem para o card do outro jogo
+  syncTieCards(state.cards.values(), match);
 }
 
 function onStandings(message) {
   rankingChanged([message?.stage_id]);
   if (state.standingsEl && message?.stage_id === state.standingsStageId && message.standings) {
     updateStandings(state.standingsEl, message.standings);
+    state.standingsData = message.standings;
+    if (groupRowsMode()) updateGroupTables(message.standings);
   }
+}
+
+/** Tabelas ao lado dos jogos de cada grupo: os mesmos grupos redesenham no lugar (os cards
+ *  não saem do lugar); grupo novo ou removido refaz as linhas. */
+function updateGroupTables(standings) {
+  const ids = standings.groups.map((g) => g.id);
+  if (ids.length !== state.groupTables.size || ids.some((id) => !state.groupTables.has(id))) {
+    reorderCards();
+    return;
+  }
+  standings.groups.forEach((g) => updateStandings(state.groupTables.get(g.id), groupStandings(standings, g)));
+  const foot = createStandingsFooter(standings);
+  if (state.groupFoot && foot) state.groupFoot.replaceWith(foot);
+  else if (state.groupFoot || foot) {
+    reorderCards();
+    return;
+  }
+  state.groupFoot = foot;
 }
 
 /* --- Início ---------------------------------------------------------------------------------- */

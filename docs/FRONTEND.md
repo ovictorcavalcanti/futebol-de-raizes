@@ -139,10 +139,10 @@ for (const stage of comp.stages) {
 | `[data-hook="competition-name"]`, `[data-hook="season"]`, `[data-hook="competition-eyebrow"]` | Título (contém um esqueleto até ser preenchido), ano da temporada, rótulo acima. |
 | `#stage-select` (`disabled`) | `<option value=stage.id>` por fase; habilite ao preencher. |
 | `#round-prev`, `#round-next` (`disabled`), `#round-label` (`aria-live="polite"`) | Navegação ‹ Rodada 5 ›. |
-| `#round-matches` (`aria-busy="true"`) | Cards da rodada (`createMatchCard`). |
+| `#round-matches` (`aria-busy="true"`) | Cards da rodada (`createMatchCard`); mata-mata: um bloco por confronto (`createTieGroup`); fase de grupos com tabela: uma linha por grupo (`.group-row`: jogos do grupo ou "Não há jogos deste grupo nesta rodada." e a tabela do grupo ao lado, topo alinhado; legenda e critérios no fim, `createStandingsFooter`). |
 | `#round-empty` (`hidden`) | "Nenhum jogo nesta rodada." |
-| `#stage-standings` | `createStandings(stage.standings)` (fase com tabela). |
-| `#stage-ties` (`hidden`) › `[data-hook="ties-list"]` | Mata-mata: `createTieCard(tie)` por confronto (TieDetailOut). |
+| `#stage-standings` | `createStandings(stage.standings)` (liga; na fase de grupos as tabelas vão para as linhas de `#round-matches`). |
+| `#stage-ties` (`hidden`) › `[data-hook="ties-list"]` | Sem uso (fica `hidden`): o agregado vem no card do jogo de volta. |
 | `#competition-missing` (`hidden`) | Slug inexistente. |
 | `#competition-error` (`hidden`) › `[data-hook="competition-retry"]` | Erro genérico. |
 
@@ -235,7 +235,7 @@ Todos são módulos ES puros, sem dependências; texto entra só por
 * `tickMatchCards(root, nowMs)` — atualiza só o minuto dos jogos ao vivo (chame no `onTick`).
 * `setMatchCardError(el)`, `getCardMatch(el)`, `renderTimeline(match, newIds?)`.
 * `safeHref(url) → string|null` — só `http(s)`; usado nos links de transmissão (barra `javascript:`/`data:`).
-* `createTieCard(tieDetail, {now}) → card do confronto` (agregado, vencedor, forma da decisão, jogos).
+* `createTieGroup(tie, cards, {title}) → bloco do confronto` (jogos de ida e volta); `syncTieCards(cards, match)` — o `TieOut` da mensagem `match` vale para o card do outro jogo do confronto (agregado no card da volta).
 * `createLatestGoal(latestGoal, {isNew}) → <li>` da lista de últimos gols.
 * `createGoalAlert(latestGoal, {kind: 'goal'|'correction', reason?: 'annulled'|'voided', onClose?}) → aviso` ("É gol!" / "Oxe! Gol anulado." + "Lance corrigido pelo operador.").
 * `annulledGoalNote(goalAnnulledEvent) → "Gol anulado aos 60' — Impedimento (VAR)"` — a linha do gol riscado na linha do tempo. A linha do tempo é registro (dado): sem o "Oxe!", que fica só no aviso ao vivo (IDENTIDADE §5); a anulação avulsa mostra o motivo sob o título "Gol anulado".
@@ -243,7 +243,7 @@ Todos são módulos ES puros, sem dependências; texto entra só por
 O card cobre todos os status: agendado (pílula com horário, dia relativo), ao vivo
 (minuto correndo, faixa vermelha no topo), intervalo (amarelo), encerrado
 (vencedor em destaque, perdedor esmaecido), pênaltis `(4) × (3) pên.`, suspenso,
-adiado e cancelado (hachura). Linha do confronto no mata-mata (agregado e quem
+adiado e cancelado (hachura). Linha do confronto no mata-mata (no card da volta: agregado e quem
 avança, com o agregado na mesma ordem mandante × visitante do placar do card).
 Nome do time: sigla no celular, nome completo a partir de 520 px de card; quebra só entre
 palavras (`overflow-wrap: normal`, `text-wrap: balance`; a sigla nunca quebra) e o ✓ do
@@ -328,11 +328,13 @@ document.addEventListener('visibilitychange', () => document.hidden || clock.che
   `GET /api/matches?roundId=`; **mata-mata com `GET /api/competitions/:slug?stage=&round=`**,
   que traz os confrontos com todos os jogos (a ida pode estar em outra rodada).
   Botões desabilitados nas pontas. O `<select>` troca a fase.
-* Liga/grupos: cards + classificação (legenda e critérios). Mata-mata: cards (com "Semifinal · Ida"
-  na faixa de meta, também na home) + confrontos — empilhado (< 960 px), os confrontos vêm antes
-  dos cards (`split--aside-first`): quem avança é o resumo da rodada
-  (`createTieCard`); a mensagem `match` redesenha o confronto do jogo (agregado e
-  vencedor vêm no `TieOut`). Sem alertas nesta página.
+* Liga: cards + classificação (legenda e critérios) no aside. Grupos (com a tabela da fase
+  exibida): uma linha por grupo, jogos à esquerda e a tabela do grupo à direita, alinhada com o
+  primeiro jogo; os botões das classificações sobem para a primeira linha. Mata-mata: um bloco
+  por confronto com os cards (com "Semifinal · Ida" na faixa de meta, também na home); o card
+  da ida diz "Jogo de ida", o da volta traz o agregado (parcial até o fim) e, no fim, quem
+  avança e como; a mensagem `match` atualiza o confronto nos dois cards (`syncTieCards`,
+  agregado e vencedor vêm no `TieOut`). Sem alertas nesta página.
 
 ### Operador (`operator.js`)
 * `GET /api/auth/me` primeiro (seta o cookie CSRF e acerta o relógio com `server_time`) → login (`POST /api/auth/login`;

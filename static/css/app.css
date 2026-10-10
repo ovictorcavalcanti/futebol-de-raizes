@@ -1437,46 +1437,39 @@
      CONFRONTOS DE MATA-MATA
      ========================================================================= */
   .ties { display: grid; gap: var(--s-3); }
-  /* Mata-mata: um bloco por confronto — jogos à esquerda, agregado à direita, alinhado com
-     o primeiro jogo; mesmas colunas de .split (cards da mesma largura dos jogos regulares). */
   /* Fase de grupos: os jogos separados por grupo, com o nome do grupo em cima. */
   .matches.match-groups { gap: var(--s-5); }
   .match-group { display: grid; gap: var(--s-3); }
   .match-group__title { margin: 0; font-family: var(--font-num); font-weight: 700; font-size: 0.875rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
   .match-group__games { display: grid; gap: var(--s-3); }
-  .matches.tie-groups { gap: var(--s-6); }
-  .tie-group { display: grid; gap: var(--s-3); grid-template-columns: minmax(0, 1fr); grid-template-areas: "title" "aside" "games"; align-items: start; }
-  .tie-group--untitled { grid-template-areas: "aside" "games"; }
-  .tie-group__title { grid-area: title; margin: 0; font-family: var(--font-num); font-weight: 700; font-size: 1.125rem; letter-spacing: 0.02em; }
-  .tie-group__games { grid-area: games; display: grid; gap: var(--s-3); }
-  .tie-group__aside { grid-area: aside; }
+  /* Competição, fase de grupos com a tabela: uma linha por grupo — jogos à esquerda, tabela
+     do grupo à direita, alinhada com o primeiro jogo; mesmas colunas de .split. */
+  .group-row { display: grid; gap: var(--s-3); grid-template-columns: minmax(0, 1fr); align-items: start; }
+  .group-row__empty { margin: 0; padding: var(--s-4); border: 1px dashed var(--line); border-radius: var(--radius); font-size: 0.875rem; color: var(--ink-3); text-align: center; }
   @media (min-width: 960px) {
-    .tie-group { grid-template-columns: minmax(0, 1fr) minmax(320px, 380px); column-gap: var(--s-5); grid-template-areas: "title ." "games aside"; }
-    .tie-group--untitled { grid-template-areas: "games aside"; }
+    .group-row { grid-template-columns: minmax(0, 1fr) minmax(320px, 380px); column-gap: var(--s-5); }
+    .group-row > * { grid-column: 1; }
+    .group-row > .group-row__table { grid-column: 2; grid-row: 2; }
+    .group-row--head > *, .group-row--foot > * { grid-column: 2; }
   }
   @media (min-width: 1200px) {
-    .tie-group { grid-template-columns: minmax(0, 1fr) 400px; column-gap: var(--s-6); }
+    .group-row { grid-template-columns: minmax(0, 1fr) 400px; column-gap: var(--s-6); }
   }
-  .tie { overflow: hidden; }
-  .tie__head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-2); padding: 10px var(--s-4); border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--surface-2) 55%, var(--surface)); }
-  .tie__round { font-family: var(--font-num); font-weight: 700; font-size: 0.875rem; letter-spacing: 0.06em; text-transform: uppercase; }
-  .tie__format { font-size: 0.8125rem; color: var(--ink-3); }
-  .tie__teams { display: grid; margin: 0; padding: var(--s-2) 0; list-style: none; }
-  .tie__team { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--s-3); padding: 6px var(--s-4); }
-  .tie__team .crest { --crest-size: 28px; }
-  .tie__name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .tie__agg { font-family: var(--font-num); font-weight: 700; font-size: 1.5rem; line-height: 1; font-variant-numeric: tabular-nums; }
-  .tie__team.is-winner::before { content: ""; position: absolute; left: 0; top: 4px; bottom: 4px; width: 4px; border-radius: 0 3px 3px 0; background: var(--verde); }
-  .tie__team.is-winner .tie__name { font-weight: 700; }
-  .tie__team.is-winner .tie__agg { color: var(--verde-ink); }
-  .tie__team.is-loser .tie__name, .tie__team.is-loser .tie__agg { color: var(--ink-3); }
+  /* Mata-mata: um bloco por confronto (ida e volta); o agregado vem no card da volta. Sem a
+     coluna da classificação, os cards ficam na largura dos jogos das outras fases. */
+  .matches.tie-groups { gap: var(--s-6); }
+  .tie-group { display: grid; gap: var(--s-3); grid-template-columns: minmax(0, 1fr); align-items: start; }
+  .tie-group > * { grid-column: 1; }
+  .tie-group__title { margin: 0; font-family: var(--font-num); font-weight: 700; font-size: 1.125rem; letter-spacing: 0.02em; }
+  .tie-group__games { display: grid; gap: var(--s-3); }
+  @media (min-width: 960px) {
+    .split--no-aside .tie-group { grid-template-columns: minmax(0, 1fr) minmax(320px, 380px); column-gap: var(--s-5); }
+  }
+  @media (min-width: 1200px) {
+    .split--no-aside .tie-group { grid-template-columns: minmax(0, 1fr) 400px; column-gap: var(--s-6); }
+  }
   .tie__adv { display: inline-flex; align-items: center; gap: 4px; margin-left: var(--s-2); font-family: var(--font-num); font-weight: 600; font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--verde-ink); }
   .tie__adv .icon { width: 14px; height: 14px; }
-  .tie__legs { display: grid; gap: 4px; margin: 0; padding: var(--s-2) var(--s-4) var(--s-3); border-top: 1px dashed var(--line); list-style: none; font-size: 0.8125rem; color: var(--ink-2); }
-  .tie__leg { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--s-2); }
-  .tie__leg-label { min-width: 4.5ch; font-family: var(--font-num); font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-3); }
-  .tie__leg-score { font-family: var(--font-num); font-weight: 700; color: var(--ink); }
-  .tie__decided { padding: 0 var(--s-4) var(--s-3); font-size: 0.8125rem; color: var(--verde-ink); font-weight: 600; }
 
   /* =========================================================================
      ESTADO VAZIO, ESQUELETO, AVISOS

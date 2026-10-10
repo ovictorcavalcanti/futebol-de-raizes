@@ -813,6 +813,21 @@ def test_home_fase_de_grupos_so_com_as_tabelas_dos_grupos_com_jogo(open_page, fi
     assert page.evaluate(loose) == 0
     assert not errors, errors
 
+    # o admin troca os times e o grupo do jogo (status e início iguais): a home busca de novo
+    santa = group_b["rows"][1]["team"]
+    moved = {**base, "home": nautico, "away": santa, "group": {"id": group_b["id"], "name": group_b["name"]}, "version": base["version"] + 1}
+
+    def regrouped(api):
+        api.fx = {**api.fx, "HOME": home_with({**base, "home": sport, "away": central})}
+        api.streams = [_sse([("ping", {"server_time": _now_iso()}, None), ("match", {"stage_id": groups["stage_id"], "competition_id": 1, "match": moved}, 9002)]), _sse([("ping", {"server_time": _now_iso()}, None)])]
+
+    page, api, errors = open_page("/", prepare=regrouped)
+    page.wait_for_selector('[data-hook="standings"] .standings__group')
+    api.fx = {**api.fx, "HOME": home_with(moved)}
+    page.wait_for_function(f"() => ({tables})().map((t) => t[0]).join() === 'Grupo B'", timeout=10_000)
+    assert len([r for r in api.requests if r[1] == "/api/home"]) >= 2
+    assert not errors, errors
+
 
 def test_home_seletor_de_dias(open_page):
     today = datetime.now(ZoneInfo("America/Sao_Paulo")).date()

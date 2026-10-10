@@ -294,8 +294,10 @@ function onMatch(message) {
     updateMatchCard(card, match, { flash: true }); // pisca no gol; acordeão e aba continuam
     paintNav();
     syncTieCards(state.cards.values(), match); // agregado no card da volta
-    // a ordem da fase depende do status e do início; início em outro dia tira o card da página
-    if (before && (before.status !== match.status || before.kickoff_at !== match.kickoff_at)) scheduleReload();
+    // a ordem da fase depende do status e do início; início em outro dia tira o card da página;
+    // time ou grupo trocado no admin muda o bloco do card e as tabelas de grupo exibidas
+    const placement = (m) => [m.status, m.kickoff_at, m.home?.id, m.away?.id, m.group?.id].join('|');
+    if (before && placement(before) !== placement(match)) scheduleReload();
   } else if (state.date && dayKey(match.kickoff_at) === state.date) {
     scheduleReload(); // jogo novo no dia (ex.: reagendado para hoje): busca a home de novo
   }

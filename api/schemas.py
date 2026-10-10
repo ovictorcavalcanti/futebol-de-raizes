@@ -127,6 +127,10 @@ class PostEventOut(Schema):
     replayed: bool
 
 
+class EditEventOut(PostEventOut):
+    voided: list[int] = Field(..., description="ids que caíram junto (ex.: vermelho automático cujo amarelo deixou de ser o 2º)")
+
+
 class StatusOut(Schema):
     event: dict[str, Any] = Field(..., description="EventOut")
     match: dict[str, Any] = Field(..., description="MatchOut (detalhe)")
@@ -211,6 +215,7 @@ class RankingStandingsOut(Stamped):
 
 class MatchesOut(Stamped):
     matches: list[dict[str, Any]] = Field(..., description="[MatchOut]")
+    has_more: bool = Field(..., description="Há próxima página (offset + limit); False no teto de offset")
 
 
 class MatchDetailOut(Stamped):

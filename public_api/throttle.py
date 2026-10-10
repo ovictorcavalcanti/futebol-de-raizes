@@ -1,6 +1,7 @@
 """Limite de uso da API pública: requisições por chave por minuto.
 
-Janela fixa de 60 s no cache do Django: um contador por chave e por janela,
+Janela fixa de 60 s no cache `default` do Django (o limite por IP e o bloqueio de
+login ficam em caches à parte, ver config/settings.py): um contador por chave e por janela,
 criado com `cache.add` e somado com `cache.incr` (atômicos no LocMem, Redis e
 Memcached). O limite é `ApiKey.rate_limit_per_minute` (0 = o padrão de
 `settings.PUBLIC_API["DEFAULT_RATE_LIMIT_PER_MINUTE"]`).

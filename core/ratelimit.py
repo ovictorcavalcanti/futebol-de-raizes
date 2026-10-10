@@ -7,7 +7,9 @@ limite próprio, por chave (public_api/throttle.py), e o stream tem o limite de
 conexões abertas (realtime/views.py).
 
 O IP vem de core.net.client_ip (só REMOTE_ADDR: não dá para forjar pelo header).
-O contador fica no cache `default` do processo — um processo ASGI só.
+O contador fica no cache `ratelimit` do processo — um processo ASGI só —, à parte
+para o giro de uma chave por IP por minuto não despejar o bloqueio de login nem o
+limite da API pública.
 """
 
 from __future__ import annotations
@@ -16,8 +18,9 @@ import time
 
 from asgiref.sync import iscoroutinefunction, markcoroutinefunction
 from django.conf import settings
-from django.core.cache import cache
+from django.core.cache import caches
 from django.http import JsonResponse
+from django.utils.connection import ConnectionProxy
 
 from observability.metrics import metrics
 
@@ -25,6 +28,7 @@ from .net import client_ip
 
 PREFIX = "fdr:rl"
 WINDOW = 60
+cache = ConnectionProxy(caches, "ratelimit")
 
 
 def _limited(request) -> JsonResponse | None:

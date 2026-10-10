@@ -16,6 +16,8 @@ import pytest
 from django.test import Client
 
 from competitions.models import StageCriterion, StandingZone
+from matches import selectors
+from matches.models import Match
 from core import timeutils
 from standings import services as standings_services
 from tests.factories import make_knockout, make_league, make_match, make_tie_matches
@@ -223,7 +225,7 @@ def test_matches_list_filters_with_camel_case_names(client, operator_client):
         assert response.status_code == 200, response.content.decode()
         assert response["Cache-Control"] == "no-store"
         body = response.json()
-        assert set(body) == {"server_time", "timezone", "matches"}
+        assert set(body) == {"server_time", "timezone", "matches", "has_more"} and body["has_more"] is False
         return [match["id"] for match in body["matches"]]
 
     assert ids() == [a.id, b.id, c.id]
@@ -236,6 +238,75 @@ def test_matches_list_filters_with_camel_case_names(client, operator_client):
         response = client.get("/api/matches", params)
         assert response.status_code == 400, params
         assert response.json()["code"] == "invalid_input" and response.json()["details"]["field"] == field
+
+
+def test_matches_list_caps_every_filter_and_pages(client):
+    """O teto da lista (500) vale com ou sem filtro: o custo de cada requisição não cresce
+    com o banco. `limit` (até 500) e `offset` paginam; `has_more` diz se há mais."""
+    lg = make_league(n_teams=2)
+    home, away = lg["teams"]
+    r1 = lg["rounds"][0]
+    start = brt(3, 10, 0)  # 501 jogos, um por minuto, todos no dia 03/10 de Brasília
+    Match.objects.bulk_create(
+        Match(stage=lg["stage"], group=lg["group"], round=r1, home_team=home, away_team=away,
+              kickoff_at=start + timedelta(minutes=n), venue="Arena", city="Recife")
+        for n in range(501)
+    )
+    every_id = list(Match.objects.order_by("kickoff_at", "id").values_list("id", flat=True))
+
+    def page(**params) -> tuple[list[int], bool]:
+        response = client.get("/api/matches", params)
+        assert response.status_code == 200, response.content.decode()
+        body = response.json()
+        return [match["id"] for match in body["matches"]], body["has_more"]
+
+    for params in [{}, {"status": "scheduled"}, {"roundId": r1.id}, {"stageId": lg["stage"].id}, {"date": "2026-10-03"}]:
+        assert page(**params) == (every_id[:500], True), params
+    assert page(status="scheduled", offset=500) == (every_id[500:], False)
+    assert page(roundId=r1.id, limit=10, offset=495) == (every_id[495:501], False)
+    assert page(limit=2) == (every_id[:2], True)
+    for params, field in [({"limit": 501}, "limit"), ({"limit": 0}, "limit"), ({"offset": -1}, "offset"), ({"offset": 10**19}, "offset")]:
+        response = client.get("/api/matches", params)
+        assert response.status_code == 400, params
+        assert response.json()["code"] == "invalid_input" and response.json()["details"]["field"] == field
+
+
+def test_matches_list_has_more_never_points_past_offset_cap(client, monkeypatch):
+    """Quem segue `has_more` nunca recebe 400: se a próxima página (offset + limit) passaria
+    do teto de `offset`, `has_more` é False mesmo havendo partidas depois."""
+    cap = selectors.MATCHES_LIST_MAX_OFFSET  # o teto da API é o do seletor
+    assert client.get("/api/matches", {"offset": cap}).json()["has_more"] is False
+    assert client.get("/api/matches", {"offset": cap + 1}).status_code == 400
+
+    monkeypatch.setattr(selectors, "MATCHES_LIST_MAX_OFFSET", 4)  # teto pequeno: 10 jogos bastam
+    lg = make_league(n_teams=2)
+    home, away = lg["teams"]
+    start = brt(3, 10, 0)
+    Match.objects.bulk_create(
+        Match(stage=lg["stage"], group=lg["group"], round=lg["rounds"][0], home_team=home, away_team=away,
+              kickoff_at=start + timedelta(minutes=n), venue="Arena", city="Recife")
+        for n in range(10)
+    )
+    every_id = list(Match.objects.order_by("kickoff_at", "id").values_list("id", flat=True))
+
+    def page(**params) -> tuple[list[int], bool]:
+        response = client.get("/api/matches", params)
+        assert response.status_code == 200, response.content.decode()
+        body = response.json()
+        return [match["id"] for match in body["matches"]], body["has_more"]
+
+    seen, offset = [], 0
+    while True:  # o cliente que segue has_more: offsets 0 e 3; o 6 passaria do teto (4)
+        ids, more = page(limit=3, offset=offset)
+        seen += ids
+        if not more:
+            break
+        offset += 3
+        assert offset <= selectors.MATCHES_LIST_MAX_OFFSET
+    assert seen == every_id[:6]
+    assert page(limit=1, offset=3) == (every_id[3:4], True)  # a próxima (offset 4) cabe no teto
+    assert page(limit=1, offset=4) == (every_id[4:5], False)
+    assert page(limit=3, offset=4) == (every_id[4:7], False)
 
 
 def test_match_detail_shape_and_404(client):

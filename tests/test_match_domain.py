@@ -32,6 +32,7 @@ from matches.domain import (
     annulled_goal_ids,
     apply_event,
     available_actions,
+    check_edit,
     check_void,
     derive_state,
     event_icon,
@@ -1149,6 +1150,101 @@ def test_void_direct_red_with_later_yellow_is_refused():
     with pytest.raises(DomainError) as info:
         check_void(sim.events, red.id, CTX)
     assert info.value.details["cause"] == "second_yellow_without_red"
+
+
+def test_edit_earlier_yellow_follows_the_void_rules_for_the_automatic_red():
+    sim, first, second, red = second_yellow_sim()
+    ademir, kieza = player_key(NAUTICO, None, "Ademir"), player_key(NAUTICO, None, "Kieza")
+    # 1º amarelo passa para outro jogador: o de 40' deixa de ser o 2º e o vermelho cai junto
+    edited = replace(first, payload={"player": "Kieza"})
+    result = check_edit(sim.events, edited, CTX)
+    assert result.voided_ids == (red.id,)
+    assert ademir not in result.state.sent_off and result.state.yellow_cards[ademir] == 1
+    assert result.state.yellow_cards[kieza] == 1
+    # amarelo anterior passa para quem já tem um amarelo depois: esse viraria o 2º sem vermelho
+    later = sim.card(EventType.YELLOW_CARD, NAUTICO, "Kieza", 44)
+    with pytest.raises(DomainError) as info:
+        check_edit(sim.events, edited, CTX)
+    assert info.value.code == "event_not_editable"
+    assert info.value.details["cause"] == "second_yellow_without_red"
+    assert info.value.details["sequence"] == later.sequence
+    # sem efeito nos cartões: nada cai
+    assert check_edit(sim.events, replace(first, minute=16), CTX).voided_ids == ()
+
+
+def corrupt(sim: Sim, event: Event, **changes) -> Event:
+    """Grava a mudança direto, sem o domínio (como a correção antiga fazia): os cartões
+    ficam inconsistentes e o vermelho automático não é refeito."""
+    changed = replace(event, **changes)
+    sim.events = [changed if stored.id == event.id else stored for stored in sim.events]
+    sim.state = derive_state(sim.events, CTX)
+    return changed
+
+
+def test_old_orphan_automatic_red_stays_on_unrelated_edit_and_void():
+    sim, first, second, red = second_yellow_sim()
+    ademir = player_key(NAUTICO, None, "Ademir")
+    corrupt(sim, first, payload={"player": "Kieza"})  # o vermelho ficou sem o 2º amarelo de origem
+    goal = sim.goal(SPORT, "Zé", 42)
+    # corrigir o minuto do gol não mexe no vermelho antigo
+    result = check_edit(sim.events, replace(goal, minute=43), CTX)
+    assert result.voided_ids == ()
+    assert result.state.sent_off == sim.state.sent_off and ademir in result.state.sent_off
+    assert result.state.yellow_cards == sim.state.yellow_cards
+    assert check_void(sim.events, goal.id, CTX).voided_ids == (goal.id,)  # cancelar o gol também não
+    # vermelho que fica órfão por causa desta correção cai; o antigo continua
+    durval = sim.card(EventType.YELLOW_CARD, SPORT, "Durval", 43)
+    sim.card(EventType.YELLOW_CARD, SPORT, "Durval", 44)
+    new_red = sim.events[-1]
+    result = check_edit(sim.events, replace(durval, payload={"player": "Zé"}), CTX)
+    assert result.voided_ids == (new_red.id,)
+    assert ademir in result.state.sent_off and player_key(SPORT, None, "Durval") not in result.state.sent_off
+    # o amarelo de origem do vermelho antigo cai com ele, como sempre
+    assert check_void(sim.events, second.id, CTX).voided_ids == (second.id, red.id)
+
+
+def test_old_second_yellow_without_red_does_not_block_unrelated_edit_and_void():
+    sim = live_sim()
+    sim.card(EventType.YELLOW_CARD, NAUTICO, "Ademir", 15)
+    kieza = sim.card(EventType.YELLOW_CARD, NAUTICO, "Kieza", 20)
+    corrupt(sim, kieza, payload={"player": "Ademir"})  # 2º amarelo de Ademir, sem o vermelho
+    ademir = player_key(NAUTICO, None, "Ademir")
+    goal = sim.goal(SPORT, "Zé", 30)
+    result = check_edit(sim.events, replace(goal, minute=31), CTX)
+    assert result.voided_ids == ()
+    assert result.state.yellow_cards[ademir] == 2 and ademir not in result.state.sent_off
+    assert check_void(sim.events, goal.id, CTX).voided_ids == (goal.id,)
+    # amarelo que passa a ser o 2º sem vermelho por causa desta correção continua recusado
+    carlos = sim.card(EventType.YELLOW_CARD, SPORT, "Carlos", 32)
+    davi = sim.card(EventType.YELLOW_CARD, SPORT, "Davi", 33)
+    with pytest.raises(DomainError) as info:
+        check_edit(sim.events, replace(carlos, payload={"player": "Davi"}), CTX)
+    assert info.value.code == "event_not_editable"
+    assert info.value.details["sequence"] == davi.sequence  # não o amarelo antigo
+    # e o cancelamento que faz isso também
+    sim.card(EventType.YELLOW_CARD, SPORT, "Davi", 34)  # 2º de Davi: vermelho automático
+    sim.card(EventType.YELLOW_CARD, SPORT, "Davi", 35, confirm=True)  # 3º, já expulso
+    with pytest.raises(DomainError) as info:
+        check_void(sim.events, davi.id, CTX)
+    assert info.value.code == "void_breaks_sequence" and info.value.details["sequence"] == sim.events[-1].sequence
+
+
+def test_events_that_no_longer_replay_keep_the_void_and_edit_rules():
+    """Partida editada que deixou os eventos inconsistentes (já não se refazem): sem base
+    de cartões a comparar, vale a regra de sempre."""
+    sim = live_sim()
+    goal = sim.goal(SPORT, "Zé", 10)
+    other = sim.goal(NAUTICO, "Kieza", 20)
+    broken = [replace(goal, period="second_half") if event.id == goal.id else event for event in sim.events]
+    # cancelar o lance culpado continua sendo a saída
+    assert check_void(broken, goal.id, CTX).voided_ids == (goal.id,)
+    # cancelar outro lance segue recusado como void_breaks_sequence, com a regra em cause
+    with pytest.raises(DomainError) as info:
+        check_void(broken, other.id, CTX)
+    assert info.value.code == "void_breaks_sequence" and info.value.details["cause"] == "period_mismatch"
+    assert info.value.message.startswith("Cancelar este lançamento deixa a sequência inválida:")
+    # corrigir o lance culpado também
+    assert check_edit(broken, replace(goal, minute=11), CTX).voided_ids == ()
 
 
 def test_period_pauses_track_suspensions_of_the_current_period():

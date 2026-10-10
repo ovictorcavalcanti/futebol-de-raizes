@@ -2,12 +2,18 @@
 teto de conexões do stream."""
 
 import json
+import threading
+import time
 
 import pytest
-from django.core.cache import cache
+from django.contrib.auth.backends import ModelBackend
+from django.core.cache import caches
+from django.core.exceptions import PermissionDenied
 from django.test import Client, RequestFactory
 
 from accounts import throttle
+from accounts.backends import ThrottledModelBackend
+from observability.metrics import metrics
 from observability.models import AuditLog
 from realtime import views as stream_views
 
@@ -23,14 +29,14 @@ THROTTLE = {
     "IP_WINDOW": 900,
     "IP_LOCK": 600,
 }
+login_cache = caches["login"]  # o do bloqueio de login (accounts/throttle.py)
 
 
 @pytest.fixture
 def limits_on(settings):
-    cache.clear()
+    throttle._in_flight.clear()  # vaga presa por outro teste não vaza para este
     settings.LOGIN_THROTTLE = dict(THROTTLE)
-    yield settings
-    cache.clear()
+    return settings
 
 
 class Clock:
@@ -158,7 +164,6 @@ def test_admin_login_shows_lock_message(limits_on, operator_user, monkeypatch):
 
 
 def test_throttle_disabled_by_setting(settings, operator_user):
-    cache.clear()
     settings.LOGIN_THROTTLE = {**THROTTLE, "ENABLED": False}
     client = Client(enforce_csrf_checks=True)
     for _ in range(5):
@@ -166,11 +171,167 @@ def test_throttle_disabled_by_setting(settings, operator_user):
     assert api_login(client, "operador", "senha-forte-123").status_code == 200
 
 
+def concurrent_logins(monkeypatch, attempts, ip="10.0.0.9"):
+    """`attempts` logins errados do "operador", do mesmo IP, ao mesmo tempo. A
+    conferência da senha espera até todas estarem conferindo juntas (ou 0,5 s,
+    se o bloqueio não deixar tantas chegarem lá): é a janela em que tentativas
+    concorrentes se atropelam. Devolve (senhas conferidas, bloqueios recebidos)."""
+    checked = []
+    together = threading.Barrier(attempts, timeout=0.5)
+
+    def slow_password_check(self, request, username=None, password=None, **kwargs):
+        checked.append(username)
+        try:
+            together.wait()
+        except threading.BrokenBarrierError:
+            pass
+        return None
+
+    monkeypatch.setattr(ModelBackend, "authenticate", slow_password_check)
+    backend = ThrottledModelBackend()
+    start = threading.Barrier(attempts)
+    locks = []
+
+    def attempt():
+        request = RequestFactory().post("/api/auth/login", REMOTE_ADDR=ip)
+        start.wait()
+        try:
+            backend.authenticate(request, username="operador", password="errada")
+        except PermissionDenied:
+            pass
+        if getattr(request, "login_lock", None) is not None:
+            locks.append(request.login_lock)
+
+    threads = [threading.Thread(target=attempt) for _ in range(attempts)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+    assert not any(thread.is_alive() for thread in threads)
+    assert not throttle._in_flight  # toda tentativa aberta foi encerrada
+    return len(checked), locks
+
+
+class SlowReads:
+    """O cache de verdade, mas cada leitura demora um pouco: alarga a janela entre
+    ler e gravar a contagem, como um cache fora do processo faria."""
+
+    def __init__(self, real):
+        self.real = real
+
+    def get(self, *args, **kwargs):
+        value = self.real.get(*args, **kwargs)
+        time.sleep(0.01)
+        return value
+
+    def __getattr__(self, name):
+        return getattr(self.real, name)
+
+
+def test_simultaneous_failures_all_count_and_lock(limits_on, monkeypatch):
+    limits_on.LOGIN_THROTTLE = {**THROTTLE, "USER_FAILURES": 10, "IP_FAILURES": 10}
+    monkeypatch.setattr(throttle, "cache", SlowReads(login_cache))
+    user_locks = metrics.value("fdr_login_lockouts_total", scope="user_ip")
+    ip_locks = metrics.value("fdr_login_lockouts_total", scope="ip")
+    checked, locks = concurrent_logins(monkeypatch, 10)
+    assert checked == 10  # cabem todas no limite: conferem a senha juntas
+    # Nenhuma das 10 falhas se perde: as duas contagens chegam ao limite e bloqueiam.
+    assert metrics.value("fdr_login_lockouts_total", scope="user_ip") == user_locks + 1
+    assert metrics.value("fdr_login_lockouts_total", scope="ip") == ip_locks + 1
+    assert len(locks) == 1
+    other_user = RequestFactory().post("/api/auth/login", REMOTE_ADDR="10.0.0.9")
+    assert throttle.check(other_user, "outro") == throttle.Lock(600)
+
+
+def test_simultaneous_attempts_beyond_the_limit_never_reach_the_password(limits_on, monkeypatch):
+    # Limite de 3 falhas (THROTTLE): de 8 tentativas simultâneas, só 3 conferem a
+    # senha; as outras esperam por elas e já encontram o bloqueio.
+    checked, locks = concurrent_logins(monkeypatch, 8)
+    assert checked == 3
+    assert len(locks) == 6  # o da 3ª falha + as 5 que esperavam
+    assert all(0 < lock.retry_after <= 60 for lock in locks)
+
+
+@pytest.fixture
+def short_wait(monkeypatch):
+    # Com uma vaga presa, a próxima tentativa esperaria WAIT_LIMIT e seria recusada:
+    # espera curta para o teste falhar logo em vez de levar 30 s.
+    monkeypatch.setattr(throttle, "WAIT_LIMIT", 0.3)
+
+
+class BrokenWrites:
+    """O cache de verdade, mas a gravação das chaves que contêm `fail_on` falha,
+    como um Redis/Memcached que cai no meio da tentativa."""
+
+    def __init__(self, real, fail_on):
+        self.real = real
+        self.fail_on = fail_on
+
+    def set(self, key, *args, **kwargs):
+        if self.fail_on in key:
+            raise ConnectionError("cache fora do ar")
+        return self.real.set(key, *args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self.real, name)
+
+
+def backend_login(password, ip="10.0.0.20"):
+    request = RequestFactory().post("/api/auth/login", REMOTE_ADDR=ip)
+    return ThrottledModelBackend().authenticate(request, username="operador", password=password)
+
+
+def test_password_check_error_releases_the_attempt_once(limits_on, monkeypatch):
+    def broken_password_check(self, request, username=None, password=None, **kwargs):
+        raise RuntimeError("banco fora do ar")
+
+    monkeypatch.setattr(ModelBackend, "authenticate", broken_password_check)
+    other = RequestFactory().post("/api/auth/login", REMOTE_ADDR="10.0.0.20")
+    assert throttle.begin(other, "operador") is None  # outra tentativa do par, em andamento
+    with pytest.raises(RuntimeError):
+        backend_login("errada")
+    _ip, user_key, ip_key = throttle._keys(other, "operador")
+    assert dict(throttle._in_flight) == {user_key: 1, ip_key: 1}  # só a vaga da outra
+    throttle.release(other, "operador")
+    assert not throttle._in_flight
+
+
+def test_cache_error_on_failure_releases_the_attempt(limits_on, operator_user, monkeypatch, short_wait):
+    limits_on.LOGIN_THROTTLE = {**THROTTLE, "USER_FAILURES": 2}
+    monkeypatch.setattr(throttle, "cache", BrokenWrites(login_cache, fail_on=":ip:"))
+    with pytest.raises(ConnectionError):
+        backend_login("errada")  # a falha do par foi gravada; a do IP, não
+    monkeypatch.setattr(throttle, "cache", login_cache)
+    assert not throttle._in_flight
+    # 1 falha de 2: com a vaga presa, esta esperaria e seria recusada.
+    assert backend_login("senha-forte-123") == operator_user
+
+
+def test_cache_error_on_success_releases_the_attempt(limits_on, operator_user, monkeypatch, short_wait):
+    limits_on.LOGIN_THROTTLE = {**THROTTLE, "USER_FAILURES": 2}
+    assert backend_login("errada") is None  # 1 falha de 2
+    monkeypatch.setattr(throttle, "cache", BrokenWrites(login_cache, fail_on=":u:"))
+    with pytest.raises(ConnectionError):
+        backend_login("senha-forte-123")  # zerar a contagem falha
+    monkeypatch.setattr(throttle, "cache", login_cache)
+    assert not throttle._in_flight
+    assert backend_login("senha-forte-123") == operator_user
+
+
+@pytest.mark.parametrize("limit", ["USER_FAILURES", "IP_FAILURES"])
+def test_zero_limit_counts_as_one(limits_on, operator_user, short_wait, limit):
+    # Limite 0 vale 1: o login certo passa (sem esperar vaga) e a 1ª falha bloqueia.
+    limits_on.LOGIN_THROTTLE = {**THROTTLE, limit: 0}
+    assert api_login(Client(enforce_csrf_checks=True), "operador", "senha-forte-123").status_code == 200
+    assert api_login(Client(enforce_csrf_checks=True), "operador", "errada").status_code == 429
+    assert api_login(Client(enforce_csrf_checks=True), "operador", "senha-forte-123").status_code == 429
+    assert not throttle._in_flight
+
+
 # --- Limite de requisições por IP -------------------------------------------------
 
 
 def test_api_rate_limit_per_ip(settings):
-    cache.clear()
     settings.API_RATE_LIMIT_PER_MINUTE = 5
     client = Client()
     codes = [client.get("/api/competitions", REMOTE_ADDR="10.1.1.1").status_code for _ in range(6)]
@@ -181,11 +342,9 @@ def test_api_rate_limit_per_ip(settings):
     # Outro IP segue livre; páginas e /health não entram no limite.
     assert client.get("/api/competitions", REMOTE_ADDR="10.1.1.2").status_code == 200
     assert client.get("/health", REMOTE_ADDR="10.1.1.1").status_code == 200
-    cache.clear()
 
 
 def test_api_rate_limit_ignores_forwarded_header(settings):
-    cache.clear()
     settings.API_RATE_LIMIT_PER_MINUTE = 2
     client = Client()
     codes = [
@@ -193,7 +352,37 @@ def test_api_rate_limit_ignores_forwarded_header(settings):
         for n in range(3)
     ]
     assert codes == [200, 200, 429]
-    cache.clear()
+
+
+def test_many_ips_do_not_evict_login_lock_or_public_api_count(limits_on, operator_user, monkeypatch):
+    # O limite por IP grava uma chave por IP por minuto: mil IPs distintos (mais que
+    # as 300 entradas padrão do LocMem) não podem despejar o bloqueio de login — que
+    # voltaria com falhas e strikes zerados — nem o contador da API pública.
+    from types import SimpleNamespace
+
+    from core import ratelimit
+    from public_api import throttle as public_throttle
+
+    clock = Clock(monkeypatch)
+    limits_on.API_RATE_LIMIT_PER_MINUTE = 5
+    for _ in range(3):
+        assert backend_login("errada") is None  # a 3ª bloqueia por 60 s (1º strike)
+    attacker = RequestFactory().post("/api/auth/login", REMOTE_ADDR="10.0.0.20")
+    assert throttle.check(attacker, "operador") == throttle.Lock(60)
+    api_key = SimpleNamespace(pk=7, rate_limit_per_minute=100)
+    assert public_throttle.hit(api_key).count == 1
+
+    for n in range(1000):
+        request = RequestFactory().get("/api/competitions", REMOTE_ADDR=f"10.9.{n // 250}.{n % 250 + 1}")
+        assert ratelimit._limited(request) is None
+
+    assert throttle.check(attacker, "operador") == throttle.Lock(60)
+    assert public_throttle.hit(api_key).count == 2
+    # O strike também ficou: o próximo bloqueio dobra (120 s), não recomeça em 60 s.
+    clock.advance(61)
+    for _ in range(3):
+        assert backend_login("errada") is None
+    assert throttle.check(attacker, "operador") == throttle.Lock(120)
 
 
 def test_large_body_rejected(settings, operator_client):
@@ -234,7 +423,7 @@ def test_stream_counter_released_when_connection_ends(settings, monkeypatch):
     monkeypatch.setattr(stream_views.hub, "subscribe", fake_subscribe)
 
     async def run():
-        gen = stream_views._event_stream(None, "10.6.6.6")
+        gen = stream_views._event_stream(None, stream_views._StreamSlot("10.6.6.6"))
         await gen.__anext__()  # retry
         assert stream_views.open_streams("10.6.6.6") == 1
         await gen.aclose()
@@ -242,3 +431,131 @@ def test_stream_counter_released_when_connection_ends(settings, monkeypatch):
     asyncio.run(run())
     assert stream_views.open_streams("10.6.6.6") == 0
     assert stream_views.open_streams() == 0
+
+
+def test_stream_slot_reserved_on_admission_and_released_once(settings, monkeypatch):
+    """A vaga conta já na admissão (duas requisições juntas não passam pela mesma)
+    e volta uma vez só: no fim do stream, na desconexão ou no close() da resposta."""
+    import asyncio
+    from contextlib import suppress
+
+    from asgiref.sync import sync_to_async
+
+    settings.REALTIME = {**settings.REALTIME, "MAX_STREAMS_PER_IP": 1, "MAX_STREAMS": 1}
+    monkeypatch.setattr(stream_views, "_open_by_ip", stream_views.Counter())
+    rf = RequestFactory()
+
+    def admit(ip):
+        return stream_views.stream(rf.get("/api/stream", REMOTE_ADDR=ip))
+
+    async def run():
+        streaming = asyncio.Event()
+
+        async def fake_subscribe(after_id):
+            streaming.set()
+            await asyncio.Event().wait()  # stream aberto até o cliente cair
+            yield b""
+
+        monkeypatch.setattr(stream_views.hub, "subscribe", fake_subscribe)
+
+        # Nenhum corpo começou a ser enviado e as duas chegam juntas: só uma entra.
+        first, second = await asyncio.gather(admit("10.7.7.7"), admit("10.7.7.7"))
+        assert sorted([first.status_code, second.status_code]) == [200, 429]
+        assert (await admit("10.8.8.8")).status_code == 503  # teto do processo
+        assert stream_views.open_streams() == 1
+        admitted = first if first.status_code == 200 else second
+
+        # Cancelada antes do primeiro byte: o Django só chama close(), noutra thread.
+        await sync_to_async(admitted.close)()
+        await asyncio.sleep(0)
+        assert stream_views.open_streams() == 0
+
+        # Stream aberto e o cliente cai: o handler ASGI cancela a leitura do corpo.
+        response = await admit("10.7.7.7")
+        assert response.status_code == 200
+
+        async def consume():
+            async for _ in response:
+                pass
+
+        task = asyncio.create_task(consume())
+        await streaming.wait()
+        assert stream_views.open_streams("10.7.7.7") == 1
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+        assert stream_views.open_streams() == 0
+
+        # A vaga é de outra conexão agora: o close() tardio da antiga não a devolve.
+        again = await admit("10.7.7.7")
+        assert again.status_code == 200
+        await sync_to_async(response.close)()
+        await asyncio.sleep(0)
+        assert stream_views.open_streams("10.7.7.7") == 1
+
+        # View chamada direto (sem a aplicação ASGI), resposta descartada sem
+        # close(): a rede de segurança é o finalizer. O caso real, com a resposta
+        # presa num ciclo, está no teste seguinte.
+        del again
+        await asyncio.sleep(0)
+        assert stream_views.open_streams() == 0
+
+    asyncio.run(run())
+    assert stream_views.open_streams() == 0
+
+
+def test_stream_slot_released_when_client_drops_during_middlewares(settings, monkeypatch):
+    """O cliente cai enquanto a resposta ainda passa pelos middlewares: o Django
+    descarta a resposta sem close() e o gerador nunca começa. A vaga volta quando
+    a requisição termina na aplicação ASGI, sem depender do coletor de lixo."""
+    import asyncio
+    import gc
+
+    from config.asgi import application
+
+    settings.REALTIME = {**settings.REALTIME, "MAX_STREAMS_PER_IP": 1, "MAX_STREAMS": 1}
+    monkeypatch.setattr(stream_views, "_open_by_ip", stream_views.Counter())
+    started = []
+
+    async def fake_subscribe(after_id):
+        started.append(after_id)
+        await asyncio.Event().wait()
+        yield b""
+
+    monkeypatch.setattr(stream_views.hub, "subscribe", fake_subscribe)
+
+    async def run():
+        admitted = asyncio.Event()
+
+        class Slot(stream_views._StreamSlot):
+            def __init__(self, ip):
+                super().__init__(ip)
+                admitted.set()
+
+        monkeypatch.setattr(stream_views, "_StreamSlot", Slot)
+        messages = [{"type": "http.request", "body": b"", "more_body": False}]
+
+        async def receive():
+            if messages:
+                return messages.pop(0)
+            await admitted.wait()  # cai logo depois que a view reservou a vaga
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            pass
+
+        scope = {
+            "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "GET",
+            "scheme": "http", "path": "/api/stream", "raw_path": b"/api/stream", "query_string": b"",
+            "root_path": "", "headers": [(b"host", b"testserver")],
+            "client": ("10.9.9.9", 50000), "server": ("testserver", 80),
+        }
+        await application(scope, receive, send)
+        assert admitted.is_set() and not started  # a view admitiu, o corpo nunca foi lido
+        assert stream_views.open_streams() == 0
+
+    gc.disable()  # a resposta descartada fica num ciclo: só a coleta completa a soltaria
+    try:
+        asyncio.run(run())
+    finally:
+        gc.enable()

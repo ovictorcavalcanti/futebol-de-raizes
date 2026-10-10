@@ -19,6 +19,7 @@ from .errors import ApiError, invalid_input
 from .responses import CATALOG_CACHE, respond
 from .schemas import (
     CatalogOut,
+    EditEventOut,
     ErrorOut,
     EventIn,
     MatchStateOut,
@@ -103,13 +104,14 @@ def post_event(
 @router.post(
     "/matches/{match_id}/events/{event_id}/edit",
     auth=OperatorAuth(POST_EVENT),
-    response={200: PostEventOut, codes_4xx: ErrorOut},
+    response={200: EditEventOut, codes_4xx: ErrorOut},
     summary="Corrige os dados de um lance",
 )
 def edit_event(request, match_id: int, event_id: int, data: EventIn):
     """Corrige minuto, time, jogador e detalhes de um lance, no mesmo lugar da sequência.
     Exige também `matches.void_event` (é uma correção). Regra violada → 422; tipo
-    diferente do lance, andamento ou status → 422 `event_not_editable`."""
+    diferente do lance, andamento ou status → 422 `event_not_editable`. `voided`: ids que
+    caíram junto (o vermelho automático cujo amarelo deixou de ser o 2º)."""
     if not request.user.has_perm(VOID_EVENT):
         raise ApiError(403, "permission_denied", "Seu perfil não pode corrigir lançamentos.", {"required": [VOID_EVENT]})
     new = NewEvent(
@@ -129,6 +131,7 @@ def edit_event(request, match_id: int, event_id: int, data: EventIn):
         raise ApiError(404, "not_found", exc.message, {"event_id": event_id, "match_id": match_id}) from exc
     payload = selectors.post_payload(result)
     payload["replayed"] = False
+    payload["voided"] = list(result.voided_ids)
     return respond(payload)
 
 

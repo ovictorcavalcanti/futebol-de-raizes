@@ -495,7 +495,7 @@ confrontos saíram do índice (os endereços continuam, para quem tem permissão
 | --- | --- | --- |
 | Autenticação | `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me` | `/api/docs` |
 | Operação | `POST /api/ops/matches/{id}/events` (+ `Idempotency-Key`), `POST …/events/{eventId}/void`, `POST /api/ops/matches/{id}/status`, `GET /api/ops/catalog` | `/api/docs` |
-| Leitura | `GET /api/home?date=`, `GET /api/competitions`, `GET /api/competitions/{slug}?stage=&round=`, `GET /api/stages/{id}/standings?live=1`, `GET /api/matches?roundId=&date=&status=&stageId=`, `GET /api/matches/{id}` | `/api/docs` |
+| Leitura | `GET /api/home?date=`, `GET /api/competitions`, `GET /api/competitions/{slug}?stage=&round=`, `GET /api/stages/{id}/standings?live=1`, `GET /api/matches?roundId=&date=&status=&stageId=&limit=&offset=` (até 500 por página; `has_more` → próxima com `offset` + `limit`), `GET /api/matches/{id}` | `/api/docs` |
 | Tempo real | `GET /api/stream?after=` (SSE) | `docs/CONTRACT.md` §5 |
 | Pública | `GET /public/v1/competitions`, `/competitions/{slug}`, `/matches`, `/matches/{id}`, `/stages/{id}/standings` | `/public/v1/docs` |
 
@@ -535,7 +535,9 @@ Contra força bruta e enxurrada:
   (20 falhas em 15 min, com qualquer usuário, bloqueiam o IP por 15 min). Bloqueado,
   a senha nem é conferida; a API responde `429 login_locked` com `Retry-After` e o admin
   mostra o aviso. Não há bloqueio só por usuário, para um atacante não trancar fora o
-  operador de verdade. Toda tentativa vai para a auditoria (`accounts/throttle.py`).
+  operador de verdade. Tentativas simultâneas contam todas e não passam do limite: as
+  que poderiam passar esperam as que já conferem a senha. Toda tentativa vai para a
+  auditoria (`accounts/throttle.py`).
 - **Requisições por IP** nas rotas `/api/`: 240 por minuto; passou, `429 rate_limited`
   com `Retry-After`, antes de chegar à view ou ao banco (`core/ratelimit.py`).
 - **Stream**: até 20 conexões abertas por IP (`429 too_many_streams`) e 5000 no processo
@@ -547,21 +549,30 @@ Contra força bruta e enxurrada:
 
 Todos os números são configuráveis no `.env` (`LOGIN_THROTTLE_*`,
 `API_RATE_LIMIT_PER_MINUTE`, `REALTIME_MAX_STREAMS*`). Os contadores ficam na memória do
-processo — certo com um processo ASGI só; com mais processos, troque o cache `default`
-por Redis ou Memcached. Métricas: `fdr_login_lockouts_total`, `fdr_rate_limited_total`.
+processo, cada um no seu cache (`login`, `ratelimit` e, o da API pública, `default`),
+para o giro de uma chave por IP por minuto não despejar o bloqueio de login — certo com
+um processo ASGI só; com mais processos, troque esses caches por Redis ou Memcached (e,
+no login, a trava do processo por uma do cache). Métricas:
+`fdr_login_lockouts_total`, `fdr_rate_limited_total`.
 
 ## Métricas, logs e auditoria
 
 - **Métricas** em `GET /metrics`, no formato texto do Prometheus. O acesso é por
   `Authorization: Bearer $METRICS_TOKEN` ou por usuário logado com
   `observability.view_metrics` (o Administrador). Séries principais:
-  - `fdr_http_requests_total` e `fdr_http_request_duration_seconds`, por rota;
+  - `fdr_http_requests_total` e `fdr_http_request_duration_seconds`, por rota (a primeira
+    também por método e status; método fora de GET, HEAD, POST, PUT, PATCH, DELETE e
+    OPTIONS vira `OTHER`);
   - `fdr_events_posted_total`, `fdr_events_voided_total`, `fdr_status_changes_total` e
     `fdr_domain_rejections_total`;
   - `fdr_outbox_messages_total`, `fdr_stream_messages_published_total`, `fdr_sse_connections`
     e `fdr_outbox_lag_seconds`;
   - `fdr_public_api_requests_total`, `fdr_public_api_throttled_total` e
     `fdr_audit_records_total`.
+
+  O processo guarda no máximo 10 000 séries (`MAX_SERIES`), mais o contador de descartes,
+  que fica fora do teto. Passado esse teto, uma série nova é descartada e contada em
+  `fdr_metrics_series_dropped_total`; as existentes seguem contando.
 - **Logs** em JSON, uma linha por registro (`LOG_FORMAT=json`), incluindo os do uvicorn. Sai
   uma linha `fdr.http` por requisição, com rota, status, duração e `request_id`. O
   `X-Request-ID` recebido só é aceito se tiver de 1 a 64 caracteres de `[A-Za-z0-9._:-]`;

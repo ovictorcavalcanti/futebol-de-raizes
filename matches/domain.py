@@ -719,6 +719,8 @@ def check_void(events: Sequence[Event], event_id: int, ctx: MatchContext) -> Voi
     sequência restante ficar inválida → DomainError("void_breaks_sequence"), com a
     regra violada em details["cause"] (inclusive "second_yellow_without_red": um
     amarelo que passaria a ser o 2º do jogador sem ter o vermelho automático).
+    Só conta o que muda com este cancelamento: cartões que já estavam inconsistentes
+    (gravados pela correção antiga) ficam como estão, sem cair nem travar.
     Erros: event_not_found, already_voided, void_derived_event (o vermelho
     automático só cai junto com o amarelo de origem).
     `voided_ids` começa pelo evento pedido; os demais seguem a ordem de sequence.
@@ -738,30 +740,15 @@ def check_void(events: Sequence[Event], event_id: int, ctx: MatchContext) -> Voi
             {"event_id": event_id, "origin_sequence": origin},
         )
 
-    dropped = _cascade(visible, {target.sequence})
-    while True:
-        remaining = [event for event in visible if event.sequence not in dropped]
-        try:
-            replay = _replay(remaining, ctx)
-        except DomainError as exc:
-            raise DomainError(
-                "void_breaks_sequence",
-                f"Cancelar este lançamento deixa a sequência inválida: {exc.message}",
-                {"event_id": event_id, "cause": exc.code, **exc.details},
-            ) from exc
-        orphans = {
-            event.sequence
-            for event in remaining
-            if _is_second_yellow_red(event) and derived_from(event) not in replay.second_yellows
-        }
-        if not orphans:
-            break
-        dropped = _cascade(visible, dropped | orphans)
-
-    # Um amarelo que passa a ser o 2º do jogador (ex.: cancelar o 2º com um 3º já
-    # lançado, ou um vermelho direto anterior) ficaria sem o vermelho automático.
-    with_red = {derived_from(event) for event in remaining if _is_second_yellow_red(event)}
-    missing = sorted(replay.second_yellows - with_red)
+    old = _old_card_issues(visible, ctx)
+    try:
+        replay, dropped, missing = _settle(visible, {target.sequence}, ctx, old)
+    except DomainError as exc:
+        raise DomainError(
+            "void_breaks_sequence",
+            f"Cancelar este lançamento deixa a sequência inválida: {exc.message}",
+            {"event_id": event_id, "cause": exc.code, **exc.details},
+        ) from exc
     if missing:
         raise DomainError(
             "void_breaks_sequence",
@@ -772,6 +759,33 @@ def check_void(events: Sequence[Event], event_id: int, ctx: MatchContext) -> Voi
 
     others = tuple(event.id for event in visible if event.sequence in dropped and event.id is not None and event.id != event_id)
     return VoidResult(replay.state, (event_id, *others))
+
+
+def check_edit(events: Sequence[Event], edited: Event, ctx: MatchContext) -> VoidResult:
+    """Refaz a partida com `edited` no lugar do lance de mesmo id (mesma sequence).
+
+    Os cartões seguem a regra do cancelamento (check_void): cai junto o vermelho
+    automático cujo amarelo de origem deixou de ser o 2º do jogador (ex.: o 1º amarelo
+    passa para outro jogador), e um amarelo que passaria a ser o 2º do jogador sem o
+    vermelho automático → DomainError("event_not_editable", details["cause"] =
+    "second_yellow_without_red"). Como no cancelamento, só conta o que muda com esta
+    correção (comparado por sequence com os eventos de antes): cartões já inconsistentes
+    ficam como estão. Outras regras violadas no replay sobem como vêm.
+    `voided_ids` = só os que caem junto (o lance editado continua valendo). Fica com
+    quem chama: validar o lance contra os anteriores (apply_event) e recusar a edição
+    do vermelho automático e do amarelo de origem dele.
+    """
+    before = visible_events(events)
+    visible = [edited if event.id == edited.id else event for event in before]
+    replay, dropped, missing = _settle(visible, set(), ctx, _old_card_issues(before, ctx))
+    if missing:
+        raise DomainError(
+            "event_not_editable",
+            f"A correção faz do amarelo #{missing[0]} o 2º do jogador, sem o vermelho automático: "
+            "cancele esse amarelo antes e lance-o de novo depois.",
+            {"event_id": edited.id, "cause": "second_yellow_without_red", "sequence": missing[0]},
+        )
+    return VoidResult(replay.state, tuple(event.id for event in visible if event.sequence in dropped and event.id is not None))
 
 
 def available_actions(state: MatchState, ctx: MatchContext, events: Sequence[Event] = ()) -> dict:
@@ -1063,6 +1077,50 @@ def _cascade(visible: Sequence[Event], sequences: set[int]) -> set[int]:
             if event.id is not None:
                 dropped_ids.add(event.id)
     return dropped
+
+
+def _card_issues(events: Sequence[Event], replay: _Replay) -> tuple[set[int], set[int]]:
+    """Cartões inconsistentes de `events` (visíveis, já refeitos em `replay`), por sequence:
+    (vermelhos automáticos cujo amarelo de origem não é o 2º do jogador, amarelos que são o
+    2º do jogador sem o vermelho automático)."""
+    reds = [event for event in events if _is_second_yellow_red(event)]
+    orphans = {event.sequence for event in reds if derived_from(event) not in replay.second_yellows}
+    return orphans, set(replay.second_yellows) - {derived_from(event) for event in reds}
+
+
+def _old_card_issues(events: Sequence[Event], ctx: MatchContext) -> tuple[set[int], set[int]]:
+    """`_card_issues` dos eventos de antes da mudança. Se eles já não se refazem (partida
+    editada que deixou os eventos inconsistentes), não há base de cartões a comparar e a
+    mudança segue a regra de sempre — cancelar o lance culpado continua sendo a saída."""
+    try:
+        return _card_issues(events, _replay(events, ctx))
+    except DomainError:
+        return set(), set()
+
+
+def _settle(
+    visible: Sequence[Event], sequences: set[int], ctx: MatchContext, old: tuple[set[int], set[int]]
+) -> tuple[_Replay, set[int], list[int]]:
+    """Refaz `visible` sem `sequences` (e o que cai com eles, em cascata), derrubando
+    também o vermelho automático cujo amarelo de origem deixou de ser o 2º do jogador.
+
+    `old` = `_old_card_issues` dos eventos de antes da mudança: o que já estava inconsistente
+    (partidas gravadas pela correção antiga, que não refazia o vermelho automático) fica
+    como está — não cai nem trava a mudança. Devolve (replay, sequences derrubadas,
+    amarelos que passam a ser o 2º do jogador sem o vermelho automático — ex.: um 3º
+    amarelo já lançado, ou um vermelho direto que saiu). Erros do replay sobem como vêm.
+    """
+    old_orphans, old_missing = old
+    dropped = _cascade(visible, sequences)
+    while True:
+        remaining = [event for event in visible if event.sequence not in dropped]
+        replay = _replay(remaining, ctx)
+        orphans, missing = _card_issues(remaining, replay)
+        orphans -= old_orphans
+        if not orphans:
+            break
+        dropped = _cascade(visible, dropped | orphans)
+    return replay, dropped, sorted(missing - old_missing)
 
 
 def _is_second_yellow_red(event: Event) -> bool:

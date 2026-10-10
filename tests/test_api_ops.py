@@ -560,6 +560,7 @@ def test_edit_event_corrects_scorer_minute_and_team(league, operator_client):
     )
     assert edited["event"]["id"] == goal["id"] and edited["event"]["period"] == "first_half"
     assert edited["event"]["minute"] == 20 and edited["event"]["player"]["name"] == "Kieza"
+    assert edited["voided"] == []  # nada caiu junto
     assert (edited["match"]["home_score"], edited["match"]["away_score"]) == (0, 1)
     log = AuditLog.objects.get(action="event.edit")
     assert log.data["before"]["payload"]["player"] == "Zé" and log.data["after"]["minute"] == 20
@@ -572,6 +573,50 @@ def test_edit_event_corrects_scorer_minute_and_team(league, operator_client):
     assert op._post(f"/api/ops/matches/{match.id}/events/{start_id}/edit", {"type": "match_start"}, expect=422)["code"] == "event_not_editable"
     assert op._post(f"/api/ops/matches/{match.id}/events/{goal['id']}/edit",
                     {"type": "yellow_card", "team_id": sport.id, "payload": {"player": "X"}}, expect=422)["code"] == "event_not_editable"
+
+
+def test_edit_earlier_yellow_reconciles_automatic_red(league, match, op):
+    from observability.models import AuditLog
+    from standings.models import Standing
+
+    sport = league["teams"][0]
+
+    def yellow(player: str, minute: int) -> dict:
+        return op.post("yellow_card", team_id=sport.id, minute=minute, payload={"player": player})
+
+    def edit(event_id: int, player: str, minute: int, *, expect: int) -> dict:
+        return op._post(f"/api/ops/matches/{match.id}/events/{event_id}/edit",
+                        {"type": "yellow_card", "minute": minute, "team_id": sport.id, "payload": {"player": player}}, expect=expect)
+
+    def cards() -> tuple[int, int]:
+        row = Standing.objects.get(team=sport, kind=Standing.Kind.LIVE)
+        return row.yellow_cards, row.red_cards
+
+    op.post("match_start")
+    first = yellow("Alice", 10)["event"]
+    second = yellow("Alice", 20)
+    (red,) = second["derived"]
+    assert cards() == (2, 1)
+
+    # 1º amarelo de Alice passa para Bob: o de 20' deixa de ser o 2º e o vermelho automático cai junto
+    edited = edit(first["id"], "Bob", 10, expect=200)
+    assert edited["voided"] == [red["id"]]  # a resposta diz o que caiu junto
+    assert edited["match"]["cards"]["home"] == {"yellow": 2, "red": 0}
+    assert red["id"] not in {event["id"] for event in edited["match"]["events"]}
+    assert MatchEvent.objects.get(pk=red["id"]).voided_at is not None
+    assert AuditLog.objects.get(action="event.edit").data["voided_ids"] == [red["id"]]
+    assert cards() == (2, 0)
+    assert len(yellow("Alice", 25)["derived"]) == 1  # Alice não ficou expulsa: o novo 2º amarelo gera o vermelho
+
+    # amarelo anterior de Carlos passa para Davi, que já tem um amarelo depois: recusa, nada muda
+    carlos = yellow("Carlos", 30)["event"]
+    yellow("Davi", 35)
+    before = events_count(match), cards()
+    refused = edit(carlos["id"], "Davi", 30, expect=422)
+    assert_error(refused, "event_not_editable")
+    assert refused["details"]["cause"] == "second_yellow_without_red"
+    assert (events_count(match), cards()) == before
+    assert MatchEvent.objects.get(pk=carlos["id"]).payload["player"] == "Carlos"
 
 
 def test_edit_event_requires_void_permission(league, operator_user, client):

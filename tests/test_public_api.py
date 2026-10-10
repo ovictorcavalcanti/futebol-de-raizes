@@ -498,6 +498,19 @@ def test_matches_list_has_a_fixed_number_of_queries(client, key, league, operato
         assert len(ok(get(client, "/matches", key))["matches"]) == 6
 
 
+def test_matches_list_caps_with_or_without_filters(client, key, league):
+    """No máximo 500 partidas por resposta, também com filtro (custo limitado por requisição)."""
+    sport, nautico = league["teams"][:2]
+    start = timeutils.now() + timedelta(days=1)
+    Match.objects.bulk_create(
+        Match(stage=league["stage"], group=league["group"], round=league["rounds"][0], home_team=sport, away_team=nautico,
+              kickoff_at=start + timedelta(minutes=n), venue="Ilha do Retiro", city="Recife")
+        for n in range(501)
+    )
+    for params in [{}, {"status": "scheduled"}, {"competition": "pernambucano"}, {"round_id": league["rounds"][0].id}]:
+        assert len(ok(get(client, "/matches", key, params))["matches"]) == 500, params
+
+
 def test_standings_official_vs_live(client, key, league, live_match, operator_user):
     sport, nautico = league["teams"][0], league["teams"][1]
     op = Op(live_match, operator_user)

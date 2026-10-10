@@ -169,6 +169,13 @@ export function structuralConfirm(type, match, label = '') {
   }
 }
 
+/** Aviso da correção de um lance. `voided`: ids que caíram junto (na correção, só o
+ * vermelho automático cujo amarelo deixou de ser o 2º). */
+export function editedToast(summary, voided = []) {
+  const n = voided?.length || 0;
+  return `Corrigido: ${summary}.${n > 0 ? ` ${n === 1 ? 'O vermelho automático caiu' : `${n} vermelhos automáticos caíram`} junto.` : ''}`;
+}
+
 const LIVE_GROUP = new Set(['live', 'delayed', 'suspended']);
 const UPCOMING_GROUP = new Set(['scheduled', 'postponed']);
 
@@ -1120,7 +1127,7 @@ async function sendEdit(original, body, confirm) {
   try {
     const result = await api.editEvent(matchId, original.id, { ...body, type: original.type, confirm });
     if (state.matchId !== matchId) return;
-    showToast(`Corrigido: ${eventSummary(result?.event) || specFor(original.type).label}.`, { kind: 'ok' });
+    showToast(editedToast(eventSummary(result?.event) || specFor(original.type).label, result?.voided), { kind: 'ok' });
     resetFormValues();
     closeForm();
     applyMatch(result?.match, result?.available);

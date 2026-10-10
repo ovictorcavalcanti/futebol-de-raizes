@@ -3,10 +3,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   effectiveMinuteMode, suggestMinute, buildEventBody, toBrasiliaInput, groupByCompetition, lineupPlayers,
-  splitActions, structuralConfirm, sortByStatus, clockSetRange,
+  splitActions, structuralConfirm, sortByStatus, clockSetRange, editedToast,
 } from '../../static/js/operator.js';
 import {
-  ApiError, apiFetch, getCookie, queryString, toApiError, newIdempotencyKey, setCsrfToken,
+  ApiError, apiFetch, getCookie, listMatches, queryString, toApiError, newIdempotencyKey, setCsrfToken,
 } from '../../static/js/api.js';
 
 const MIN = 60_000;
@@ -16,6 +16,12 @@ test('clockSetRange: faixas do acerto do relógio por tempo (com os dois da pror
     [[0, 45], [46, 90], [91, 105], [106, 120]]);
   assert.equal(clockSetRange('extra_half_time'), null);
   assert.equal(structuralConfirm('extra_half_time', {}).ok, 'Encerrar 1º tempo');
+});
+test('aviso da correção: diz quando o vermelho automático caiu junto', () => {
+  assert.equal(editedToast("Amarelo · Alice, 10'", []), "Corrigido: Amarelo · Alice, 10'.");
+  assert.equal(editedToast("Amarelo · Alice, 10'", undefined), "Corrigido: Amarelo · Alice, 10'.");
+  assert.equal(editedToast("Amarelo · Alice, 10'", [7]), "Corrigido: Amarelo · Alice, 10'. O vermelho automático caiu junto.");
+  assert.equal(editedToast('Amarelo', [7, 8]), 'Corrigido: Amarelo. 2 vermelhos automáticos caíram junto.');
 });
 const NOW = Date.parse('2026-10-03T21:00:30Z');
 const spec = (type, kind = 'game', minute = 'required') => ({ type, kind, minute, label: type, fields: [] });
@@ -218,6 +224,14 @@ test('apiFetch: JSON, mesma origem, CSRF só nos métodos que mudam estado, Idem
   assert.equal(post.init.headers['Idempotency-Key'], 'k-1');
   assert.equal(post.init.headers['Content-Type'], 'application/json');
   assert.equal(post.init.body, JSON.stringify({ type: 'goal' }));
+});
+
+test('listMatches pagina com limit e offset', async () => {
+  const urls = [];
+  const fetchImpl = async (url) => { urls.push(url); return new Response('{"matches":[],"has_more":false}', { headers: { 'Content-Type': 'application/json' } }); };
+  await listMatches({ date: '2026-10-03', limit: 50, offset: 100 }, { fetchImpl });
+  await listMatches({ roundId: 7 }, { fetchImpl });
+  assert.deepEqual(urls, ['/api/matches?date=2026-10-03&limit=50&offset=100', '/api/matches?roundId=7']);
 });
 
 test('apiFetch: erro tipado, tempo esgotado e falha de rede', async () => {

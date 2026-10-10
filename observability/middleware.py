@@ -27,6 +27,9 @@ _SKIP_LOG_PREFIXES = ("/static/", "/health", "/metrics")
 # Fora disso, o id é gerado aqui.
 REQUEST_ID_MAX_LENGTH = 64
 _VALID_RID = re.compile(rf"[A-Za-z0-9._:-]{{1,{REQUEST_ID_MAX_LENGTH}}}")
+# Métodos com rótulo próprio nas métricas. Qualquer outro (inventado pelo cliente, mesmo
+# recusado com 405) vira "OTHER": cada rótulo novo seria uma série eterna na memória.
+_METRIC_METHODS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"})
 
 
 def request_id_from(value: str | None) -> str:
@@ -45,6 +48,11 @@ def _username(request) -> str:
     if wrapped is empty:
         return ""
     return wrapped.username if getattr(wrapped, "is_authenticated", False) else ""
+
+
+def _method_label(request) -> str:
+    """Rótulo de método das métricas: um dos métodos conhecidos ou "OTHER"."""
+    return request.method if request.method in _METRIC_METHODS else "OTHER"
 
 
 def _route(request) -> str:
@@ -83,7 +91,7 @@ class RequestContextMiddleware:
         response["X-Request-ID"] = rid
         route = _route(request)
         status = getattr(response, "status_code", 0)
-        metrics.inc("fdr_http_requests_total", method=request.method, route=route, status=status)
+        metrics.inc("fdr_http_requests_total", method=_method_label(request), route=route, status=status)
         if not getattr(response, "streaming", False):
             metrics.observe("fdr_http_request_duration_seconds", elapsed, route=route)
         if not request.path.startswith(_SKIP_LOG_PREFIXES):

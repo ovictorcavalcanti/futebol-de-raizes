@@ -12,9 +12,11 @@ Toda escrita passa pelo mesmo núcleo dos lançamentos (matches/services.py):
   times, horário, local, público e renda). Status, período e placar são calculados
   pelos lances. Mudança de fase, confronto ou times que deixaria inválidos os
   lançamentos já feitos (desta partida ou do outro jogo do confronto) é recusada no
-  formulário (o domínio refaz os jogos com a configuração nova); partida de grupo é
-  entre times do grupo. Depois de gravar, `services.on_match_edited` refaz o cache
-  pelos eventos, recalcula classificação/confronto quando preciso e publica a partida.
+  formulário (o domínio refaz os jogos com a configuração nova); em fase com tabela, os
+  times precisam estar na fase e o jogo fica no grupo do mandante (times de grupos
+  diferentes podem se enfrentar, como na tabela importada). Depois de gravar,
+  `services.on_match_edited` refaz o cache pelos eventos, recalcula
+  classificação/confronto quando preciso e publica a partida.
   Partida com lançamentos não se apaga (eventos não são apagados).
 * Lances: ficam dentro da partida, somente leitura (os cancelados somem). Lance errado
   se corrige marcando "Cancelar lançamento" na linha e salvando: chama
@@ -387,10 +389,10 @@ class MatchEventInline(admin.TabularInline):
 
 
 class MatchForm(forms.ModelForm):
-    """Partida: além das regras do modelo (`Match.clean`), confere que os times são
-    do grupo e que a mudança de fase, confronto ou times não deixa inválidos os
-    lançamentos já feitos — desta partida e dos outros jogos do confronto (o domínio
-    refaz cada jogo com a configuração nova; com erro, nada é gravado)."""
+    """Partida: além das regras do modelo (`Match.clean`), confere que os times estão
+    na fase (e o jogo no grupo do mandante) e que a mudança de fase, confronto ou times
+    não deixa inválidos os lançamentos já feitos — desta partida e dos outros jogos do
+    confronto (o domínio refaz cada jogo com a configuração nova; com erro, nada é gravado)."""
 
     class Meta:
         model = Match
@@ -416,18 +418,29 @@ class MatchForm(forms.ModelForm):
             self._check_events(match, tie_before)
 
     def _check_group_teams(self, match: Match) -> None:
-        """Partida de grupo é entre times do grupo (a classificação ignora os outros)."""
+        """Fase com tabela: os dois times estão na fase (num grupo dela) e o jogo fica no grupo
+        do mandante. Times de grupos diferentes podem se enfrentar (ex.: Copa do Nordeste) e o
+        jogo conta para os dois grupos — as mesmas regras da tabela importada
+        (competitions/table_import.py; a classificação: `standings.services.groups_of_match`)."""
         if not match.group_id:
             return
-        members = set(
-            GroupTeam.objects.filter(group_id=match.group_id, team_id__in=[match.home_team_id, match.away_team_id]).values_list(
-                "team_id", flat=True
-            )
-        )
+        group_of = {
+            item.team_id: item.group
+            for item in GroupTeam.objects.filter(
+                group__stage_id=match.stage_id, team_id__in=[match.home_team_id, match.away_team_id]
+            ).select_related("group")
+        }
+        where = "num grupo da fase" if match.stage.format == Stage.Format.GROUPS else "na tabela da fase"
         for name in ("home_team", "away_team"):
             team = getattr(match, name)
-            if team.pk not in members:
-                self.add_error(name, f"{team} não está no grupo “{match.group.name}”: cadastre o time no grupo antes.")
+            if team.pk not in group_of:
+                self.add_error(name, f"{team} não está na fase “{match.stage.name}”: cadastre o time {where} antes.")
+        home_group = group_of.get(match.home_team_id)
+        if not self.errors and home_group.pk != match.group_id:
+            self.add_error(
+                "group" if "group" in self.fields else None,
+                f"O jogo fica no grupo do mandante: escolha “{home_group.name}”, o grupo de {match.home_team}.",
+            )
 
     def _check_leaving_teams(self, match: Match, leaving: set[int]) -> None:
         if not leaving:

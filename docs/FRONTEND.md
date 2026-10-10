@@ -267,7 +267,7 @@ riscado (`<s>`), nunca como placar atual.
 ### `api.js`
 * `apiFetch(path, {method, body, query, headers, idempotencyKey, timeout = 15000, signal}) → Promise<json>` — `credentials: 'same-origin'`, `X-CSRFToken` (cookie `csrftoken`; reserva: `csrf_token` de `/api/auth/me`) só nos métodos que mudam estado, `Idempotency-Key` quando pedido, tempo limite com `AbortController`.
 * `ApiError {status, code, message, details, warnings, isNetwork}` — formato de erro do contrato; o padrão do ninja (`{detail}`) vira `csrf_failed`/`invalid_input`/… ; falha de rede = `network_error`, tempo esgotado = `timeout` (status 0).
-* Rotas: `getMe`, `login`, `logout`, `getHome(date?)`, `getCompetitions`, `getCompetition(slug, {stage, round})`, `getStageStandings`, `listMatches({roundId, date, status, stageId})`, `getMatch`, `getCatalog`, `postEvent(id, body, key)`, `voidEvent(id, eventId, reason)`, `changeStatus(id, body, key)`.
+* Rotas: `getMe`, `login`, `logout`, `getHome(date?)`, `getCompetitions`, `getCompetition(slug, {stage, round})`, `getStageStandings`, `listMatches({roundId, date, status, stageId, limit, offset}) → {matches, has_more}` (até 500 por página), `getMatch`, `getCatalog`, `postEvent(id, body, key)`, `voidEvent(id, eventId, reason)`, `changeStatus(id, body, key)`.
 * `newIdempotencyKey()` (`crypto.randomUUID`, com reserva fora de contexto seguro), `getCookie`, `queryString`, `toApiError`.
 
 ### `stream.js`
@@ -282,7 +282,7 @@ riscado (`<s>`), nunca como placar atual.
 * `notificationSupport(window)` — API presente, contexto seguro e computador (`userAgentData.mobile`, user agent, iPadOS com toque); sem permissão, testa `new Notification()` em `try/catch`.
 
 ### `operator.js` (partes puras exportadas)
-`effectiveMinuteMode(spec, period)` (espelha `domain.minute_mode`), `suggestMinute(match, spec, nowMs)`, `buildEventBody(type, entries, {minute, stoppage})`, `toBrasiliaInput(iso)`, `groupByCompetition`, `lineupPlayers(match, teamId, {opponent})`, `splitActions(types, specOf) → {game, flow}` (lances de jogo × estruturais, na ordem da API), `structuralConfirm(type, match, label?) → {title, text, ok}` (texto da confirmação de cada estrutural, com o placar). A tela só liga quando a página tem `#op-app`.
+`effectiveMinuteMode(spec, period)` (espelha `domain.minute_mode`), `suggestMinute(match, spec, nowMs)`, `buildEventBody(type, entries, {minute, stoppage})`, `toBrasiliaInput(iso)`, `groupByCompetition`, `lineupPlayers(match, teamId, {opponent})`, `splitActions(types, specOf) → {game, flow}` (lances de jogo × estruturais, na ordem da API), `structuralConfirm(type, match, label?) → {title, text, ok}` (texto da confirmação de cada estrutural, com o placar), `editedToast(summary, voided) → texto` (aviso da correção; com `voided` da resposta, diz que o vermelho automático caiu junto). A tela só liga quando a página tem `#op-app`.
 
 ### `fixtures.js` (só para o guia de estilo)
 `SERVER_TIME`, `TIMEZONE`, `TEAMS`, `COMPETITIONS`, `MATCHES` (`live`, `halfTime`, `scheduledToday`, `scheduledTomorrow`, `finished`, `postponed`, `suspended`, `cancelled`, `knockoutLeg1`, `knockoutPenalties`, `knockoutSingle`), `TIES`, `STANDINGS`, `STANDINGS_GROUPS`, `LATEST_GOALS`, `HOME`, `COMPETITION`, `ME`, `CATALOG`, `AVAILABLE`, `summaryOf(match)`. Os horários são relativos ao carregamento do módulo.
@@ -312,9 +312,10 @@ document.addEventListener('visibilitychange', () => document.hidden || clock.che
   esquerda e classificação ao vivo à direita; sem jogo no dia: menu, relógio e
   `#home-empty` (sem o bloco de últimos gols).
 * `match` → `updateMatchCard(card, match, {flash: true})` (acordeão e aba continuam);
-  jogo desconhecido com início no dia → busca a home de novo. `standings` →
-  `updateStandings` da fase. `goals` → `alerts.handle` + lista da mensagem
-  (gols alertados com `isNew`). Acordeão sem lances → `GET /api/matches/:id`.
+  status ou início (`kickoff_at`) mudou → busca a home de novo (reordena a fase e tira o
+  jogo remarcado para outro dia); jogo desconhecido com início no dia → busca a home de
+  novo. `standings` → `updateStandings` da fase. `goals` → `alerts.handle` + lista da
+  mensagem (gols alertados com `isNew`). Acordeão sem lances → `GET /api/matches/:id`.
 * Recarga (virada do dia, 5 min sem stream, "Tentar de novo") reaproveita os cards
   (acordeões abertos continuam), marca a lista como já alertada e reabre o stream no
   cursor novo.

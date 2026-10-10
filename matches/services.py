@@ -84,6 +84,7 @@ class PostResult:
     match: Match  # já atualizado
     created: bool  # False quando a chave de idempotência já existia
     warnings: list[DomainWarning] = field(default_factory=list)
+    voided_ids: list[int] = field(default_factory=list)  # correção: os que caíram junto (vermelho automático)
 
 
 @dataclass
@@ -156,8 +157,9 @@ def on_match_edited(match: Match, changed_fields, user=None, request=None) -> No
 
     `changed_fields`: nomes dos campos alterados (ex.: `form.changed_data`) ou um
     dicionário {campo: valor antigo}. Com o valor antigo de `group`/`tie`, o grupo e
-    o confronto antigos também são recalculados; só com os nomes, recalcula todos os
-    grupos da fase atual da partida. Refaz o cache a partir dos eventos quando os
+    o confronto antigos também são recalculados (com o de `stage`/`home_team`/
+    `away_team`, os grupos dos times de antes na fase de antes: jogo entre grupos);
+    só com os nomes, recalcula todos os grupos da fase atual da partida. Refaz o cache a partir dos eventos quando os
     times ou o confronto mudam, recalcula classificação/confronto, `version += 1`
     e publica `match` (+ `standings`) sob a trava. Início (`kickoff_at`) editado que
     põe ou tira de hoje uma partida com gols válidos → também `goals` (`changes` vazio,
@@ -184,6 +186,20 @@ def on_match_edited(match: Match, changed_fields, user=None, request=None) -> No
                 groups.add(old_group)
             elif "group" in names or "stage" in names:
                 groups.update(Group.objects.filter(stage_id=match.stage_id).values_list("id", flat=True))
+            if names & {"stage", "home_team", "away_team"}:
+                # Os grupos dos times de antes, na fase de antes, também perdem o jogo: num
+                # jogo entre grupos o time que saiu pode não ser do grupo do jogo nem do antigo.
+                old = {
+                    name: _pk(previous[name]) if name in previous else getattr(match, f"{name}_id")
+                    for name in ("stage", "home_team", "away_team")
+                }
+                old_teams = [team for team in (old["home_team"], old["away_team"]) if team]
+                if old["stage"] and old_teams:
+                    groups.update(
+                        Group.objects.filter(stage_id=old["stage"], group_teams__team_id__in=old_teams).values_list(
+                            "id", flat=True
+                        )
+                    )
             for group in Group.objects.filter(id__in=groups).select_related("stage"):
                 standings_services.recompute_group(group)
                 if group.stage.has_table:
@@ -345,7 +361,11 @@ def edit_event(match_id: int, event_id: int, user, new: NewEvent, *, confirm: bo
     O lance continua no mesmo lugar da sequência e no mesmo período: o domínio refaz a
     partida com o lance corrigido e recusa a correção se ela quebrar o que veio depois.
     O tipo não muda; andamento e status não se editam (cancele e lance de novo), nem
-    lance ligado a vermelho automático. Os valores antigos vão para a auditoria.
+    lance ligado a vermelho automático. Cartões seguem a regra do cancelamento
+    (`domain.check_edit`): o vermelho automático cujo amarelo deixou de ser o 2º cai junto
+    (cancelado na mesma transação, ids em `PostResult.voided_ids` e nos `voided_ids` da
+    auditoria). Cartões que a correção antiga já deixou inconsistentes ficam como estão.
+    Os valores antigos vão para a auditoria.
     """
     return _counting_rejections(lambda: _edit(match_id, event_id, user, new, confirm=confirm, request=request))
 
@@ -393,7 +413,10 @@ def _edit(match_id, event_id, user, new: NewEvent, *, confirm, request) -> PostR
             )
         edited = replace(result.event, id=target.id, created_at=target.created_at)
         state_now = domain.derive_state(events, work.ctx)
-        state_after = domain.derive_state([*before, edited, *events[index + 1:]], work.ctx)
+        # Regra do cancelamento para os cartões: cai junto o vermelho automático cujo
+        # amarelo deixou de ser o 2º; amarelo que viraria o 2º sem vermelho → recusa.
+        settled = domain.check_edit(events, edited, work.ctx)
+        state_after = settled.state
         work.check_tie_lock(state_now, state_after, target.type)
         old = {
             "minute": target.minute, "stoppage": target.stoppage, "team_id": target.team_id,
@@ -402,9 +425,18 @@ def _edit(match_id, event_id, user, new: NewEvent, *, confirm, request) -> PostR
         target.minute, target.stoppage, target.team_id = edited.minute, edited.stoppage, edited.team_id
         target.payload, target.annuls_event_id = dict(edited.payload), edited.annuls_event_id
         target.save(update_fields=["minute", "stoppage", "team", "payload", "annuls_event"])
+        voided_ids = list(settled.voided_ids)
+        voided_rows = []
+        if voided_ids:
+            at = timeutils.now()  # com a trava (ver _post)
+            MatchEvent.objects.filter(id__in=voided_ids).update(voided_at=at, voided_by=user)
+            for row in work.rows:
+                if row.id in voided_ids:
+                    row.voided_at, row.voided_by = at, user
+                    voided_rows.append(row)
         goals_before = dict(work.goals_before)
-        work.apply_state(state_after)
-        work.finish(changed_types={target.type}, created_ids=set(), removed_reason="edited")
+        work.apply_state(state_after, voided=voided_rows)
+        work.finish(changed_types={target.type, *(row.type for row in voided_rows)}, created_ids=set(), removed_reason="edited")
         goals_after = selectors.goal_snapshots(work.match, work.rows)
         if goals_after.keys() == goals_before.keys() and goals_after != goals_before:
             work.enqueue_latest_goals()  # mesmo gol com autor/minuto corrigido: só a lista muda
@@ -416,10 +448,14 @@ def _edit(match_id, event_id, user, new: NewEvent, *, confirm, request) -> PostR
             data={"type": target.type, "before": old, "after": {
                 "minute": target.minute, "stoppage": target.stoppage, "team_id": target.team_id,
                 "payload": target.payload, "annuls_event_id": target.annuls_event_id,
-            }},
+            }, **({"voided_ids": voided_ids} if voided_ids else {})},
             request=request,
         )
-    return PostResult(event=target, derived=[], match=work.match, created=True, warnings=list(result.warnings))
+    if voided_ids:
+        metrics.inc("fdr_events_voided_total", amount=len(voided_ids))
+    return PostResult(
+        event=target, derived=[], match=work.match, created=True, warnings=list(result.warnings), voided_ids=voided_ids
+    )
 
 
 def _void(match_id, event_id, user, *, reason, request, at) -> VoidOutcome:

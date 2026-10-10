@@ -338,6 +338,8 @@ class FakeApi:
         self.streams = []  # corpos SSE, um por conexão (o último se repete)
         self.me = {"authenticated": False, "user": None, "csrf_token": "tok-csrf"}
         self.posts = []
+        self.rankings = []  # RankingRef da competição (botões ao lado da tabela)
+        self.ranking_stage_ids = []  # fases somadas por GET /api/rankings/{id}
 
     def json(self, route, body, status=200):
         route.fulfill(
@@ -425,7 +427,23 @@ class FakeApi:
             elif "round=31" in query:
                 data["stage"] = {**data["stage"], "matches": [], "ties": []}
                 data["current_round_id"] = 31
+            if self.rankings:
+                data["rankings"] = self.rankings
             return self.json(route, data)
+        if path.startswith("/api/rankings/"):
+            ranking_id = int(path.rsplit("/", 1)[1])
+            ref = next(r for r in self.rankings if r["id"] == ranking_id)
+            return self.json(
+                route,
+                {
+                    **copy.deepcopy(self.fx["STANDINGS"]),
+                    "stage_id": None,
+                    "stage_name": ref["name"],
+                    "ranking_id": ranking_id,
+                    "scope": ref["scope"],
+                    "stage_ids": self.ranking_stage_ids,
+                },
+            )
         if path == "/api/matches":
             if "roundId=" in query:
                 matches = [_summary(self.fx["MATCHES"]["scheduledToday"])]
@@ -705,6 +723,43 @@ def test_home_gol_pelo_stream_alerta_uma_vez_e_corrige(open_page, fixtures):
     assert not errors, errors
 
 
+def test_home_jogo_remarcado_para_outro_dia_sai_da_pagina(open_page, fixtures):
+    scheduled = copy.deepcopy(fixtures["MATCHES"]["scheduledToday"])
+    date = fixtures["HOME"]["date"]
+    tomorrow = (datetime.fromisoformat(date) + timedelta(days=1)).date().isoformat()
+    moved = {
+        **scheduled,
+        "kickoff_at": f"{tomorrow}T15:00:00Z",  # meio-dia de amanhã em Brasília
+        "version": scheduled["version"] + 1,
+    }
+
+    def prepare(api):
+        api.streams = [
+            _sse(
+                [
+                    ("ping", {"server_time": _now_iso()}, None),
+                    ("match", {"stage_id": 3, "competition_id": 1, "match": moved}, 4183),
+                ]
+            ),
+            _sse([("ping", {"server_time": _now_iso()}, None)]),
+        ]
+
+    page, api, errors = open_page("/", prepare=prepare)
+    page.wait_for_selector(f'.match[data-match-id="{scheduled["id"]}"]')
+    # a home pedida de novo já não traz o jogo (o servidor filtra pelo dia do kickoff_at)
+    home = copy.deepcopy(fixtures["HOME"])
+    for comp in home["competitions"]:
+        for stage in comp["stages"]:
+            stage["matches"] = [m for m in stage["matches"] if m["id"] != scheduled["id"]]
+    api.fx = {**api.fx, "HOME": home}
+    page.wait_for_selector(
+        f'.match[data-match-id="{scheduled["id"]}"]', state="detached", timeout=10_000
+    )
+    assert len([r for r in api.requests if r[1] == "/api/home"]) >= 2
+    assert page.locator('.match[data-match-id="12"]').count() == 1  # os outros ficam
+    assert not errors, errors
+
+
 def test_home_sem_jogo(open_page, fixtures):
     def prepare(api):
         api.fx = {
@@ -811,6 +866,139 @@ def test_competicao_rodadas_fase_e_slug_inexistente(open_page):
     page, _, errors = open_page("/competition.html?slug=nao-existe")
     page.wait_for_selector("#competition-missing:not([hidden])")
     assert page.evaluate("document.getElementById('competition-grid').hidden")
+    assert not errors, errors
+
+
+def test_competicao_classificacao_geral_atualiza_com_partida_do_mata_mata(open_page, fixtures):
+    """O mata-mata não publica `standings`: a classificação geral que soma a fase busca de
+    novo quando chega `match` de uma partida dela (placar, status, cartões ou fase mudaram)."""
+    final = fixtures["MATCHES"]["knockoutPenalties"]  # fase 7 (mata-mata)
+    goal = {**final, "home_score": final["home_score"] + 1, "version": final["version"] + 1}
+    same = {**goal, "version": goal["version"] + 1}  # nada que conte na tabela mudou
+    other = fixtures["MATCHES"]["live"]  # fase 3, fora da classificação
+
+    def prepare(api):
+        api.rankings = [{"id": 5, "name": "Geral", "scope": "overall"}]
+        api.ranking_stage_ids = [6, 7]
+
+    page, api, errors = open_page("/competition.html?slug=copa-pernambuco", prepare=prepare)
+    page.wait_for_selector("#ranking-standings:not([hidden]) .standings")
+
+    def ranking_gets():
+        return sum(1 for r in api.requests if r[0] == "GET" and r[1] == "/api/rankings/5")
+
+    assert ranking_gets() == 1
+    ping = _sse([("ping", {"server_time": _now_iso()}, None)])
+    with page.expect_response(lambda r: "/api/rankings/5" in r.url, timeout=5000):
+        api.streams = [
+            _sse([("match", {"stage_id": 7, "competition_id": 2, "match": goal}, 4183)]),
+            ping,
+        ]
+    assert ranking_gets() == 2
+    api.streams = [
+        _sse(
+            [
+                ("match", {"stage_id": 7, "competition_id": 2, "match": same}, 4184),
+                ("match", {"stage_id": 3, "competition_id": 1, "match": {**other, "home_score": 9}}, 4185),
+            ]
+        ),
+        ping,
+    ]
+    page.wait_for_timeout(2500)  # o stream reconecta e entrega; espera mais que o agrupamento (1,5 s)
+    assert api.streams == [ping]  # as mensagens foram entregues
+    assert ranking_gets() == 2
+
+    # o admin trocou o jogo de fase sem mexer em placar, status, times ou cartões: sair de
+    # uma fase somada (7 → 3) ou entrar nela (3 → 7) também muda a classificação
+    for stage_id, version, event_id, gets in ((3, 1, 4186, 3), (7, 2, 4187, 4)):
+        moved = {"stage_id": stage_id, "competition_id": 2, "match": {**same, "version": same["version"] + version}}
+        with page.expect_response(lambda r: "/api/rankings/5" in r.url, timeout=5000):
+            api.streams = [_sse([("match", moved, event_id)]), ping]
+        assert ranking_gets() == gets
+    assert not errors, errors
+
+
+def test_competicao_classificacao_geral_nao_perde_gol_anulado(open_page, fixtures):
+    """O último visto de cada partida não pode ficar velho: segue sendo gravado com a tabela
+    da fase na tela e é esquecido no reload (as mensagens perdidas não voltam). Senão um gol
+    anulado (a partida volta ao placar já visto) não buscava a classificação de novo. Nem a
+    mudança que chega no meio da carga da classificação pode se perder."""
+    final = fixtures["MATCHES"]["knockoutPenalties"]  # fase 7 (mata-mata)
+
+    def score(goals):
+        return {
+            "stage_id": 7,
+            "competition_id": 2,
+            "match": {**final, "home_score": final["home_score"] + goals, "version": final["version"] + goals},
+        }
+
+    def prepare(api):
+        api.rankings = [{"id": 5, "name": "Geral", "scope": "overall"}]
+        api.ranking_stage_ids = [6, 7]
+
+    page, api, errors = open_page("/competition.html?slug=copa-pernambuco&stage=6", prepare=prepare)
+    page.wait_for_selector("#standings-switch button")
+    ping = _sse([("ping", {"server_time": _now_iso()}, None)])
+    api.streams = [ping]
+    switch = page.locator("#standings-switch")
+
+    def ranking_gets():
+        return sum(1 for r in api.requests if r[0] == "GET" and r[1] == "/api/rankings/5")
+
+    def refetches_ranking():
+        return page.expect_response(lambda r: "/api/rankings/5" in r.url, timeout=5000)
+
+    def deliver(message, event_id):
+        api.streams = [_sse([("match", message, event_id)]), ping]
+        for _ in range(50):  # o stream reconecta (retry 200 ms) e entrega
+            if api.streams == [ping]:
+                break
+            page.wait_for_timeout(100)
+        assert api.streams == [ping]
+        page.wait_for_timeout(300)
+
+    with refetches_ranking():
+        switch.get_by_role("button", name="Geral").click()
+    with refetches_ranking():
+        deliver(score(1), 4183)
+    assert ranking_gets() == 2
+
+    # com a tabela da fase na tela chega o 2x0; de volta à classificação, ela mostra o 2x0
+    switch.get_by_role("button", name="Fase de grupos").click()
+    deliver(score(2), 4184)
+    with refetches_ranking():
+        switch.get_by_role("button", name="Geral").click()
+    assert ranking_gets() == 3
+    with refetches_ranking():  # gol anulado: volta ao 1x0 (já visto antes da troca)
+        deliver(score(1), 4185)
+    assert ranking_gets() == 4
+
+    # 5 min sem stream: o 2x0 se perdeu, o reload busca tudo de novo (com a classificação)
+    with refetches_ranking():
+        page.evaluate("document.querySelector('[data-hook=\"competition-retry\"]').click()")
+    assert ranking_gets() == 5
+    with refetches_ranking():  # gol anulado: volta ao 1x0 (o último visto antes do reload)
+        deliver(score(1), 4187)
+    assert ranking_gets() == 6
+
+    # o 2x0 chega no meio da carga (da tabela da fase para "Geral"): as fases somadas ainda
+    # não chegaram e a resposta pode vir velha; ao fim da carga, busca de novo
+    switch.get_by_role("button", name="Fase de grupos").click()
+    held = []  # segura a primeira resposta da classificação
+    page.route(lambda url: "/api/rankings/5" in url, lambda route: route.fallback() if held else held.append(route))
+    switch.get_by_role("button", name="Geral").click()
+    for _ in range(50):
+        if held:
+            break
+        page.wait_for_timeout(100)
+    assert held  # a carga está a caminho
+    deliver(score(2), 4188)
+    with refetches_ranking():
+        held[0].fallback()
+    assert ranking_gets() == 7
+    with refetches_ranking():  # agrupado: 1,5 s depois da resposta
+        pass
+    assert ranking_gets() == 8
     assert not errors, errors
 
 

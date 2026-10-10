@@ -170,11 +170,15 @@ def matches(
     date: str | None = Query(None, description="Dia de Brasília pelo kickoff_at (AAAA-MM-DD)"),
     status: str | None = Query(None, description="Um ou vários status separados por vírgula"),
     stage_id: int | None = Query(None, alias="stageId"),
+    limit: int = Query(selectors.MATCHES_LIST_LIMIT, ge=1, le=selectors.MATCHES_LIST_LIMIT, description="Partidas por página (no máximo 500)"),
+    offset: int = Query(0, ge=0, le=selectors.MATCHES_LIST_MAX_OFFSET, description="Quantas partidas pular (paginação)"),
 ):
-    """Sem filtro, no máximo 500 partidas."""
+    """Com ou sem filtro, no máximo 500 partidas por resposta; `has_more` indica a próxima página
+    (`offset` + `limit`). O `offset` tem teto (MATCHES_LIST_MAX_OFFSET): perto dele `has_more` fica
+    false, e para ir além filtre por `date` ou `roundId`."""
     day = parse_day(date)
     try:
-        payload = selectors.matches_list(round_id=round_id, date=day, status=status, stage_id=stage_id)
+        payload = selectors.matches_list(round_id=round_id, date=day, status=status, stage_id=stage_id, limit=limit, offset=offset)
     except ValueError as exc:  # status desconhecido
         raise invalid_input("status", str(exc)) from exc
     return respond(payload)

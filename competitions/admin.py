@@ -16,10 +16,13 @@ Toda escrita que muda o que as páginas mostram passa pelo mesmo núcleo:
   da lista que o causou) e, depois de gravar, `standings.services.on_stage_rules_changed`
   recalcula as tabelas (quando mudou pontuação ou critério) e publica a classificação.
 * Times do grupo: `standings.services.recompute_group` e a classificação publicada.
-  Time com partidas no grupo não sai dele; pontos corridos tem um grupo só.
+  Time com partidas na fase não sai do grupo, seja qual for o grupo da partida (jogo
+  entre grupos fica no grupo do mandante, mas conta para o grupo de cada time);
+  pontos corridos tem um grupo só.
 * Formato da fase só muda enquanto ela não tem partidas (nem confrontos); mata-mata
   fica sem grupos e fase com tabela ganha os critérios padrão quando não tem nenhum.
-  Grupo e rodada com partidas não mudam de fase.
+  Rodada com partidas não muda de fase; grupo com partidas, ou com time em jogo entre
+  grupos na fase, não muda de fase nem é apagado.
 * Punições/bonificações (`standings.PointAdjustment`, inline da fase): o time precisa
   estar num grupo da fase; gravar ou apagar recalcula a fase e publica a classificação
   (`on_stage_rules_changed`).
@@ -44,8 +47,10 @@ from django.forms.models import BaseInlineFormSet
 from django.http import HttpResponseRedirect
 from django.urls import reverse
 from django.utils.html import format_html, format_html_join
+from django.utils.text import capfirst
 
 from core.locks import locked_atomic
+from matches.models import Match
 from observability.admin import AuditedModelAdmin
 from realtime.outbox import enqueue
 from standings import services as standings_services
@@ -550,6 +555,21 @@ class GroupFormSet(BaseInlineFormSet):
             raise forms.ValidationError("Pontos corridos tem um grupo único automático (“Tabela”): não cadastre grupos.")
         if adding and stage.format == Stage.Format.KNOCKOUT:
             raise forms.ValidationError("Fase de mata-mata não tem grupos.")
+        deleting = [form.instance for form in self.initial_forms if form.instance.pk and self._should_delete_form(form)]
+        blocked = [group for group in deleting if group_stage_matches(group).exists()]
+        own = [group for group in blocked if group_stage_matches(group).filter(group_id=group.pk).exists()]
+        between = [group for group in blocked if group not in own]
+        errors = []
+        if own:  # de garantia: o PROTECT de `Match.group` já barra esse grupo no `super().clean()`
+            errors.append(f"Grupo com partidas nesta fase não é apagado: {', '.join(g.name for g in own)}.")
+        if between:
+            # Nenhuma partida aponta para o grupo: o time dele joga uma partida de outro grupo.
+            errors.append(
+                f"Grupo com time em jogo entre grupos nesta fase não é apagado: {', '.join(g.name for g in between)}. "
+                "A partida fica no grupo do mandante, mas conta também para o do visitante."
+            )
+        if errors:
+            raise forms.ValidationError(errors)
 
 
 class GroupInline(Inline):
@@ -1002,6 +1022,18 @@ class StageAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, WriteLockedPostMixin
 # --- Grupo ------------------------------------------------------------------------------------
 
 
+def group_stage_matches(group: Group):
+    """Partidas que contam para a tabela do grupo (na fase gravada dele): as do grupo e as dos
+    times dele na fase, contra qualquer adversário — a regra de `standings.services._group_inputs`.
+    Jogo entre grupos fica com o grupo do mandante, mas conta também para o do visitante: o
+    PROTECT de `Match.group` não vê esse jogo, e o grupo apagado (ou levado para outra fase)
+    o tiraria da classificação."""
+    team_ids = GroupTeam.objects.filter(group_id=group.pk).values("team_id")
+    return Match.objects.filter(stage_id=group.stage_id).filter(
+        Q(group_id=group.pk) | Q(home_team_id__in=team_ids) | Q(away_team_id__in=team_ids)
+    )
+
+
 class GroupTeamFormSet(PreloadedChoicesFormSet):
     def clean(self):
         super().clean()
@@ -1026,8 +1058,10 @@ class GroupTeamFormSet(PreloadedChoicesFormSet):
             raise forms.ValidationError(f"Time já está em outro grupo desta fase: {', '.join(clashes)}.")
 
     def _check_leaving_teams(self, group: Group) -> None:
-        """Time que sai do grupo (linha excluída ou trocada) não pode ter partidas nele:
-        a classificação ignoraria esses jogos e os adversários perderiam os pontos."""
+        """Time que sai do grupo (linha excluída ou trocada) não pode ter partidas na fase,
+        como mandante ou visitante, em qualquer grupo: jogo entre grupos conta para o grupo
+        de cada time (`standings.services._group_inputs`). Fora do grupo, a classificação
+        ignoraria esses jogos e os adversários perderiam os pontos."""
         if group.pk is None:
             return
         leaving = {
@@ -1037,17 +1071,19 @@ class GroupTeamFormSet(PreloadedChoicesFormSet):
         } - {None}
         if not leaving:
             return
+        # A fase gravada: se o formulário do grupo mudou a fase, a instância já tem a nova.
+        stage_id = Group.objects.values_list("stage_id", flat=True).get(pk=group.pk)
         played = (
             Team.objects.filter(pk__in=leaving)
-            .filter(Q(home_matches__group=group) | Q(away_matches__group=group))
+            .filter(Q(home_matches__stage_id=stage_id) | Q(away_matches__stage_id=stage_id))
             .distinct()
             .order_by("name")
         )
         names = [team.name for team in played]
         if names:
             raise forms.ValidationError(
-                f"Time com partidas neste grupo não sai dele: {', '.join(names)}. "
-                "Mude antes o grupo das partidas (ou apague as que não tiveram lançamentos)."
+                f"Time com partidas nesta fase não sai do grupo: {', '.join(names)}. "
+                "Troque antes o time nas partidas (ou apague as que não tiveram lançamentos)."
             )
 
 
@@ -1079,8 +1115,23 @@ class GroupForm(forms.ModelForm):
             raise forms.ValidationError(
                 "Pontos corridos tem um grupo único automático (“Tabela”): cadastre os times nele."
             )
-        if group.pk and stage.pk != group.stage_id and group.matches.exists():
-            raise forms.ValidationError("O grupo já tem partidas: ele não muda de fase.")
+        if group.pk and stage.pk != group.stage_id:
+            matches = group_stage_matches(group)
+            if matches.filter(group_id=group.pk).exists():
+                raise forms.ValidationError("O grupo já tem partidas: ele não muda de fase.")
+            # Nenhuma partida aponta para o grupo, mas time dele joga uma partida de outro grupo.
+            names = list(
+                Team.objects.filter(group_entries__group_id=group.pk)
+                .filter(Q(home_matches__in=matches) | Q(away_matches__in=matches))
+                .distinct()
+                .order_by("name")
+                .values_list("name", flat=True)
+            )
+            if names:
+                raise forms.ValidationError(
+                    f"Time do grupo tem jogo entre grupos nesta fase: {', '.join(names)}. A partida fica no "
+                    "grupo do mandante, mas conta também para o do visitante: o grupo não muda de fase."
+                )
         return stage
 
 
@@ -1120,6 +1171,23 @@ class GroupAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, StandingCacheDeletio
                 if stage_changed and form.initial.get("stage"):
                     # A fase antiga perdeu o grupo: a tabela dela também muda.
                     publish_stage_standings(Stage.objects.get(pk=form.initial["stage"]))
+
+    def get_deleted_objects(self, objs, request):
+        to_delete, model_count, perms_needed, protected = super().get_deleted_objects(objs, request)
+        # Jogo entre grupos (com o grupo do mandante) também prende o grupo do visitante; os
+        # jogos do próprio grupo o PROTECT de `Match.group` já listou.
+        groups = list(objs)
+        seen = set()
+        for group in groups:
+            for match in group_stage_matches(group).exclude(group__in=groups).select_related("home_team", "away_team"):
+                if match.pk not in seen:
+                    seen.add(match.pk)
+                    protected.append(
+                        format_html(
+                            '{}: <a href="{}">{}</a>', capfirst(Match._meta.verbose_name), change_url_of(match), match
+                        )
+                    )
+        return to_delete, model_count, perms_needed, protected
 
     def delete_model(self, request, obj):
         with locked_atomic():

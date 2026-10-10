@@ -60,6 +60,8 @@ const state = {
   rankingStageIds: [], // fases que entram na classificação exibida (atualiza com o stream)
   rankingTimer: 0,
   rankingToken: 0,
+  rankingPending: null, // fases que mudaram durante a carga da classificação (null: sem carga)
+  rankingMatchKeys: new Map(), // match id → {key, stageId}: o que conta na classificação (último visto pelo stream)
   seq: 0, // ignora respostas fora de ordem (troca rápida de rodada/fase)
 };
 let stream = null;
@@ -207,6 +209,8 @@ function paintStandingsSwitch() {
 
 async function loadRanking(id) {
   const token = ++state.rankingToken;
+  const pending = new Set();
+  state.rankingPending = pending;
   try {
     const data = await getRanking(id);
     if (token !== state.rankingToken || state.view !== id) return; // trocou de botão no meio
@@ -214,6 +218,12 @@ async function loadRanking(id) {
     els.rankingStandings.replaceChildren(createStandings(data));
   } catch {
     if (token === state.rankingToken) showToast('Não deu para carregar a classificação agora.', { kind: 'error' });
+  } finally {
+    // a resposta pode ter vindo antes do que mudou no meio da carga: busca de novo
+    if (token === state.rankingToken) {
+      state.rankingPending = null;
+      if ([...pending].some(rankingHas)) scheduleRanking();
+    }
   }
 }
 
@@ -356,6 +366,7 @@ async function goToStage(stageId) {
 
 /** Estado inteiro de novo (5 min sem stream): mesma fase e rodada; devolve o cursor. */
 async function reload() {
+  state.rankingMatchKeys.clear(); // as mensagens perdidas não voltam: o último visto pode estar velho
   const round = state.rounds[state.roundIndex];
   const seq = ++state.seq;
   const data = await fetchCompetition({ stage: state.stage?.id ?? null, round: round?.id ?? null });
@@ -374,9 +385,39 @@ function reorderCards() {
   els.matches.replaceChildren(...matchBlocks(matches, (m) => state.cards.get(m.id)));
 }
 
+/** A classificação exibida soma esta fase? */
+const rankingHas = (stageId) => state.view !== 'stage' && state.rankingStageIds.includes(stageId);
+
+/** Busca a classificação exibida de novo (agrupado: um lance publica várias mensagens). */
+function scheduleRanking() {
+  clearTimeout(state.rankingTimer);
+  state.rankingTimer = setTimeout(() => state.view !== 'stage' && loadRanking(state.view), 1500);
+}
+
+/** Mudou o que conta nestas fases. Com a carga em andamento, as fases somadas ainda não
+ *  chegaram (ou são as da classificação anterior): guarda e confere ao fim da carga. */
+function rankingChanged(stageIds) {
+  if (state.rankingPending) stageIds.forEach((id) => state.rankingPending.add(id));
+  else if (stageIds.some(rankingHas)) scheduleRanking();
+}
+
+/** O mata-mata não publica `standings`: a partida de uma fase somada pela classificação
+ *  exibida pede nova busca quando muda o que conta nela (status, placar, cartões, times,
+ *  fase). Trocada de fase no admin, confere a antiga e a nova (sai de uma, entra na outra).
+ *  Guarda o último visto de toda partida, mesmo fora da classificação exibida: ao voltar
+ *  para ela (ou trocar de classificação), a comparação parte do estado certo. */
+function rankingOnMatch(stageId, match) {
+  const key = JSON.stringify([stageId, match.status, match.home_score, match.away_score, match.home?.id, match.away?.id, match.cards ?? null]);
+  const seen = state.rankingMatchKeys.get(match.id);
+  if (seen?.key === key) return;
+  state.rankingMatchKeys.set(match.id, { key, stageId });
+  rankingChanged(seen && seen.stageId !== stageId ? [seen.stageId, stageId] : [stageId]);
+}
+
 function onMatch(message) {
   const match = message?.match;
   if (!match) return;
+  rankingOnMatch(message.stage_id, match);
   const card = state.cards.get(match.id);
   const before = card ? getCardMatch(card)?.status : null;
   if (card) updateMatchCard(card, match, { flash: true });
@@ -398,10 +439,7 @@ function onMatch(message) {
 }
 
 function onStandings(message) {
-  if (state.view !== 'stage' && state.rankingStageIds.includes(message?.stage_id)) {
-    clearTimeout(state.rankingTimer); // a classificação exibida soma esta fase: busca de novo (agrupado)
-    state.rankingTimer = setTimeout(() => state.view !== 'stage' && loadRanking(state.view), 1500);
-  }
+  rankingChanged([message?.stage_id]);
   if (state.standingsEl && message?.stage_id === state.standingsStageId && message.standings) {
     updateStandings(state.standingsEl, message.standings);
   }

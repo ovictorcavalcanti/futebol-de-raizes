@@ -25,7 +25,13 @@ _HELP = {
     "fdr_audit_records_total": ("counter", "Registros de auditoria por ação"),
     "fdr_login_lockouts_total": ("counter", "Bloqueios de login por força bruta (usuário+IP ou IP)"),
     "fdr_rate_limited_total": ("counter", "Requisições recusadas por limite de acesso por IP"),
+    "fdr_metrics_series_dropped_total": ("counter", "Séries novas descartadas pelo teto de séries"),
 }
+
+# Teto defensivo de séries do processo: cada combinação nova de rótulos fica na memória
+# para sempre. Passado o teto, a série nova é descartada (e contada); as existentes seguem.
+MAX_SERIES = 10_000
+_DROPPED = ("fdr_metrics_series_dropped_total", ())
 
 
 def _key(labels: dict) -> tuple:
@@ -39,24 +45,38 @@ class Registry:
         self._gauges = {}
         self._summaries = defaultdict(lambda: [0, 0.0])
 
+    def _admit(self, store, key) -> bool:
+        """Com o lock: aceita a série se ela já existe ou se ainda cabe no teto."""
+        if key in store or len(self._counters) + len(self._gauges) + len(self._summaries) < MAX_SERIES:
+            return True
+        self._counters[_DROPPED] += 1
+        return False
+
     def inc(self, name: str, amount: float = 1, **labels):
+        key = (name, _key(labels))
         with self._lock:
-            self._counters[(name, _key(labels))] += amount
+            if self._admit(self._counters, key):
+                self._counters[key] += amount
 
     def set_gauge(self, name: str, value: float, **labels):
+        key = (name, _key(labels))
         with self._lock:
-            self._gauges[(name, _key(labels))] = value
+            if self._admit(self._gauges, key):
+                self._gauges[key] = value
 
     def add_gauge(self, name: str, amount: float, **labels):
+        key = (name, _key(labels))
         with self._lock:
-            key = (name, _key(labels))
-            self._gauges[key] = self._gauges.get(key, 0) + amount
+            if self._admit(self._gauges, key):
+                self._gauges[key] = self._gauges.get(key, 0) + amount
 
     def observe(self, name: str, value: float, **labels):
+        key = (name, _key(labels))
         with self._lock:
-            entry = self._summaries[(name, _key(labels))]
-            entry[0] += 1
-            entry[1] += value
+            if self._admit(self._summaries, key):
+                entry = self._summaries[key]
+                entry[0] += 1
+                entry[1] += value
 
     def value(self, name: str, **labels) -> float:
         key = (name, _key(labels))

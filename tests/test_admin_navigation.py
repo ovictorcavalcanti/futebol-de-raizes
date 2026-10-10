@@ -197,7 +197,7 @@ def test_round_page_rejects_teams_outside_the_group_and_events_deletion(admin_cl
     data[f"{prefix}-0-away_team"] = str(outsider.pk)
     response = admin_client_fdr.post(change_url(rnd), data)
     assert response.status_code == 200
-    assert "Central não está no grupo “Tabela”" in response.content.decode()
+    assert "Central não está na fase “1ª fase”: cadastre o time na tabela da fase antes." in response.content.decode()
     data = post_data(admin_client_fdr.get(change_url(rnd)))
     data[f"{prefix}-0-DELETE"] = "on"
     response = admin_client_fdr.post(change_url(rnd), data)

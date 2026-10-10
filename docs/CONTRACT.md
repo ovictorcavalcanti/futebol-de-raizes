@@ -33,6 +33,7 @@ class PostResult:
     match: Match                 # já atualizado
     created: bool                # False quando a chave de idempotência já existia
     warnings: list[DomainWarning]
+    voided_ids: list[int]        # edit_event: os que caíram junto (vermelho automático); [] nos demais
 
 def post_event(match_id: int, user, new: NewEvent, *, idempotency_key: str,
                source: str = "operator", confirm: bool = False, request=None, at=None) -> PostResult
@@ -153,6 +154,14 @@ erro do formulário.
   cancelados **todos** os `voided_ids` (o pedido vem primeiro). Caem junto: derivados
   (`payload["derived_from_sequence"] == sequence` da origem), anulações que apontam para o gol e o
   vermelho automático cujo amarelo deixou de ser o 2º.
+* Correção de lance: `check_edit(events, edited, ctx)` → `VoidResult(state, voided_ids)` com a mesma
+  regra de cartões do cancelamento: o vermelho automático cujo amarelo deixou de ser o 2º cai junto
+  (`voided_ids`, cancelados na mesma transação da correção e devolvidos em `PostResult.voided_ids`) e
+  um amarelo que passaria a ser o 2º sem o vermelho automático → `event_not_editable` com
+  `details.cause = "second_yellow_without_red"`.
+* Nos dois, só conta o que muda com o cancelamento/correção (comparado por sequence com os eventos de
+  antes): cartões que a correção antiga já deixou inconsistentes (vermelho automático cujo amarelo não
+  é mais o 2º, 2º amarelo sem vermelho) ficam como estão — não caem nem recusam um lance sem relação.
 * Vermelho automático (2º amarelo): payload `{"player", "reason": "second_yellow", "derived_from_sequence": <sequence do amarelo>}`.
   `EventOut.derived` = `domain.derived_from(event) is not None`. Ícone com variações: `domain.event_icon(type, payload)`.
 * Códigos 422 além dos listados em `apply_event`: `confirmation_required` (com `warnings`),
@@ -317,7 +326,7 @@ Sem vencedor: `winner_team_id`, `decided_by` e `decided_by_label` são `null` e 
   `serialize_event(event, match, timeline=)`, `serialize_match(match, detail=False, events=None, tie_legs=None)`,
   `serialize_matches(qs_ou_lista, detail=False)` (uma consulta de eventos para todas),
   `home_payload(day=None, now=None)`, `latest_goals(day, now, limit=10)`, `competitions_menu()`,
-  `competition_payload(slug, stage_id=None, round_id=None)`, `matches_list(round_id, date, status, stage_id)`,
+  `competition_payload(slug, stage_id=None, round_id=None)`, `matches_list(round_id, date, status, stage_id, *, limit=500, offset=0)`,
   `match_detail(match_id)`, `match_state(match)` → `{"match", "available"}`, `catalog_payload()` e os
   corpos das respostas do operador: `post_payload(PostResult)`, `status_payload(PostResult)`,
   `void_payload(VoidOutcome)`. Inexistente → `Model.DoesNotExist` (404); filtro inválido → `ValueError` (400).
@@ -363,6 +372,7 @@ usado volta no `X-Request-ID` da resposta e vai nos logs e na auditoria.
 | `POST /api/auth/logout` | `200 {"ok": true}` |
 | `GET /api/auth/me` | `200 {"authenticated": bool, "user": MeUser|null, "csrf_token": "...", "server_time": "...Z"}` (sempre seta o cookie CSRF; `server_time` acerta o relógio do operador já no login) |
 | `POST /api/ops/matches/{id}/events` + `Idempotency-Key` | `201 {"event": EventOut, "derived": [EventOut], "match": MatchOut(detalhe), "available": Available, "warnings": [...], "replayed": false}` · replay → `200` com `"replayed": true` |
+| `POST /api/ops/matches/{id}/events/{eventId}/edit` (`matches.void_event` também) `EventIn` (mesmo `type` do lance) | `200 {"event": EventOut, "derived": [], "match": MatchOut(detalhe), "available": Available, "warnings": [...], "replayed": false, "voided": [ids]}` (`voided`: os que caíram junto — o vermelho automático cujo amarelo deixou de ser o 2º; `[]` quando nada caiu) · `422 event_not_editable` |
 | `POST /api/ops/matches/{id}/events/{eventId}/void` `{"reason"}` | `200 {"voided": [ids], "match": MatchOut(detalhe), "available": Available, "already": bool}` (`already`: já estava cancelado, nada mudou) |
 | `POST /api/ops/matches/{id}/status` + `Idempotency-Key` `{"action","kickoff_at"?,"reason"?}` | `201 {"event": EventOut, "match": ..., "available": ..., "replayed": false}` · replay → `200` com `"replayed": true` |
 | `POST /api/ops/matches/{id}/partial-info` (`matches.change_status`) `{"partial_info": bool}` | `200 {"match": MatchOut (detalhe), "available": ...}` · publica `match` só quando muda |
@@ -371,7 +381,7 @@ usado volta no `X-Request-ID` da resposta e vai nos logs e na auditoria.
 | `GET /api/competitions` | `{"competitions": [{"id","name","slug","short_name","position"}]}` |
 | `GET /api/competitions/{slug}?stage=&round=` | CompetitionOut (micro-cache no servidor, §3) |
 | `GET /api/stages/{id}/standings?live=1` | StageStandingsOut + `server_time`, `timezone` |
-| `GET /api/matches?roundId=&date=&status=&stageId=` | `{"server_time","timezone","matches": [MatchOut]}` (`date` = dia de Brasília pelo `kickoff_at`; `status` aceita vários separados por vírgula; sem filtro, no máximo 500) |
+| `GET /api/matches?roundId=&date=&status=&stageId=&limit=&offset=` | `{"server_time","timezone","matches": [MatchOut],"has_more": bool}` (`date` = dia de Brasília pelo `kickoff_at`; `status` aceita vários separados por vírgula; em ordem de início, com ou sem filtro, no máximo 500 por resposta: `limit` 1–500, padrão 500, `offset` 0–100000, padrão 0, fora disso `400`; `has_more` = há partidas depois desta página e a próxima, `offset` + `limit`, cabe no teto de `offset` — quem segue `has_more` nunca recebe `400`; além do teto, filtre por `date`/`roundId`) |
 | `GET /api/matches/{id}` | `{"server_time","timezone","cursor","match": MatchOut(detalhe), "available": Available}` |
 | `GET /api/stream?after=N` | SSE (seção 5) |
 
@@ -387,7 +397,7 @@ usado volta no `X-Request-ID` da resposta e vai nos logs e na auditoria.
   Fases de cada competição em `position`; jogos por `kickoff_at`. `latest_goals`: os 10 gols válidos mais
   recentes (`created_at` desc) desses jogos — sem anulados, cancelados nem cobranças da disputa.
 * CompetitionOut: `{"server_time","timezone","cursor","competition": {...},"season": {"id","year","end_year","label"},"stages": [{"id","name","format","position","rounds": [{"id","number","name"}]}],"current_stage_id","current_round_id","stage": {"id","name","format","standings": StageStandingsOut|null,"matches": [MatchOut da rodada],"ties": [TieDetailOut da rodada] (mata-mata; `[]` nas outras),"rankings": [RankingRef] (botão quando a página mostra esta fase)},"rankings": [RankingRef] (botão na página da competição)}`. RankingRef = `{"id","name","scope": "overall"|"custom"}`.
-* `GET /api/rankings/{id}?live=1` → RankingStandingsOut: o formato de StageStandingsOut (um grupo só, `stage_id: null`, `stage_name` = nome da classificação) + `"ranking_id","scope": "overall"|"custom"|"position","stage_ids"` (fases que entram; a página busca de novo quando chega `standings` de uma delas) e `"group_position"` (N, só em "position"; cada linha traz `"group"`, o nome do grupo do time).
+* `GET /api/rankings/{id}?live=1` → RankingStandingsOut: o formato de StageStandingsOut (um grupo só, `stage_id: null`, `stage_name` = nome da classificação) + `"ranking_id","scope": "overall"|"custom"|"position","stage_ids"` (fases que entram; a página busca de novo quando chega `standings` de uma delas, ou `match` de uma partida delas com status, placar, cartões ou times mudados, ou que entrou numa dessas fases ou saiu dela — o mata-mata não publica `standings`; mudança vista durante a busca é conferida quando a resposta chega) e `"group_position"` (N, só em "position"; cada linha traz `"group"`, o nome do grupo do time).
 * Legenda da fase (StageStandingsOut.legend): zona condicional traz também `"condition"` (texto); a linha de quem está na faixa de posição mas fora da faixa da classificação vem com `"zone": null`.
   `current_stage_id`/`current_round_id` = fase/rodada exibidas (as pedidas ou as atuais); `season`/`stage` null sem temporada.
   Rodada de uma partida = a dela ou, no mata-mata sem rodada própria, a do confronto (`selectors.match_round`):

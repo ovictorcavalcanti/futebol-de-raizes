@@ -32,6 +32,7 @@ from matches.domain import (
     annulled_goal_ids,
     apply_event,
     available_actions,
+    check_edit,
     check_void,
     derive_state,
     event_icon,
@@ -1149,6 +1150,26 @@ def test_void_direct_red_with_later_yellow_is_refused():
     with pytest.raises(DomainError) as info:
         check_void(sim.events, red.id, CTX)
     assert info.value.details["cause"] == "second_yellow_without_red"
+
+
+def test_edit_earlier_yellow_follows_the_void_rules_for_the_automatic_red():
+    sim, first, second, red = second_yellow_sim()
+    ademir, kieza = player_key(NAUTICO, None, "Ademir"), player_key(NAUTICO, None, "Kieza")
+    # 1º amarelo passa para outro jogador: o de 40' deixa de ser o 2º e o vermelho cai junto
+    edited = replace(first, payload={"player": "Kieza"})
+    result = check_edit(sim.events, edited, CTX)
+    assert result.voided_ids == (red.id,)
+    assert ademir not in result.state.sent_off and result.state.yellow_cards[ademir] == 1
+    assert result.state.yellow_cards[kieza] == 1
+    # amarelo anterior passa para quem já tem um amarelo depois: esse viraria o 2º sem vermelho
+    later = sim.card(EventType.YELLOW_CARD, NAUTICO, "Kieza", 44)
+    with pytest.raises(DomainError) as info:
+        check_edit(sim.events, edited, CTX)
+    assert info.value.code == "event_not_editable"
+    assert info.value.details["cause"] == "second_yellow_without_red"
+    assert info.value.details["sequence"] == later.sequence
+    # sem efeito nos cartões: nada cai
+    assert check_edit(sim.events, replace(first, minute=16), CTX).voided_ids == ()
 
 
 def test_period_pauses_track_suspensions_of_the_current_period():

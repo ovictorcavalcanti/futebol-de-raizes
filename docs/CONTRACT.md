@@ -153,6 +153,10 @@ erro do formulário.
   cancelados **todos** os `voided_ids` (o pedido vem primeiro). Caem junto: derivados
   (`payload["derived_from_sequence"] == sequence` da origem), anulações que apontam para o gol e o
   vermelho automático cujo amarelo deixou de ser o 2º.
+* Correção de lance: `check_edit(events, edited, ctx)` → `VoidResult(state, voided_ids)` com a mesma
+  regra de cartões do cancelamento: o vermelho automático cujo amarelo deixou de ser o 2º cai junto
+  (`voided_ids`, cancelados na mesma transação da correção) e um amarelo que passaria a ser o 2º sem o
+  vermelho automático → `event_not_editable` com `details.cause = "second_yellow_without_red"`.
 * Vermelho automático (2º amarelo): payload `{"player", "reason": "second_yellow", "derived_from_sequence": <sequence do amarelo>}`.
   `EventOut.derived` = `domain.derived_from(event) is not None`. Ícone com variações: `domain.event_icon(type, payload)`.
 * Códigos 422 além dos listados em `apply_event`: `confirmation_required` (com `warnings`),

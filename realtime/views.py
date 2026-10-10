@@ -8,6 +8,8 @@ leitura ou o id da última mensagem recebida). Se vierem os dois, vale o header.
 
 from __future__ import annotations
 
+import asyncio
+import weakref
 from collections.abc import AsyncGenerator
 from contextlib import aclosing
 
@@ -76,8 +78,46 @@ def _release_request_thread() -> None:
 
 
 # Conexões SSE abertas por IP, neste processo (o único: uvicorn --workers 1).
-# Tudo roda no event loop, sem concorrência entre threads.
+# Só o event loop mexe no contador (o que vem de outra thread é agendado nele),
+# então não há concorrência entre threads.
 _open_by_ip: Counter[str] = Counter()
+
+
+class _StreamSlot:
+    """Vaga de uma conexão SSE: reservada na admissão, devolvida uma vez só.
+
+    A reserva acontece na view, sem `await` entre a checagem do teto e a
+    contagem, para que requisições simultâneas não passem todas pela mesma
+    vaga. A devolução vem do fim do gerador (stream encerrado ou cliente que
+    caiu); se o corpo nem começou a ser lido (cancelamento antes do primeiro
+    byte), do `close()` da resposta; se a resposta foi descartada sem `close()`
+    (cancelada ainda nos middlewares), do coletor de lixo.
+    """
+
+    def __init__(self, ip: str):
+        self.ip = ip
+        self._loop = asyncio.get_running_loop()
+        self._held = True
+        _open_by_ip[ip] += 1
+
+    def release(self) -> None:
+        """Devolve a vaga (idempotente). Roda no event loop."""
+        if not self._held:
+            return
+        self._held = False
+        _open_by_ip[self.ip] -= 1
+        if _open_by_ip[self.ip] <= 0:
+            del _open_by_ip[self.ip]
+
+    def close(self) -> None:
+        """Closer da resposta e do coletor de lixo: pode rodar fora do event loop
+        (o Django chama `close()` via `sync_to_async`), então só agenda a devolução nele."""
+        if not self._held:
+            return
+        try:
+            self._loop.call_soon_threadsafe(self.release)
+        except RuntimeError:  # loop já fechado: ninguém mais disputa o contador
+            self.release()
 
 
 def open_streams(ip: str | None = None) -> int:
@@ -100,8 +140,7 @@ def _limit_error(ip: str) -> JsonResponse | None:
     return response
 
 
-async def _event_stream(after_id: int | None, ip: str) -> AsyncGenerator[bytes, None]:
-    _open_by_ip[ip] += 1
+async def _event_stream(after_id: int | None, slot: _StreamSlot) -> AsyncGenerator[bytes, None]:
     try:
         _release_request_thread()
         yield RETRY_FRAME
@@ -111,9 +150,7 @@ async def _event_stream(after_id: int | None, ip: str) -> AsyncGenerator[bytes, 
             async for chunk in frames:
                 yield chunk
     finally:
-        _open_by_ip[ip] -= 1
-        if _open_by_ip[ip] <= 0:
-            del _open_by_ip[ip]
+        slot.release()
 
 
 @require_GET
@@ -129,7 +166,10 @@ async def stream(request):
     limited = _limit_error(ip)
     if limited is not None:
         return limited
-    response = StreamingHttpResponse(_event_stream(after_id, ip), content_type="text/event-stream; charset=utf-8")
+    slot = _StreamSlot(ip)  # reservada já aqui, sem await desde a checagem acima
+    response = StreamingHttpResponse(_event_stream(after_id, slot), content_type="text/event-stream; charset=utf-8")
+    response._resource_closers.append(slot.close)
+    weakref.finalize(response, slot.close)
     response["Cache-Control"] = "no-cache"
     response["X-Accel-Buffering"] = "no"  # proxies como o nginx não seguram o stream
     return response

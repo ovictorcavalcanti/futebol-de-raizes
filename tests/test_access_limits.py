@@ -320,11 +320,82 @@ def test_stream_counter_released_when_connection_ends(settings, monkeypatch):
     monkeypatch.setattr(stream_views.hub, "subscribe", fake_subscribe)
 
     async def run():
-        gen = stream_views._event_stream(None, "10.6.6.6")
+        gen = stream_views._event_stream(None, stream_views._StreamSlot("10.6.6.6"))
         await gen.__anext__()  # retry
         assert stream_views.open_streams("10.6.6.6") == 1
         await gen.aclose()
 
     asyncio.run(run())
     assert stream_views.open_streams("10.6.6.6") == 0
+    assert stream_views.open_streams() == 0
+
+
+def test_stream_slot_reserved_on_admission_and_released_once(settings, monkeypatch):
+    """A vaga conta já na admissão (duas requisições juntas não passam pela mesma)
+    e volta uma vez só: no fim do stream, na desconexão ou no close() da resposta."""
+    import asyncio
+    import gc
+    from contextlib import suppress
+
+    from asgiref.sync import sync_to_async
+
+    settings.REALTIME = {**settings.REALTIME, "MAX_STREAMS_PER_IP": 1, "MAX_STREAMS": 1}
+    monkeypatch.setattr(stream_views, "_open_by_ip", stream_views.Counter())
+    rf = RequestFactory()
+
+    def admit(ip):
+        return stream_views.stream(rf.get("/api/stream", REMOTE_ADDR=ip))
+
+    async def run():
+        streaming = asyncio.Event()
+
+        async def fake_subscribe(after_id):
+            streaming.set()
+            await asyncio.Event().wait()  # stream aberto até o cliente cair
+            yield b""
+
+        monkeypatch.setattr(stream_views.hub, "subscribe", fake_subscribe)
+
+        # Nenhum corpo começou a ser enviado e as duas chegam juntas: só uma entra.
+        first, second = await asyncio.gather(admit("10.7.7.7"), admit("10.7.7.7"))
+        assert sorted([first.status_code, second.status_code]) == [200, 429]
+        assert (await admit("10.8.8.8")).status_code == 503  # teto do processo
+        assert stream_views.open_streams() == 1
+        admitted = first if first.status_code == 200 else second
+
+        # Cancelada antes do primeiro byte: o Django só chama close(), noutra thread.
+        await sync_to_async(admitted.close)()
+        await asyncio.sleep(0)
+        assert stream_views.open_streams() == 0
+
+        # Stream aberto e o cliente cai: o handler ASGI cancela a leitura do corpo.
+        response = await admit("10.7.7.7")
+        assert response.status_code == 200
+
+        async def consume():
+            async for _ in response:
+                pass
+
+        task = asyncio.create_task(consume())
+        await streaming.wait()
+        assert stream_views.open_streams("10.7.7.7") == 1
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+        assert stream_views.open_streams() == 0
+
+        # A vaga é de outra conexão agora: o close() tardio da antiga não a devolve.
+        again = await admit("10.7.7.7")
+        assert again.status_code == 200
+        await sync_to_async(response.close)()
+        await asyncio.sleep(0)
+        assert stream_views.open_streams("10.7.7.7") == 1
+
+        # Resposta descartada sem close() (cancelada ainda nos middlewares).
+        del again
+        gc.collect()
+        await asyncio.sleep(0)
+        assert stream_views.open_streams() == 0
+
+    asyncio.run(run())
     assert stream_views.open_streams() == 0

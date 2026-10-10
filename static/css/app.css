@@ -1308,14 +1308,15 @@
   .legend__swatch { width: 12px; height: 12px; flex: none; overflow: visible; }
   .legend__swatch rect { stroke: color-mix(in srgb, var(--ink) 40%, transparent); stroke-width: 1; }
   .legend__range { color: var(--ink-3); font-family: var(--font-num); font-weight: 600; }
-  .criteria { padding: 0 var(--s-4) var(--s-3); font-size: 0.8125rem; color: var(--ink-3); }
-  .criteria__title { display: inline; font-weight: 600; color: var(--ink-2); }
-  .criteria__list { display: inline; margin: 0; padding: 0; list-style: none; counter-reset: crit; }
-  .criteria__list li { display: inline; counter-increment: crit; }
-  .criteria__list li::before { content: counter(crit) ". "; font-family: var(--font-num); font-weight: 700; color: var(--ink-2); }
-  .criteria__list li + li::before { content: " · " counter(crit) ". "; }
-  .criteria__note { margin-top: 4px; }
-  .standings__foot { display: grid; gap: var(--s-2); padding-top: var(--s-3); border-top: 1px solid var(--line); }
+  /* critérios de desempate: título e a lista numerada em colunas (a ordem é a da regra) */
+  .criteria { display: grid; gap: var(--s-2); padding: 0 var(--s-4); font-size: 0.8125rem; color: var(--ink-2); }
+  .criteria__title { margin: 0; font-family: var(--font-num); font-weight: 700; font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+  .criteria__list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px var(--s-4); margin: 0; padding: 0; list-style: none; counter-reset: crit; }
+  .criteria__list li { display: flex; align-items: center; gap: var(--s-2); counter-increment: crit; }
+  .criteria__list li::before { content: counter(crit); flex: none; display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 4px; border-radius: 999px; background: var(--surface-2); font-family: var(--font-num); font-weight: 700; font-size: 0.75rem; color: var(--ink); }
+  .criteria__note { margin: 0; color: var(--ink-3); }
+  .standings__foot { display: grid; gap: var(--s-3); padding: var(--s-3) 0; border-top: 1px solid var(--line); }
+  .card > .standings__foot:first-child { border-top: 0; }
 
   /* =========================================================================
      ÚLTIMOS GOLS E AVISO DE GOL

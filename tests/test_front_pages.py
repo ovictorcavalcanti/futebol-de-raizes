@@ -857,13 +857,18 @@ def test_competicao_rodadas_fase_e_slug_inexistente(open_page):
     # fase de grupos: uma linha por grupo (na ordem da tabela), com os jogos e a tabela dele
     rows = "() => [...document.querySelectorAll('#round-matches .group-row:not(.group-row--head):not(.group-row--foot)')].map((g) => [g.querySelector('.match-group__title').textContent, g.querySelectorAll('.match').length, g.querySelector('.group-row__empty')?.textContent || '', g.querySelector('.group-row__table caption')?.textContent || ''])"
     assert page.evaluate(rows) == [["Grupo A", 1, "", "Grupo A"], ["Grupo B", 1, "", "Grupo B"]]
-    assert page.evaluate("document.querySelector('#round-matches .group-row--foot .legend') !== null")  # legenda uma vez, no fim
+    # legenda das cores embaixo de cada grupo; os critérios de desempate uma vez, no fim
+    assert page.evaluate("[...document.querySelectorAll('#round-matches .group-row__table')].map((t) => [!!t.querySelector('.legend'), !!t.querySelector('.criteria')])") == [[True, False], [True, False]]
+    assert page.evaluate("[!!document.querySelector('#round-matches .group-row--foot .criteria'), !!document.querySelector('#round-matches .group-row--foot .legend')]") == [True, False]
     assert page.evaluate(  # cards do grupo com respiro entre si
         "parseFloat(getComputedStyle(document.querySelector('#round-matches .match-group__games')).rowGap) > 0"
     )
     page.set_viewport_size({"width": 1280, "height": 900})
     aligned = "() => [...document.querySelectorAll('#round-matches .group-row__table')].map((t) => { const first = t.parentElement.querySelector('.match-group__games, .group-row__empty'); return [Math.round(first.getBoundingClientRect().top - t.getBoundingClientRect().top), t.getBoundingClientRect().left > first.getBoundingClientRect().right]; })"
     assert page.evaluate(aligned) == [[0, True], [0, True]]  # tabela à direita, topo com o primeiro jogo
+    # a tabela (com a legenda) é mais alta que o jogo do grupo: ela define a altura da linha
+    sizes = page.evaluate("[...document.querySelectorAll('#round-matches .group-row__table')].map((t) => { const row = t.closest('.group-row'); const games = row.querySelector('.match-group__games'); const next = row.nextElementSibling; return {table: t.getBoundingClientRect().bottom, games: games.getBoundingClientRect().bottom, row: row.getBoundingClientRect().bottom, next: next.getBoundingClientRect().top}; })")
+    assert all(s["table"] > s["games"] and s["row"] >= s["table"] - 0.5 and s["next"] > s["table"] for s in sizes), sizes
     assert page.evaluate("document.getElementById('competition-grid').classList.contains('split--no-aside')")
     page.set_viewport_size({"width": 390, "height": 844})
     page.click("#round-prev")

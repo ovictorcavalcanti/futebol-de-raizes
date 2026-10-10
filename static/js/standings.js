@@ -142,7 +142,7 @@ function footer(standings, opts, rows = []) {
   if (opts.criteria !== false && standings.criteria?.length) {
     const tied = rows.some((r) => r.tied);
     parts.push(h('div', { class: 'criteria' },
-      h('p', { class: 'criteria__title', text: 'Desempate: ' }),
+      h('p', { class: 'criteria__title', text: 'Critérios de desempate' }),
       h('ol', { class: 'criteria__list' }, ...standings.criteria.map((c) => h('li', { text: c.label }))),
       tied ? h('p', { class: 'criteria__note' }, h('span', { class: 'tied-mark', 'aria-hidden': 'true', text: '=' }), ' empate que os critérios não desfizeram (ordem alfabética).') : null,
     ));
@@ -158,8 +158,9 @@ function footerCard(standings, opts) {
 
 /**
  * Rodapé comum das tabelas de grupo mostradas uma a uma (página da competição: cada tabela
- * ao lado dos jogos do grupo, criadas com legend/criteria false e sem punições).
+ * ao lado dos jogos do grupo, com a legenda das cores embaixo; aqui ficam os critérios).
  * @param {object} standings StageStandingsOut
+ * @param {{legend?: boolean, criteria?: boolean}} [opts]
  * @returns {HTMLElement|null} <div class="standings"> com o card, ou null sem nada a mostrar
  */
 export function createStandingsFooter(standings, opts = {}) {

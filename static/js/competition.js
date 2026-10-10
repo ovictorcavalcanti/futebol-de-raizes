@@ -119,7 +119,20 @@ function groupRowsMode() {
   return state.stage?.format === 'groups' && state.view === 'stage' && !!state.standingsData?.groups?.length;
 }
 
-const groupStandings = (standings, group) => ({ ...standings, groups: [group], adjustments: [] });
+const teamIds = (groups) => new Set(groups.flatMap((g) => (g.rows || []).map((r) => r.team?.id)));
+
+/** Tabela de um grupo: a legenda das cores e as punições dos times dele embaixo. */
+function groupStandings(standings, group) {
+  const ids = teamIds([group]);
+  return { ...standings, groups: [group], adjustments: (standings.adjustments || []).filter((a) => ids.has(a.team?.id)) };
+}
+
+/** Fim das linhas: os critérios de desempate (uma vez só) e punição de time fora dos grupos. */
+function stageFooter(standings) {
+  const ids = teamIds(standings.groups);
+  const rest = (standings.adjustments || []).filter((a) => !ids.has(a.team?.id));
+  return createStandingsFooter({ ...standings, adjustments: rest }, { legend: false });
+}
 
 /** Linhas dos grupos: título, jogos da rodada (ou o aviso) e a tabela do grupo. Jogo de grupo
  *  sem tabela (ex.: sem grupo) fica numa linha sem tabela, no fim. */
@@ -137,13 +150,13 @@ function groupRows(matches, card) {
   const rows = standings.groups.map((g) => {
     const games = byGroup.get(g.id)?.matches || [];
     byGroup.delete(g.id);
-    const table = createStandings(groupStandings(standings, g), { legend: false, criteria: false });
+    const table = createStandings(groupStandings(standings, g), { criteria: false });
     state.groupTables.set(g.id, table);
     return row({ id: g.id, name: g.name }, games, table);
   });
   rows.push(...[...byGroup.values()].map((g) => row(g.group, g.matches, null)));
   if (!els.standingsSwitch.hidden) rows.unshift(h('div', { class: 'group-row group-row--head' }, els.standingsSwitch));
-  state.groupFoot = createStandingsFooter(standings);
+  state.groupFoot = stageFooter(standings);
   if (state.groupFoot) rows.push(h('div', { class: 'group-row group-row--foot' }, state.groupFoot));
   return rows;
 }
@@ -492,7 +505,7 @@ function updateGroupTables(standings) {
     return;
   }
   standings.groups.forEach((g) => updateStandings(state.groupTables.get(g.id), groupStandings(standings, g)));
-  const foot = createStandingsFooter(standings);
+  const foot = stageFooter(standings);
   if (state.groupFoot && foot) state.groupFoot.replaceWith(foot);
   else if (state.groupFoot || foot) {
     reorderCards();

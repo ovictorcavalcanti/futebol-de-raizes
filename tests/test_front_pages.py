@@ -871,7 +871,7 @@ def test_competicao_rodadas_fase_e_slug_inexistente(open_page):
 
 def test_competicao_classificacao_geral_atualiza_com_partida_do_mata_mata(open_page, fixtures):
     """O mata-mata não publica `standings`: a classificação geral que soma a fase busca de
-    novo quando chega `match` de uma partida dela (placar, status ou cartões mudaram)."""
+    novo quando chega `match` de uma partida dela (placar, status, cartões ou fase mudaram)."""
     final = fixtures["MATCHES"]["knockoutPenalties"]  # fase 7 (mata-mata)
     goal = {**final, "home_score": final["home_score"] + 1, "version": final["version"] + 1}
     same = {**goal, "version": goal["version"] + 1}  # nada que conte na tabela mudou
@@ -907,13 +907,22 @@ def test_competicao_classificacao_geral_atualiza_com_partida_do_mata_mata(open_p
     page.wait_for_timeout(2500)  # o stream reconecta e entrega; espera mais que o agrupamento (1,5 s)
     assert api.streams == [ping]  # as mensagens foram entregues
     assert ranking_gets() == 2
+
+    # o admin trocou o jogo de fase sem mexer em placar, status, times ou cartões: sair de
+    # uma fase somada (7 → 3) ou entrar nela (3 → 7) também muda a classificação
+    for stage_id, version, event_id, gets in ((3, 1, 4186, 3), (7, 2, 4187, 4)):
+        moved = {"stage_id": stage_id, "competition_id": 2, "match": {**same, "version": same["version"] + version}}
+        with page.expect_response(lambda r: "/api/rankings/5" in r.url, timeout=5000):
+            api.streams = [_sse([("match", moved, event_id)]), ping]
+        assert ranking_gets() == gets
     assert not errors, errors
 
 
 def test_competicao_classificacao_geral_nao_perde_gol_anulado(open_page, fixtures):
     """O último visto de cada partida não pode ficar velho: segue sendo gravado com a tabela
     da fase na tela e é esquecido no reload (as mensagens perdidas não voltam). Senão um gol
-    anulado (a partida volta ao placar já visto) não buscava a classificação de novo."""
+    anulado (a partida volta ao placar já visto) não buscava a classificação de novo. Nem a
+    mudança que chega no meio da carga da classificação pode se perder."""
     final = fixtures["MATCHES"]["knockoutPenalties"]  # fase 7 (mata-mata)
 
     def score(goals):
@@ -971,6 +980,25 @@ def test_competicao_classificacao_geral_nao_perde_gol_anulado(open_page, fixture
     with refetches_ranking():  # gol anulado: volta ao 1x0 (o último visto antes do reload)
         deliver(score(1), 4187)
     assert ranking_gets() == 6
+
+    # o 2x0 chega no meio da carga (da tabela da fase para "Geral"): as fases somadas ainda
+    # não chegaram e a resposta pode vir velha; ao fim da carga, busca de novo
+    switch.get_by_role("button", name="Fase de grupos").click()
+    held = []  # segura a primeira resposta da classificação
+    page.route(lambda url: "/api/rankings/5" in url, lambda route: route.fallback() if held else held.append(route))
+    switch.get_by_role("button", name="Geral").click()
+    for _ in range(50):
+        if held:
+            break
+        page.wait_for_timeout(100)
+    assert held  # a carga está a caminho
+    deliver(score(2), 4188)
+    with refetches_ranking():
+        held[0].fallback()
+    assert ranking_gets() == 7
+    with refetches_ranking():  # agrupado: 1,5 s depois da resposta
+        pass
+    assert ranking_gets() == 8
     assert not errors, errors
 
 

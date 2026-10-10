@@ -89,9 +89,10 @@ class _StreamSlot:
     A reserva acontece na view, sem `await` entre a checagem do teto e a
     contagem, para que requisições simultâneas não passem todas pela mesma
     vaga. A devolução vem do fim do gerador (stream encerrado ou cliente que
-    caiu); se o corpo nem começou a ser lido (cancelamento antes do primeiro
-    byte), do `close()` da resposta; se a resposta foi descartada sem `close()`
-    (cancelada ainda nos middlewares), do coletor de lixo.
+    caiu) e, em qualquer caso, do fim da requisição na aplicação ASGI
+    (`release_stream_slots`), que cobre a resposta descartada sem `close()`
+    quando o cliente cai ainda nos middlewares. Fora dela (a view chamada
+    direto), o `close()` da resposta e, por último, o coletor de lixo.
     """
 
     def __init__(self, ip: str):
@@ -118,6 +119,33 @@ class _StreamSlot:
             self._loop.call_soon_threadsafe(self.release)
         except RuntimeError:  # loop já fechado: ninguém mais disputa o contador
             self.release()
+
+
+# Chave do `scope` ASGI com a lista de vagas reservadas pela requisição.
+STREAM_SLOTS_SCOPE_KEY = "fdr.stream_slots"
+
+
+def release_stream_slots(app):
+    """Envolve a aplicação ASGI: devolve as vagas SSE quando a requisição termina.
+
+    O handler ASGI do Django só retorna depois que o stream acaba, que o cliente
+    cai (com a resposta cancelada) ou que a resposta é fechada. Se o cliente cai
+    enquanto a resposta ainda passa pelos middlewares, o Django a descarta sem
+    `close()` e o gerador nunca começa: sem este ponto a vaga ficaria presa até
+    o coletor de lixo desfazer o ciclo de referências em que a resposta fica.
+    """
+
+    async def application(scope, receive, send):
+        if scope["type"] != "http":
+            return await app(scope, receive, send)
+        slots: list[_StreamSlot] = []
+        try:
+            await app({**scope, STREAM_SLOTS_SCOPE_KEY: slots}, receive, send)
+        finally:
+            for slot in slots:
+                slot.release()
+
+    return application
 
 
 def open_streams(ip: str | None = None) -> int:
@@ -167,6 +195,9 @@ async def stream(request):
     if limited is not None:
         return limited
     slot = _StreamSlot(ip)  # reservada já aqui, sem await desde a checagem acima
+    slots = getattr(request, "scope", {}).get(STREAM_SLOTS_SCOPE_KEY)
+    if slots is not None:  # devolvida no fim da requisição (ver `release_stream_slots`)
+        slots.append(slot)
     response = StreamingHttpResponse(_event_stream(after_id, slot), content_type="text/event-stream; charset=utf-8")
     response._resource_closers.append(slot.close)
     weakref.finalize(response, slot.close)

@@ -334,7 +334,6 @@ def test_stream_slot_reserved_on_admission_and_released_once(settings, monkeypat
     """A vaga conta já na admissão (duas requisições juntas não passam pela mesma)
     e volta uma vez só: no fim do stream, na desconexão ou no close() da resposta."""
     import asyncio
-    import gc
     from contextlib import suppress
 
     from asgiref.sync import sync_to_async
@@ -391,11 +390,69 @@ def test_stream_slot_reserved_on_admission_and_released_once(settings, monkeypat
         await asyncio.sleep(0)
         assert stream_views.open_streams("10.7.7.7") == 1
 
-        # Resposta descartada sem close() (cancelada ainda nos middlewares).
+        # View chamada direto (sem a aplicação ASGI), resposta descartada sem
+        # close(): a rede de segurança é o finalizer. O caso real, com a resposta
+        # presa num ciclo, está no teste seguinte.
         del again
-        gc.collect()
         await asyncio.sleep(0)
         assert stream_views.open_streams() == 0
 
     asyncio.run(run())
     assert stream_views.open_streams() == 0
+
+
+def test_stream_slot_released_when_client_drops_during_middlewares(settings, monkeypatch):
+    """O cliente cai enquanto a resposta ainda passa pelos middlewares: o Django
+    descarta a resposta sem close() e o gerador nunca começa. A vaga volta quando
+    a requisição termina na aplicação ASGI, sem depender do coletor de lixo."""
+    import asyncio
+    import gc
+
+    from config.asgi import application
+
+    settings.REALTIME = {**settings.REALTIME, "MAX_STREAMS_PER_IP": 1, "MAX_STREAMS": 1}
+    monkeypatch.setattr(stream_views, "_open_by_ip", stream_views.Counter())
+    started = []
+
+    async def fake_subscribe(after_id):
+        started.append(after_id)
+        await asyncio.Event().wait()
+        yield b""
+
+    monkeypatch.setattr(stream_views.hub, "subscribe", fake_subscribe)
+
+    async def run():
+        admitted = asyncio.Event()
+
+        class Slot(stream_views._StreamSlot):
+            def __init__(self, ip):
+                super().__init__(ip)
+                admitted.set()
+
+        monkeypatch.setattr(stream_views, "_StreamSlot", Slot)
+        messages = [{"type": "http.request", "body": b"", "more_body": False}]
+
+        async def receive():
+            if messages:
+                return messages.pop(0)
+            await admitted.wait()  # cai logo depois que a view reservou a vaga
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            pass
+
+        scope = {
+            "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "GET",
+            "scheme": "http", "path": "/api/stream", "raw_path": b"/api/stream", "query_string": b"",
+            "root_path": "", "headers": [(b"host", b"testserver")],
+            "client": ("10.9.9.9", 50000), "server": ("testserver", 80),
+        }
+        await application(scope, receive, send)
+        assert admitted.is_set() and not started  # a view admitiu, o corpo nunca foi lido
+        assert stream_views.open_streams() == 0
+
+    gc.disable()  # a resposta descartada fica num ciclo: só a coleta completa a soltaria
+    try:
+        asyncio.run(run())
+    finally:
+        gc.enable()

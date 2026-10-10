@@ -338,6 +338,8 @@ class FakeApi:
         self.streams = []  # corpos SSE, um por conexão (o último se repete)
         self.me = {"authenticated": False, "user": None, "csrf_token": "tok-csrf"}
         self.posts = []
+        self.rankings = []  # RankingRef da competição (botões ao lado da tabela)
+        self.ranking_stage_ids = []  # fases somadas por GET /api/rankings/{id}
 
     def json(self, route, body, status=200):
         route.fulfill(
@@ -425,7 +427,23 @@ class FakeApi:
             elif "round=31" in query:
                 data["stage"] = {**data["stage"], "matches": [], "ties": []}
                 data["current_round_id"] = 31
+            if self.rankings:
+                data["rankings"] = self.rankings
             return self.json(route, data)
+        if path.startswith("/api/rankings/"):
+            ranking_id = int(path.rsplit("/", 1)[1])
+            ref = next(r for r in self.rankings if r["id"] == ranking_id)
+            return self.json(
+                route,
+                {
+                    **copy.deepcopy(self.fx["STANDINGS"]),
+                    "stage_id": None,
+                    "stage_name": ref["name"],
+                    "ranking_id": ranking_id,
+                    "scope": ref["scope"],
+                    "stage_ids": self.ranking_stage_ids,
+                },
+            )
         if path == "/api/matches":
             if "roundId=" in query:
                 matches = [_summary(self.fx["MATCHES"]["scheduledToday"])]
@@ -811,6 +829,47 @@ def test_competicao_rodadas_fase_e_slug_inexistente(open_page):
     page, _, errors = open_page("/competition.html?slug=nao-existe")
     page.wait_for_selector("#competition-missing:not([hidden])")
     assert page.evaluate("document.getElementById('competition-grid').hidden")
+    assert not errors, errors
+
+
+def test_competicao_classificacao_geral_atualiza_com_partida_do_mata_mata(open_page, fixtures):
+    """O mata-mata não publica `standings`: a classificação geral que soma a fase busca de
+    novo quando chega `match` de uma partida dela (placar, status ou cartões mudaram)."""
+    final = fixtures["MATCHES"]["knockoutPenalties"]  # fase 7 (mata-mata)
+    goal = {**final, "home_score": final["home_score"] + 1, "version": final["version"] + 1}
+    same = {**goal, "version": goal["version"] + 1}  # nada que conte na tabela mudou
+    other = fixtures["MATCHES"]["live"]  # fase 3, fora da classificação
+
+    def prepare(api):
+        api.rankings = [{"id": 5, "name": "Geral", "scope": "overall"}]
+        api.ranking_stage_ids = [6, 7]
+
+    page, api, errors = open_page("/competition.html?slug=copa-pernambuco", prepare=prepare)
+    page.wait_for_selector("#ranking-standings:not([hidden]) .standings")
+
+    def ranking_gets():
+        return sum(1 for r in api.requests if r[0] == "GET" and r[1] == "/api/rankings/5")
+
+    assert ranking_gets() == 1
+    ping = _sse([("ping", {"server_time": _now_iso()}, None)])
+    with page.expect_response(lambda r: "/api/rankings/5" in r.url, timeout=5000):
+        api.streams = [
+            _sse([("match", {"stage_id": 7, "competition_id": 2, "match": goal}, 4183)]),
+            ping,
+        ]
+    assert ranking_gets() == 2
+    api.streams = [
+        _sse(
+            [
+                ("match", {"stage_id": 7, "competition_id": 2, "match": same}, 4184),
+                ("match", {"stage_id": 3, "competition_id": 1, "match": {**other, "home_score": 9}}, 4185),
+            ]
+        ),
+        ping,
+    ]
+    page.wait_for_timeout(2500)  # o stream reconecta e entrega; espera mais que o agrupamento (1,5 s)
+    assert api.streams == [ping]  # as mensagens foram entregues
+    assert ranking_gets() == 2
     assert not errors, errors
 
 

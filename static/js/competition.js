@@ -60,6 +60,7 @@ const state = {
   rankingStageIds: [], // fases que entram na classificação exibida (atualiza com o stream)
   rankingTimer: 0,
   rankingToken: 0,
+  rankingMatchKeys: new Map(), // match id → o que conta na classificação (último visto pelo stream)
   seq: 0, // ignora respostas fora de ordem (troca rápida de rodada/fase)
 };
 let stream = null;
@@ -374,9 +375,29 @@ function reorderCards() {
   els.matches.replaceChildren(...matchBlocks(matches, (m) => state.cards.get(m.id)));
 }
 
+/** A classificação exibida soma esta fase? */
+const rankingHas = (stageId) => state.view !== 'stage' && state.rankingStageIds.includes(stageId);
+
+/** Busca a classificação exibida de novo (agrupado: um lance publica várias mensagens). */
+function scheduleRanking() {
+  clearTimeout(state.rankingTimer);
+  state.rankingTimer = setTimeout(() => state.view !== 'stage' && loadRanking(state.view), 1500);
+}
+
+/** O mata-mata não publica `standings`: a partida de uma fase somada pela classificação
+ *  exibida pede nova busca quando muda o que conta nela (status, placar, cartões, times). */
+function rankingOnMatch(stageId, match) {
+  if (!rankingHas(stageId)) return;
+  const key = JSON.stringify([match.status, match.home_score, match.away_score, match.home?.id, match.away?.id, match.cards ?? null]);
+  if (state.rankingMatchKeys.get(match.id) === key) return;
+  state.rankingMatchKeys.set(match.id, key);
+  scheduleRanking();
+}
+
 function onMatch(message) {
   const match = message?.match;
   if (!match) return;
+  rankingOnMatch(message.stage_id, match);
   const card = state.cards.get(match.id);
   const before = card ? getCardMatch(card)?.status : null;
   if (card) updateMatchCard(card, match, { flash: true });
@@ -398,10 +419,7 @@ function onMatch(message) {
 }
 
 function onStandings(message) {
-  if (state.view !== 'stage' && state.rankingStageIds.includes(message?.stage_id)) {
-    clearTimeout(state.rankingTimer); // a classificação exibida soma esta fase: busca de novo (agrupado)
-    state.rankingTimer = setTimeout(() => state.view !== 'stage' && loadRanking(state.view), 1500);
-  }
+  if (rankingHas(message?.stage_id)) scheduleRanking();
   if (state.standingsEl && message?.stage_id === state.standingsStageId && message.standings) {
     updateStandings(state.standingsEl, message.standings);
   }

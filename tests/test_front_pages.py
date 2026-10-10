@@ -873,6 +873,70 @@ def test_competicao_classificacao_geral_atualiza_com_partida_do_mata_mata(open_p
     assert not errors, errors
 
 
+def test_competicao_classificacao_geral_nao_perde_gol_anulado(open_page, fixtures):
+    """O último visto de cada partida não pode ficar velho: segue sendo gravado com a tabela
+    da fase na tela e é esquecido no reload (as mensagens perdidas não voltam). Senão um gol
+    anulado (a partida volta ao placar já visto) não buscava a classificação de novo."""
+    final = fixtures["MATCHES"]["knockoutPenalties"]  # fase 7 (mata-mata)
+
+    def score(goals):
+        return {
+            "stage_id": 7,
+            "competition_id": 2,
+            "match": {**final, "home_score": final["home_score"] + goals, "version": final["version"] + goals},
+        }
+
+    def prepare(api):
+        api.rankings = [{"id": 5, "name": "Geral", "scope": "overall"}]
+        api.ranking_stage_ids = [6, 7]
+
+    page, api, errors = open_page("/competition.html?slug=copa-pernambuco&stage=6", prepare=prepare)
+    page.wait_for_selector("#standings-switch button")
+    ping = _sse([("ping", {"server_time": _now_iso()}, None)])
+    api.streams = [ping]
+    switch = page.locator("#standings-switch")
+
+    def ranking_gets():
+        return sum(1 for r in api.requests if r[0] == "GET" and r[1] == "/api/rankings/5")
+
+    def refetches_ranking():
+        return page.expect_response(lambda r: "/api/rankings/5" in r.url, timeout=5000)
+
+    def deliver(message, event_id):
+        api.streams = [_sse([("match", message, event_id)]), ping]
+        for _ in range(50):  # o stream reconecta (retry 200 ms) e entrega
+            if api.streams == [ping]:
+                break
+            page.wait_for_timeout(100)
+        assert api.streams == [ping]
+        page.wait_for_timeout(300)
+
+    with refetches_ranking():
+        switch.get_by_role("button", name="Geral").click()
+    with refetches_ranking():
+        deliver(score(1), 4183)
+    assert ranking_gets() == 2
+
+    # com a tabela da fase na tela chega o 2x0; de volta à classificação, ela mostra o 2x0
+    switch.get_by_role("button", name="Fase de grupos").click()
+    deliver(score(2), 4184)
+    with refetches_ranking():
+        switch.get_by_role("button", name="Geral").click()
+    assert ranking_gets() == 3
+    with refetches_ranking():  # gol anulado: volta ao 1x0 (já visto antes da troca)
+        deliver(score(1), 4185)
+    assert ranking_gets() == 4
+
+    # 5 min sem stream: o 2x0 se perdeu, o reload busca tudo de novo (com a classificação)
+    with refetches_ranking():
+        page.evaluate("document.querySelector('[data-hook=\"competition-retry\"]').click()")
+    assert ranking_gets() == 5
+    with refetches_ranking():  # gol anulado: volta ao 1x0 (o último visto antes do reload)
+        deliver(score(1), 4187)
+    assert ranking_gets() == 6
+    assert not errors, errors
+
+
 def test_operador_lanca_gol_com_confirmacao(open_page):
     page, api, errors = open_page("/operator.html")
     page.wait_for_selector("#op-login:not([hidden])")

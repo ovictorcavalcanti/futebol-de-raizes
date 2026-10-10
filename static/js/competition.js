@@ -357,6 +357,7 @@ async function goToStage(stageId) {
 
 /** Estado inteiro de novo (5 min sem stream): mesma fase e rodada; devolve o cursor. */
 async function reload() {
+  state.rankingMatchKeys.clear(); // as mensagens perdidas não voltam: o último visto pode estar velho
   const round = state.rounds[state.roundIndex];
   const seq = ++state.seq;
   const data = await fetchCompetition({ stage: state.stage?.id ?? null, round: round?.id ?? null });
@@ -385,13 +386,14 @@ function scheduleRanking() {
 }
 
 /** O mata-mata não publica `standings`: a partida de uma fase somada pela classificação
- *  exibida pede nova busca quando muda o que conta nela (status, placar, cartões, times). */
+ *  exibida pede nova busca quando muda o que conta nela (status, placar, cartões, times).
+ *  Guarda o último visto de toda partida, mesmo fora da classificação exibida: ao voltar
+ *  para ela (ou trocar de classificação), a comparação parte do estado certo. */
 function rankingOnMatch(stageId, match) {
-  if (!rankingHas(stageId)) return;
   const key = JSON.stringify([match.status, match.home_score, match.away_score, match.home?.id, match.away?.id, match.cards ?? null]);
   if (state.rankingMatchKeys.get(match.id) === key) return;
   state.rankingMatchKeys.set(match.id, key);
-  scheduleRanking();
+  if (rankingHas(stageId)) scheduleRanking();
 }
 
 function onMatch(message) {

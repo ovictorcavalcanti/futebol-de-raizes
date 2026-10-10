@@ -211,7 +211,8 @@ function competitionSection(comp, nextCards, nextStandings) {
       // Fase de grupos: um grupo por linha (jogos | tabela), só os grupos com jogo no dia, e os
       // jogos entre grupos numa seção à parte (createGroupRows)
       const matches = stage.matches || [];
-      const layout = createGroupRows(stage.standings, matches, (m) => cardFor(m, nextCards), { only: 'playing', when: 'hoje' });
+      const when = { 0: 'hoje', [-1]: 'ontem', 1: 'amanhã' }[daysFromToday(state.date)] ?? 'neste dia'; // o seletor mostra outros dias
+      const layout = createGroupRows(stage.standings, matches, (m) => cardFor(m, nextCards), { only: 'playing', when });
       b.matches.classList.add('match-groups', 'group-rows');
       b.matches.replaceChildren(...layout.rows);
       b.standings.remove();

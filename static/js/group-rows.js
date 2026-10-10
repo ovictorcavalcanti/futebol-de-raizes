@@ -74,12 +74,14 @@ function tableArgs(standings, shown, index) {
   return [{ ...standings, groups: [group], adjustments }, { criteria: last, tied }];
 }
 
-/** O que muda as linhas (grupos exibidos, jogos de cada um, jogos entre grupos). */
+/** O que muda as linhas (grupos exibidos, jogos de cada um, jogos entre grupos). Não depende
+ *  da ordem em que os jogos chegam (a da API ou a dos cards na tela). */
 function layoutKey(shown, split) {
+  const ids = (matches) => matches.map((m) => m.id).sort((a, b) => a - b);
   return JSON.stringify([
     shown.map((g) => g.id),
-    [...split.byGroup].map(([key, entry]) => [key, entry.matches.map((m) => m.id)]),
-    split.cross.map((m) => m.id),
+    [...split.byGroup].map(([key, entry]) => [String(key), ids(entry.matches)]).sort((a, b) => a[0].localeCompare(b[0])),
+    ids(split.cross),
   ]);
 }
 

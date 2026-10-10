@@ -179,6 +179,45 @@ def test_void_cascade_goal_with_annulment_and_yellow_with_auto_red(league, live_
     assert op.void(y1.event.id).voided_ids == [y1.event.id]
 
 
+def test_old_card_inconsistency_does_not_block_unrelated_edit_or_void(league, live_match, operator_user):
+    """Partida que a correção antiga deixou inconsistente (vermelho automático sem o 2º
+    amarelo de origem; 2º amarelo sem vermelho): corrigir ou cancelar um gol não mexe nos
+    cartões antigos; o vermelho que fica órfão por causa da correção cai e volta em `voided_ids`."""
+    sport, nautico = league["teams"][0], league["teams"][1]
+    op = Op(live_match, operator_user)
+    op.post("match_start")
+    first = op.post("yellow_card", team_id=sport.id, minute=10, payload={"player": "Alice"})
+    op.post("yellow_card", team_id=sport.id, minute=12, payload={"player": "Alice"})
+    op.post("yellow_card", team_id=nautico.id, minute=14, payload={"player": "Bia"})
+    carla = op.post("yellow_card", team_id=nautico.id, minute=15, payload={"player": "Carla"})
+    # gravado direto, como a correção antiga fazia (sem refazer o vermelho automático)
+    MatchEvent.objects.filter(pk=first.event.id).update(payload={"player": "Bob"})
+    MatchEvent.objects.filter(pk=carla.event.id).update(payload={"player": "Bia"})
+    goal = op.goal(sport, 20, "Zé")
+
+    def cards():
+        rows = MatchEvent.objects.filter(match=live_match, type__in=["yellow_card", "red_card"]).order_by("sequence")
+        return [(row.id, row.payload.get("player"), row.voided_at) for row in rows]
+
+    before = cards()
+    edited = services.edit_event(
+        live_match.id, goal.event.id, operator_user, NewEvent(type="goal", minute=21, team_id=sport.id, payload={"player": "Zé"})
+    )
+    assert edited.event.minute == 21 and edited.voided_ids == []
+    assert cards() == before
+    assert op.void(goal.event.id).voided_ids == [goal.event.id]
+    assert cards() == before
+
+    dani = op.post("yellow_card", team_id=sport.id, minute=30, payload={"player": "Dani"})
+    red = op.post("yellow_card", team_id=sport.id, minute=32, payload={"player": "Dani"}).derived[0]
+    edited = services.edit_event(
+        live_match.id, dani.event.id, operator_user, NewEvent(type="yellow_card", minute=30, team_id=sport.id, payload={"player": "Eva"})
+    )
+    assert edited.voided_ids == [red.id]
+    assert MatchEvent.objects.get(pk=red.id).voided_at is not None
+    assert cards()[:len(before)] == before  # os cartões antigos continuam como estavam
+
+
 def test_void_already_voided_is_idempotent(league, live_match, operator_user):
     op = Op(live_match, operator_user)
     op.post("match_start")

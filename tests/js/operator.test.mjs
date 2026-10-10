@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   effectiveMinuteMode, suggestMinute, buildEventBody, toBrasiliaInput, groupByCompetition, lineupPlayers,
-  splitActions, structuralConfirm, sortByStatus, clockSetRange,
+  splitActions, structuralConfirm, sortByStatus, clockSetRange, editedToast,
 } from '../../static/js/operator.js';
 import {
   ApiError, apiFetch, getCookie, queryString, toApiError, newIdempotencyKey, setCsrfToken,
@@ -16,6 +16,12 @@ test('clockSetRange: faixas do acerto do relógio por tempo (com os dois da pror
     [[0, 45], [46, 90], [91, 105], [106, 120]]);
   assert.equal(clockSetRange('extra_half_time'), null);
   assert.equal(structuralConfirm('extra_half_time', {}).ok, 'Encerrar 1º tempo');
+});
+test('aviso da correção: diz quando o vermelho automático caiu junto', () => {
+  assert.equal(editedToast("Amarelo · Alice, 10'", []), "Corrigido: Amarelo · Alice, 10'.");
+  assert.equal(editedToast("Amarelo · Alice, 10'", undefined), "Corrigido: Amarelo · Alice, 10'.");
+  assert.equal(editedToast("Amarelo · Alice, 10'", [7]), "Corrigido: Amarelo · Alice, 10'. O vermelho automático caiu junto.");
+  assert.equal(editedToast('Amarelo', [7, 8]), 'Corrigido: Amarelo. 2 vermelhos automáticos caíram junto.');
 });
 const NOW = Date.parse('2026-10-03T21:00:30Z');
 const spec = (type, kind = 'game', minute = 'required') => ({ type, kind, minute, label: type, fields: [] });

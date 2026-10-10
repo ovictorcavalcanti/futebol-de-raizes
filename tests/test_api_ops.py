@@ -560,6 +560,7 @@ def test_edit_event_corrects_scorer_minute_and_team(league, operator_client):
     )
     assert edited["event"]["id"] == goal["id"] and edited["event"]["period"] == "first_half"
     assert edited["event"]["minute"] == 20 and edited["event"]["player"]["name"] == "Kieza"
+    assert edited["voided"] == []  # nada caiu junto
     assert (edited["match"]["home_score"], edited["match"]["away_score"]) == (0, 1)
     log = AuditLog.objects.get(action="event.edit")
     assert log.data["before"]["payload"]["player"] == "Zé" and log.data["after"]["minute"] == 20
@@ -599,6 +600,7 @@ def test_edit_earlier_yellow_reconciles_automatic_red(league, match, op):
 
     # 1º amarelo de Alice passa para Bob: o de 20' deixa de ser o 2º e o vermelho automático cai junto
     edited = edit(first["id"], "Bob", 10, expect=200)
+    assert edited["voided"] == [red["id"]]  # a resposta diz o que caiu junto
     assert edited["match"]["cards"]["home"] == {"yellow": 2, "red": 0}
     assert red["id"] not in {event["id"] for event in edited["match"]["events"]}
     assert MatchEvent.objects.get(pk=red["id"]).voided_at is not None

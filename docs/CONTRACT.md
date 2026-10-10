@@ -33,6 +33,7 @@ class PostResult:
     match: Match                 # já atualizado
     created: bool                # False quando a chave de idempotência já existia
     warnings: list[DomainWarning]
+    voided_ids: list[int]        # edit_event: os que caíram junto (vermelho automático); [] nos demais
 
 def post_event(match_id: int, user, new: NewEvent, *, idempotency_key: str,
                source: str = "operator", confirm: bool = False, request=None, at=None) -> PostResult
@@ -155,8 +156,12 @@ erro do formulário.
   vermelho automático cujo amarelo deixou de ser o 2º.
 * Correção de lance: `check_edit(events, edited, ctx)` → `VoidResult(state, voided_ids)` com a mesma
   regra de cartões do cancelamento: o vermelho automático cujo amarelo deixou de ser o 2º cai junto
-  (`voided_ids`, cancelados na mesma transação da correção) e um amarelo que passaria a ser o 2º sem o
-  vermelho automático → `event_not_editable` com `details.cause = "second_yellow_without_red"`.
+  (`voided_ids`, cancelados na mesma transação da correção e devolvidos em `PostResult.voided_ids`) e
+  um amarelo que passaria a ser o 2º sem o vermelho automático → `event_not_editable` com
+  `details.cause = "second_yellow_without_red"`.
+* Nos dois, só conta o que muda com o cancelamento/correção (comparado por sequence com os eventos de
+  antes): cartões que a correção antiga já deixou inconsistentes (vermelho automático cujo amarelo não
+  é mais o 2º, 2º amarelo sem vermelho) ficam como estão — não caem nem recusam um lance sem relação.
 * Vermelho automático (2º amarelo): payload `{"player", "reason": "second_yellow", "derived_from_sequence": <sequence do amarelo>}`.
   `EventOut.derived` = `domain.derived_from(event) is not None`. Ícone com variações: `domain.event_icon(type, payload)`.
 * Códigos 422 além dos listados em `apply_event`: `confirmation_required` (com `warnings`),
@@ -367,6 +372,7 @@ usado volta no `X-Request-ID` da resposta e vai nos logs e na auditoria.
 | `POST /api/auth/logout` | `200 {"ok": true}` |
 | `GET /api/auth/me` | `200 {"authenticated": bool, "user": MeUser|null, "csrf_token": "...", "server_time": "...Z"}` (sempre seta o cookie CSRF; `server_time` acerta o relógio do operador já no login) |
 | `POST /api/ops/matches/{id}/events` + `Idempotency-Key` | `201 {"event": EventOut, "derived": [EventOut], "match": MatchOut(detalhe), "available": Available, "warnings": [...], "replayed": false}` · replay → `200` com `"replayed": true` |
+| `POST /api/ops/matches/{id}/events/{eventId}/edit` (`matches.void_event` também) `EventIn` (mesmo `type` do lance) | `200 {"event": EventOut, "derived": [], "match": MatchOut(detalhe), "available": Available, "warnings": [...], "replayed": false, "voided": [ids]}` (`voided`: os que caíram junto — o vermelho automático cujo amarelo deixou de ser o 2º; `[]` quando nada caiu) · `422 event_not_editable` |
 | `POST /api/ops/matches/{id}/events/{eventId}/void` `{"reason"}` | `200 {"voided": [ids], "match": MatchOut(detalhe), "available": Available, "already": bool}` (`already`: já estava cancelado, nada mudou) |
 | `POST /api/ops/matches/{id}/status` + `Idempotency-Key` `{"action","kickoff_at"?,"reason"?}` | `201 {"event": EventOut, "match": ..., "available": ..., "replayed": false}` · replay → `200` com `"replayed": true` |
 | `POST /api/ops/matches/{id}/partial-info` (`matches.change_status`) `{"partial_info": bool}` | `200 {"match": MatchOut (detalhe), "available": ...}` · publica `match` só quando muda |

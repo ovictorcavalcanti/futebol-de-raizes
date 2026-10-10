@@ -84,6 +84,7 @@ class PostResult:
     match: Match  # já atualizado
     created: bool  # False quando a chave de idempotência já existia
     warnings: list[DomainWarning] = field(default_factory=list)
+    voided_ids: list[int] = field(default_factory=list)  # correção: os que caíram junto (vermelho automático)
 
 
 @dataclass
@@ -362,8 +363,9 @@ def edit_event(match_id: int, event_id: int, user, new: NewEvent, *, confirm: bo
     O tipo não muda; andamento e status não se editam (cancele e lance de novo), nem
     lance ligado a vermelho automático. Cartões seguem a regra do cancelamento
     (`domain.check_edit`): o vermelho automático cujo amarelo deixou de ser o 2º cai junto
-    (cancelado na mesma transação, ids em `voided_ids` da auditoria). Os valores antigos
-    vão para a auditoria.
+    (cancelado na mesma transação, ids em `PostResult.voided_ids` e nos `voided_ids` da
+    auditoria). Cartões que a correção antiga já deixou inconsistentes ficam como estão.
+    Os valores antigos vão para a auditoria.
     """
     return _counting_rejections(lambda: _edit(match_id, event_id, user, new, confirm=confirm, request=request))
 
@@ -451,7 +453,9 @@ def _edit(match_id, event_id, user, new: NewEvent, *, confirm, request) -> PostR
         )
     if voided_ids:
         metrics.inc("fdr_events_voided_total", amount=len(voided_ids))
-    return PostResult(event=target, derived=[], match=work.match, created=True, warnings=list(result.warnings))
+    return PostResult(
+        event=target, derived=[], match=work.match, created=True, warnings=list(result.warnings), voided_ids=voided_ids
+    )
 
 
 def _void(match_id, event_id, user, *, reason, request, at) -> VoidOutcome:

@@ -314,9 +314,8 @@ document.addEventListener('visibilitychange', () => document.hidden || clock.che
 * `match` → `updateMatchCard(card, match, {flash: true})` (acordeão e aba continuam);
   status ou início (`kickoff_at`) mudou → busca a home de novo (reordena a fase e tira o
   jogo remarcado para outro dia); jogo desconhecido com início no dia → busca a home de
-  novo. `standings` →
-  `updateStandings` da fase. `goals` → `alerts.handle` + lista da mensagem
-  (gols alertados com `isNew`). Acordeão sem lances → `GET /api/matches/:id`.
+  novo. `standings` → `updateStandings` da fase. `goals` → `alerts.handle` + lista da
+  mensagem (gols alertados com `isNew`). Acordeão sem lances → `GET /api/matches/:id`.
 * Recarga (virada do dia, 5 min sem stream, "Tentar de novo") reaproveita os cards
   (acordeões abertos continuam), marca a lista como já alertada e reabre o stream no
   cursor novo.

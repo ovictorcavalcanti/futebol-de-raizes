@@ -568,9 +568,9 @@ por Redis ou Memcached (e, no login, a trava do processo por uma do cache). Mét
   - `fdr_public_api_requests_total`, `fdr_public_api_throttled_total` e
     `fdr_audit_records_total`.
 
-  O processo guarda no máximo 10 000 séries (`MAX_SERIES`). Passado esse teto, uma série
-  nova é descartada e contada em `fdr_metrics_series_dropped_total`; as existentes seguem
-  contando.
+  O processo guarda no máximo 10 000 séries (`MAX_SERIES`), mais o contador de descartes,
+  que fica fora do teto. Passado esse teto, uma série nova é descartada e contada em
+  `fdr_metrics_series_dropped_total`; as existentes seguem contando.
 - **Logs** em JSON, uma linha por registro (`LOG_FORMAT=json`), incluindo os do uvicorn. Sai
   uma linha `fdr.http` por requisição, com rota, status, duração e `request_id`. O
   `X-Request-ID` recebido só é aceito se tiver de 1 a 64 caracteres de `[A-Za-z0-9._:-]`;

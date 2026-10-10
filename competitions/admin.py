@@ -16,10 +16,13 @@ Toda escrita que muda o que as páginas mostram passa pelo mesmo núcleo:
   da lista que o causou) e, depois de gravar, `standings.services.on_stage_rules_changed`
   recalcula as tabelas (quando mudou pontuação ou critério) e publica a classificação.
 * Times do grupo: `standings.services.recompute_group` e a classificação publicada.
-  Time com partidas no grupo não sai dele; pontos corridos tem um grupo só.
+  Time com partidas na fase não sai do grupo, seja qual for o grupo da partida (jogo
+  entre grupos fica no grupo do mandante, mas conta para o grupo de cada time);
+  pontos corridos tem um grupo só.
 * Formato da fase só muda enquanto ela não tem partidas (nem confrontos); mata-mata
   fica sem grupos e fase com tabela ganha os critérios padrão quando não tem nenhum.
-  Grupo e rodada com partidas não mudam de fase.
+  Rodada com partidas não muda de fase; grupo com partidas, ou com time em jogo entre
+  grupos na fase, não muda de fase nem é apagado.
 * Punições/bonificações (`standings.PointAdjustment`, inline da fase): o time precisa
   estar num grupo da fase; gravar ou apagar recalcula a fase e publica a classificação
   (`on_stage_rules_changed`).
@@ -553,12 +556,20 @@ class GroupFormSet(BaseInlineFormSet):
         if adding and stage.format == Stage.Format.KNOCKOUT:
             raise forms.ValidationError("Fase de mata-mata não tem grupos.")
         deleting = [form.instance for form in self.initial_forms if form.instance.pk and self._should_delete_form(form)]
-        blocked = [group.name for group in deleting if group_stage_matches(group).exists()]
-        if blocked:
-            raise forms.ValidationError(
-                f"Grupo com partidas nesta fase não é apagado: {', '.join(blocked)}. "
-                "Jogo entre grupos conta também para o grupo do visitante."
+        blocked = [group for group in deleting if group_stage_matches(group).exists()]
+        own = [group for group in blocked if group_stage_matches(group).filter(group_id=group.pk).exists()]
+        between = [group for group in blocked if group not in own]
+        errors = []
+        if own:  # de garantia: o PROTECT de `Match.group` já barra esse grupo no `super().clean()`
+            errors.append(f"Grupo com partidas nesta fase não é apagado: {', '.join(g.name for g in own)}.")
+        if between:
+            # Nenhuma partida aponta para o grupo: o time dele joga uma partida de outro grupo.
+            errors.append(
+                f"Grupo com time em jogo entre grupos nesta fase não é apagado: {', '.join(g.name for g in between)}. "
+                "A partida fica no grupo do mandante, mas conta também para o do visitante."
             )
+        if errors:
+            raise forms.ValidationError(errors)
 
 
 class GroupInline(Inline):
@@ -1104,8 +1115,23 @@ class GroupForm(forms.ModelForm):
             raise forms.ValidationError(
                 "Pontos corridos tem um grupo único automático (“Tabela”): cadastre os times nele."
             )
-        if group.pk and stage.pk != group.stage_id and group_stage_matches(group).exists():
-            raise forms.ValidationError("O grupo já tem partidas: ele não muda de fase.")
+        if group.pk and stage.pk != group.stage_id:
+            matches = group_stage_matches(group)
+            if matches.filter(group_id=group.pk).exists():
+                raise forms.ValidationError("O grupo já tem partidas: ele não muda de fase.")
+            # Nenhuma partida aponta para o grupo, mas time dele joga uma partida de outro grupo.
+            names = list(
+                Team.objects.filter(group_entries__group_id=group.pk)
+                .filter(Q(home_matches__in=matches) | Q(away_matches__in=matches))
+                .distinct()
+                .order_by("name")
+                .values_list("name", flat=True)
+            )
+            if names:
+                raise forms.ValidationError(
+                    f"Time do grupo tem jogo entre grupos nesta fase: {', '.join(names)}. A partida fica no "
+                    "grupo do mandante, mas conta também para o do visitante: o grupo não muda de fase."
+                )
         return stage
 
 

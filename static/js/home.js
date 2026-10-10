@@ -62,7 +62,7 @@ const state = {
   competitions: [], // menu
   liveKey: '',
   cards: new Map(), // match id → card
-  standings: new Map(), // stage id → <div class="standings">
+  standings: new Map(), // stage id → { el: <div class="standings">, matches: jogos do dia (fase de grupos) | null }
   latestGoals: [], // últimos gols desenhados (redesenho na troca do formato do minuto)
   reloadTimer: 0,
   reloading: null,
@@ -175,11 +175,29 @@ function cardFor(match, next) {
   return card;
 }
 
+/**
+ * Fase de grupos: só as tabelas dos grupos com jogo no dia (o grupo da partida e o de cada
+ * time, para jogo entre grupos), com as punições desses times. Se nada casar (dado
+ * incompleto), mostra todos os grupos.
+ */
+function dayStandings(standings, matches) {
+  const groups = standings?.groups || [];
+  if (groups.length < 2) return standings;
+  const groupIds = new Set(matches.map((m) => m.group?.id).filter((id) => id != null));
+  const teams = new Set(matches.flatMap((m) => [m.home?.id, m.away?.id]).filter((id) => id != null));
+  const shown = groups.filter((g) => groupIds.has(g.id) || (g.rows || []).some((r) => teams.has(r.team?.id)));
+  if (!shown.length || shown.length === groups.length) return standings;
+  const kept = new Set(shown.flatMap((g) => (g.rows || []).map((r) => r.team?.id)));
+  return { ...standings, groups: shown, adjustments: (standings.adjustments || []).filter((a) => kept.has(a.team?.id)) };
+}
+
 function standingsFor(stage, next) {
-  let el = state.standings.get(stage.id);
-  if (el) updateStandings(el, stage.standings);
-  else el = createStandings(stage.standings);
-  next.set(stage.id, el);
+  const matches = stage.format === 'groups' ? stage.matches || [] : null;
+  const data = matches ? dayStandings(stage.standings, matches) : stage.standings;
+  let el = state.standings.get(stage.id)?.el;
+  if (el) updateStandings(el, data);
+  else el = createStandings(data);
+  next.set(stage.id, { el, matches });
   return el;
 }
 
@@ -284,8 +302,9 @@ function onMatch(message) {
 }
 
 function onStandings(message) {
-  const el = state.standings.get(message?.stage_id);
-  if (el && message.standings) updateStandings(el, message.standings);
+  const entry = state.standings.get(message?.stage_id);
+  // a mensagem traz todos os grupos: na home, continuam só os com jogo no dia
+  if (entry && message.standings) updateStandings(entry.el, entry.matches ? dayStandings(message.standings, entry.matches) : message.standings);
 }
 
 function onGoals(message) {

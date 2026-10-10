@@ -11,7 +11,7 @@
 import { h, renderCompetitionNav, showToast } from './render.js';
 import { ServerClock, mountClock } from './clock.js';
 import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createTieGroup, tiesFromMatches, syncTieCards, refreshMatchCards, sortMatchesForDisplay, groupMatchesByGroup, createMatchGroup } from './match-card.js';
-import { createStandings, updateStandings, createStandingsFooter } from './standings.js';
+import { createStandings, updateStandings } from './standings.js';
 import { getCompetitions, getCompetition, listMatches, getMatch, getRanking } from './api.js';
 import { createStream, liveStatusIndicator } from './stream.js';
 
@@ -57,7 +57,6 @@ const state = {
   standingsStageId: null,
   standingsData: null, // StageStandingsOut da fase exibida
   groupTables: new Map(), // fase de grupos: group id → tabela do grupo, ao lado dos jogos dele
-  groupFoot: null, // legenda e critérios das tabelas de grupo
   view: 'stage', // 'stage' (tabela da fase) ou o id da classificação geral/personalizada exibida
   rankingStageIds: [], // fases que entram na classificação exibida (atualiza com o stream)
   rankingTimer: 0,
@@ -119,19 +118,20 @@ function groupRowsMode() {
   return state.stage?.format === 'groups' && state.view === 'stage' && !!state.standingsData?.groups?.length;
 }
 
-const teamIds = (groups) => new Set(groups.flatMap((g) => (g.rows || []).map((r) => r.team?.id)));
+const teamIds = (groups) => new Set(groups.flatMap((g) => (g.rows || []).map((r) => r.team?.id)).filter((id) => id != null));
 
-/** Tabela de um grupo: a legenda das cores e as punições dos times dele embaixo. */
-function groupStandings(standings, group) {
-  const ids = teamIds([group]);
-  return { ...standings, groups: [group], adjustments: (standings.adjustments || []).filter((a) => ids.has(a.team?.id)) };
-}
-
-/** Fim das linhas: os critérios de desempate (uma vez só) e punição de time fora dos grupos. */
-function stageFooter(standings) {
-  const ids = teamIds(standings.groups);
-  const rest = (standings.adjustments || []).filter((a) => !ids.has(a.team?.id));
-  return createStandingsFooter({ ...standings, adjustments: rest }, { legend: false });
+/** Tabela do grupo `index`, desenhada sozinha ao lado dos jogos dele: embaixo, a legenda das
+ *  cores e as punições dos times dele; o último grupo leva também os critérios de desempate
+ *  (uma vez, dentro do card) e a punição de time fora dos grupos.
+ *  @returns {[object, object]} [StageStandingsOut só com o grupo, opções da tabela] */
+function groupTableArgs(standings, index) {
+  const group = standings.groups[index];
+  const last = index === standings.groups.length - 1;
+  const mine = teamIds([group]);
+  const anywhere = teamIds(standings.groups);
+  const adjustments = (standings.adjustments || []).filter((a) => mine.has(a.team?.id) || (last && !anywhere.has(a.team?.id)));
+  const tied = standings.groups.some((g) => (g.rows || []).some((r) => r.tied));
+  return [{ ...standings, groups: [group], adjustments }, { criteria: last, tied }];
 }
 
 /** Linhas dos grupos: título, jogos da rodada (ou o aviso) e a tabela do grupo. Jogo de grupo
@@ -147,17 +147,15 @@ function groupRows(matches, card) {
     table ? h('div', { class: 'group-row__table' }, table) : null,
   );
   state.groupTables = new Map();
-  const rows = standings.groups.map((g) => {
+  const rows = standings.groups.map((g, i) => {
     const games = byGroup.get(g.id)?.matches || [];
     byGroup.delete(g.id);
-    const table = createStandings(groupStandings(standings, g), { criteria: false });
+    const table = createStandings(...groupTableArgs(standings, i));
     state.groupTables.set(g.id, table);
     return row({ id: g.id, name: g.name }, games, table);
   });
   rows.push(...[...byGroup.values()].map((g) => row(g.group, g.matches, null)));
   if (!els.standingsSwitch.hidden) rows.unshift(h('div', { class: 'group-row group-row--head' }, els.standingsSwitch));
-  state.groupFoot = stageFooter(standings);
-  if (state.groupFoot) rows.push(h('div', { class: 'group-row group-row--foot' }, state.groupFoot));
   return rows;
 }
 
@@ -166,7 +164,6 @@ function leaveGroupRows() {
   els.matches.classList.remove('group-rows');
   if (els.standingsSwitch.parentElement !== els.aside) els.aside.prepend(els.standingsSwitch);
   state.groupTables = new Map();
-  state.groupFoot = null;
 }
 
 /** Cards da rodada na ordem da home; na fase de grupos, separados por grupo. */
@@ -504,14 +501,7 @@ function updateGroupTables(standings) {
     reorderCards();
     return;
   }
-  standings.groups.forEach((g) => updateStandings(state.groupTables.get(g.id), groupStandings(standings, g)));
-  const foot = stageFooter(standings);
-  if (state.groupFoot && foot) state.groupFoot.replaceWith(foot);
-  else if (state.groupFoot || foot) {
-    reorderCards();
-    return;
-  }
-  state.groupFoot = foot;
+  standings.groups.forEach((g, i) => updateStandings(state.groupTables.get(g.id), ...groupTableArgs(standings, i)));
 }
 
 /* --- Início ---------------------------------------------------------------------------------- */

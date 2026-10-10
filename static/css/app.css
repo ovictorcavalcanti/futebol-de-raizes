@@ -1316,7 +1316,6 @@
   .criteria__list li::before { content: counter(crit); flex: none; display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 4px; border-radius: 999px; background: var(--surface-2); font-family: var(--font-num); font-weight: 700; font-size: 0.75rem; color: var(--ink); }
   .criteria__note { margin: 0; color: var(--ink-3); }
   .standings__foot { display: grid; gap: var(--s-3); padding: var(--s-3) 0; border-top: 1px solid var(--line); }
-  .card > .standings__foot:first-child { border-top: 0; }
 
   /* =========================================================================
      ÚLTIMOS GOLS E AVISO DE GOL
@@ -1453,7 +1452,7 @@
     .group-row { grid-template-columns: minmax(0, 1fr) minmax(320px, 380px); column-gap: var(--s-5); }
     .group-row > * { grid-column: 1; }
     .group-row > .group-row__table { grid-column: 2; grid-row: 2; }
-    .group-row--head > *, .group-row--foot > * { grid-column: 2; }
+    .group-row--head > * { grid-column: 2; }
   }
   @media (min-width: 1200px) {
     .group-row { grid-template-columns: minmax(0, 1fr) 400px; column-gap: var(--s-6); }

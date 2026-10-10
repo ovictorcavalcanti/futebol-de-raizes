@@ -139,7 +139,7 @@ for (const stage of comp.stages) {
 | `[data-hook="competition-name"]`, `[data-hook="season"]`, `[data-hook="competition-eyebrow"]` | Título (contém um esqueleto até ser preenchido), ano da temporada, rótulo acima. |
 | `#stage-select` (`disabled`) | `<option value=stage.id>` por fase; habilite ao preencher. |
 | `#round-prev`, `#round-next` (`disabled`), `#round-label` (`aria-live="polite"`) | Navegação ‹ Rodada 5 ›. |
-| `#round-matches` (`aria-busy="true"`) | Cards da rodada (`createMatchCard`); mata-mata: um bloco por confronto (`createTieGroup`); fase de grupos com tabela: uma linha por grupo (`.group-row`: jogos do grupo ou "Não há jogos deste grupo nesta rodada." e a tabela do grupo ao lado, topo alinhado, com a legenda das cores e as punições do grupo embaixo; a linha tem a altura do mais alto dos dois; critérios de desempate uma vez, dentro do card do último grupo). |
+| `#round-matches` (`aria-busy="true"`) | Cards da rodada (`createMatchCard`); mata-mata: um bloco por confronto (`createTieGroup`); fase de grupos com tabela: uma linha por grupo (`.group-row`: jogos do grupo ou "Não há jogos deste grupo nesta rodada." e a tabela do grupo ao lado, topo alinhado, com a legenda das cores e as punições do grupo embaixo; a linha tem a altura do mais alto dos dois; critérios de desempate uma vez, dentro do card do último grupo; jogos entre grupos numa seção à parte, `createGroupRows`). |
 | `#round-empty` (`hidden`) | "Nenhum jogo nesta rodada." |
 | `#stage-standings` | `createStandings(stage.standings)` (liga; na fase de grupos as tabelas vão para as linhas de `#round-matches`). |
 | `#stage-ties` (`hidden`) › `[data-hook="ties-list"]` | Sem uso (fica `hidden`): o agregado vem no card do jogo de volta. |
@@ -259,10 +259,16 @@ No aviso de correção (`kind: 'correction'`), o placar do gol que caiu aparece
 riscado (`<s>`), nunca como placar atual.
 
 ### `standings.js`
-* `createStandings(stageStandings, {compact?, legend = true, criteria = true, highlightTeamIds?: Set}) → <div class="standings">`
+* `createStandings(stageStandings, {compact?, legend = true, criteria = true, tied?, highlightTeamIds?: Set}) → <div class="standings">` (`tied`: força a nota "=" quando os grupos são desenhados um a um)
 * `updateStandings(el, stageStandings, opts?)` — redesenha no lugar; sem `opts`, valem as da criação (a mensagem `standings` do stream não precisa repassá-las).
-* Uma `<table>` por grupo com `<caption>`; faixa de zona (cor da API em `--zone`) + nome da zona em texto (visível no início de cada zona, e no texto acessível de toda linha); ponto pulsante em quem está `playing`; `=` em `tied`; legenda com `<svg><rect fill="cor da API">`; critérios em `<ol>` na ordem configurada, num bloco à parte da legenda ("Critérios de desempate", numerados em colunas). Vários grupos: legenda das cores e punições dos times de cada grupo embaixo da tabela dele; critérios só no card do último (sem caixa à parte). A home mostra, na fase de grupos, só as tabelas dos grupos com jogo no dia (o grupo da partida e o de cada time), também nas mensagens `standings`. Colunas somem por container query (GP/GC abaixo de 440 px; V/E/D abaixo de 330 px; sigla abaixo de 280 px); `compact` força a versão sem GP/GC.
+* Uma `<table>` por grupo com `<caption>`; faixa de zona (cor da API em `--zone`) + nome da zona em texto (visível no início de cada zona, e no texto acessível de toda linha); ponto pulsante em quem está `playing`; `=` em `tied`; legenda com `<svg><rect fill="cor da API">`; critérios em `<ol>` na ordem configurada, num bloco à parte da legenda ("Critérios de desempate", numerados em colunas). Vários grupos: legenda das cores e punições dos times de cada grupo embaixo da tabela dele; critérios só no card do último (sem caixa à parte). Colunas somem por container query (GP/GC abaixo de 440 px; V/E/D abaixo de 330 px; sigla abaixo de 280 px); `compact` força a versão sem GP/GC.
 * Punição/bonificação em pontos: linha com `points_adjustment ≠ 0` ganha `<abbr class="adj-mark">*</abbr>` nos pontos (título acessível "Punição: perdeu 3 pontos fora de campo", mais texto escondido para leitor de tela); `adjustments` vira a lista `.adjustments` embaixo da legenda ("Santa Cruz: −3 pts — escalação irregular", sempre visível, mesmo com `legend: false`). Funções puras exportadas: `adjustmentLabel(points)`, `adjustmentNote(item)`, `adjustmentTitle(points)` (tests/js/standings.test.mjs).
+
+### `group-rows.js` (home e competição)
+* `createGroupRows(standings, matches, card, {only = 'all'|'playing', when = 'nesta rodada'}) → {rows, tables, key}` — fase de grupos em linhas (`.group-row`): jogos do grupo à esquerda e a tabela dele à direita, topo alinhado com o primeiro jogo; a linha tem a altura do mais alto dos dois. Grupo sem jogo: "Não há jogos deste grupo {when}." (ou "Só jogo entre grupos {when} (veja abaixo)."). `only: 'playing'` (home): só os grupos com jogo no recorte. Jogo entre times de grupos diferentes (pelos times da tabela, não pelo grupo da partida) vai para a seção "Jogos entre grupos" (`.group-row--cross`, sem tabela), depois dos grupos. Critérios de desempate no card do último grupo exibido.
+* `updateGroupRows(layout, standings, matches, {only}) → boolean` — mensagem `standings`: redesenha as tabelas no lugar; `false` se as linhas mudaram (quem chama refaz).
+* `createMatchGroupBlocks(matches, standings|null, card)` — os jogos por grupo sem as tabelas (competição com a classificação geral na lateral; home de fase de grupos sem tabela), com a seção "Jogos entre grupos".
+* `splitGroupMatches(matches, standings)` — separa os jogos de dentro de cada grupo e os entre grupos.
 
 ### `api.js`
 * `apiFetch(path, {method, body, query, headers, idempotencyKey, timeout = 15000, signal}) → Promise<json>` — `credentials: 'same-origin'`, `X-CSRFToken` (cookie `csrftoken`; reserva: `csrf_token` de `/api/auth/me`) só nos métodos que mudam estado, `Idempotency-Key` quando pedido, tempo limite com `AbortController`.
@@ -310,9 +316,11 @@ document.addEventListener('visibilitychange', () => document.hidden || clock.che
 * `GET /api/competitions` (menu, com o ponto de "ao vivo" recalculado a cada `match`) + `GET /api/home`.
 * Uma seção por competição (`tpl-competition-section`, ordem de `position`), cards à
   esquerda e classificação ao vivo à direita; sem jogo no dia: menu, relógio e
-  `#home-empty` (sem o bloco de últimos gols).
+  `#home-empty` (sem o bloco de últimos gols). Fase de grupos com tabela: um grupo por linha
+  (`createGroupRows`, só os grupos com jogo no dia) e os jogos entre grupos numa seção à
+  parte; `standings` → `updateGroupRows` (grupos exibidos mudaram → busca a home de novo).
 * `match` → `updateMatchCard(card, match, {flash: true})` (acordeão e aba continuam);
-  status ou início (`kickoff_at`) mudou → busca a home de novo (reordena a fase e tira o
+  status, início (`kickoff_at`), times ou grupo mudou → busca a home de novo (reordena a fase e tira o
   jogo remarcado para outro dia); jogo desconhecido com início no dia → busca a home de
   novo. `standings` → `updateStandings` da fase. `goals` → `alerts.handle` + lista da
   mensagem (gols alertados com `isNew`). Acordeão sem lances → `GET /api/matches/:id`.
@@ -331,7 +339,7 @@ document.addEventListener('visibilitychange', () => document.hidden || clock.che
 * Liga: cards + classificação (legenda e critérios) no aside. Grupos (com a tabela da fase
   exibida): uma linha por grupo, jogos à esquerda e a tabela do grupo à direita, alinhada com o
   primeiro jogo e a legenda das cores embaixo (critérios de desempate uma vez, no card do
-  último grupo); os
+  último grupo); jogos entre grupos numa seção à parte, depois dos grupos; os
   botões das classificações sobem para a primeira linha. Mata-mata: um bloco
   por confronto com os cards (com "Semifinal · Ida" na faixa de meta, também na home); o card
   da ida diz "Jogo de ida", o da volta traz o agregado (parcial até o fim) e, no fim, quem

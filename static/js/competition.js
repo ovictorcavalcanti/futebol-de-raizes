@@ -10,8 +10,9 @@
  */
 import { h, renderCompetitionNav, showToast } from './render.js';
 import { ServerClock, mountClock } from './clock.js';
-import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createTieGroup, tiesFromMatches, syncTieCards, refreshMatchCards, sortMatchesForDisplay, groupMatchesByGroup, createMatchGroup } from './match-card.js';
+import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createTieGroup, tiesFromMatches, syncTieCards, refreshMatchCards, sortMatchesForDisplay } from './match-card.js';
 import { createStandings, updateStandings } from './standings.js';
+import { createGroupRows, updateGroupRows, createMatchGroupBlocks } from './group-rows.js';
 import { getCompetitions, getCompetition, listMatches, getMatch, getRanking } from './api.js';
 import { createStream, liveStatusIndicator } from './stream.js';
 
@@ -56,7 +57,7 @@ const state = {
   standingsEl: null,
   standingsStageId: null,
   standingsData: null, // StageStandingsOut da fase exibida
-  groupTables: new Map(), // fase de grupos: group id → tabela do grupo, ao lado dos jogos dele
+  groupLayout: null, // fase de grupos em linhas: {rows, tables, key} de createGroupRows
   view: 'stage', // 'stage' (tabela da fase) ou o id da classificação geral/personalizada exibida
   rankingStageIds: [], // fases que entram na classificação exibida (atualiza com o stream)
   rankingTimer: 0,
@@ -118,43 +119,10 @@ function groupRowsMode() {
   return state.stage?.format === 'groups' && state.view === 'stage' && !!state.standingsData?.groups?.length;
 }
 
-const teamIds = (groups) => new Set(groups.flatMap((g) => (g.rows || []).map((r) => r.team?.id)).filter((id) => id != null));
-
-/** Tabela do grupo `index`, desenhada sozinha ao lado dos jogos dele: embaixo, a legenda das
- *  cores e as punições dos times dele; o último grupo leva também os critérios de desempate
- *  (uma vez, dentro do card) e a punição de time fora dos grupos.
- *  @returns {[object, object]} [StageStandingsOut só com o grupo, opções da tabela] */
-function groupTableArgs(standings, index) {
-  const group = standings.groups[index];
-  const last = index === standings.groups.length - 1;
-  const mine = teamIds([group]);
-  const anywhere = teamIds(standings.groups);
-  const adjustments = (standings.adjustments || []).filter((a) => mine.has(a.team?.id) || (last && !anywhere.has(a.team?.id)));
-  const tied = standings.groups.some((g) => (g.rows || []).some((r) => r.tied));
-  return [{ ...standings, groups: [group], adjustments }, { criteria: last, tied }];
-}
-
-/** Linhas dos grupos: título, jogos da rodada (ou o aviso) e a tabela do grupo. Jogo de grupo
- *  sem tabela (ex.: sem grupo) fica numa linha sem tabela, no fim. */
+/** Linhas dos grupos (createGroupRows), com os botões das classificações em cima. */
 function groupRows(matches, card) {
-  const standings = state.standingsData;
-  const byGroup = new Map(groupMatchesByGroup(matches).map((g) => [g.group?.id ?? null, g]));
-  const row = (group, games, table) => h('section', { class: 'group-row', 'data-group-id': group?.id ?? null },
-    h('h3', { class: 'match-group__title', text: group?.name || 'Sem grupo' }),
-    games.length
-      ? h('div', { class: 'match-group__games' }, ...games.map(card))
-      : h('p', { class: 'group-row__empty', text: 'Não há jogos deste grupo nesta rodada.' }),
-    table ? h('div', { class: 'group-row__table' }, table) : null,
-  );
-  state.groupTables = new Map();
-  const rows = standings.groups.map((g, i) => {
-    const games = byGroup.get(g.id)?.matches || [];
-    byGroup.delete(g.id);
-    const table = createStandings(...groupTableArgs(standings, i));
-    state.groupTables.set(g.id, table);
-    return row({ id: g.id, name: g.name }, games, table);
-  });
-  rows.push(...[...byGroup.values()].map((g) => row(g.group, g.matches, null)));
+  state.groupLayout = createGroupRows(state.standingsData, matches, card);
+  const rows = state.groupLayout.rows;
   if (!els.standingsSwitch.hidden) rows.unshift(h('div', { class: 'group-row group-row--head' }, els.standingsSwitch));
   return rows;
 }
@@ -163,7 +131,7 @@ function groupRows(matches, card) {
 function leaveGroupRows() {
   els.matches.classList.remove('group-rows');
   if (els.standingsSwitch.parentElement !== els.aside) els.aside.prepend(els.standingsSwitch);
-  state.groupTables = new Map();
+  state.groupLayout = null;
 }
 
 /** Cards da rodada na ordem da home; na fase de grupos, separados por grupo. */
@@ -174,7 +142,7 @@ function matchBlocks(matches, card) {
   }
   leaveGroupRows();
   if (state.stage?.format !== 'groups') return sortMatchesForDisplay(matches).map(card);
-  return groupMatchesByGroup(matches).map((g) => createMatchGroup(g.group, g.matches.map(card)));
+  return createMatchGroupBlocks(matches, state.standingsData, card); // classificação geral na lateral
 }
 
 function renderMatches(matches, ties = null) {
@@ -479,8 +447,8 @@ function onMatch(message) {
   const card = state.cards.get(match.id);
   const before = card ? getCardMatch(card) : null;
   if (card) updateMatchCard(card, match, { flash: true });
-  // a ordem depende do status; grupo trocado no admin leva o card para a linha do outro grupo
-  const placement = (m) => `${m.status}|${m.group?.id ?? ''}`;
+  // a ordem depende do status; grupo ou time trocado no admin leva o card para outra linha
+  const placement = (m) => `${m.status}|${m.group?.id ?? ''}|${m.home?.id ?? ''}|${m.away?.id ?? ''}`;
   if (card && before && placement(before) !== placement(getCardMatch(card)) && state.stage?.format !== 'knockout') reorderCards();
   // mata-mata: agregado e vencedor vêm no TieOut da partida e valem para o card do outro jogo
   syncTieCards(state.cards.values(), match);
@@ -495,15 +463,11 @@ function onStandings(message) {
   }
 }
 
-/** Tabelas ao lado dos jogos de cada grupo: os mesmos grupos redesenham no lugar (os cards
- *  não saem do lugar); grupo novo ou removido refaz as linhas. */
+/** Tabelas ao lado dos jogos de cada grupo: redesenham no lugar (os cards não saem do
+ *  lugar); se mudam as linhas (grupos, jogos entre grupos), refaz. */
 function updateGroupTables(standings) {
-  const ids = standings.groups.map((g) => g.id);
-  if (ids.length !== state.groupTables.size || ids.some((id) => !state.groupTables.has(id))) {
-    reorderCards();
-    return;
-  }
-  standings.groups.forEach((g, i) => updateStandings(state.groupTables.get(g.id), ...groupTableArgs(standings, i)));
+  const matches = [...state.cards.values()].map(getCardMatch).filter(Boolean);
+  if (!updateGroupRows(state.groupLayout, standings, matches)) reorderCards();
 }
 
 /* --- Início ---------------------------------------------------------------------------------- */

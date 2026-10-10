@@ -727,34 +727,37 @@ def test_competicao_mata_mata_e_navegacao_de_rodadas(new_context, console):
     knockout_value = options.filter(has_text="Mata-mata").get_attribute("value")
     groups_value = options.filter(has_text="Grupos").first.get_attribute("value") if any("Grupos" in t for t in labels) else options.first.get_attribute("value")
 
-    # fase de grupos: classificação com uma tabela por grupo, sem confrontos
+    # fase de grupos: uma linha por grupo, com a tabela do grupo ao lado dos jogos dele
     select.select_option(groups_value)
     expect(page).to_have_url(re.compile(rf"stage={groups_value}"))
-    expect(page.locator("#stage-standings .standings__group")).to_have_count(2)
+    expect(page.locator("#round-matches .group-row .group-row__table .standings__group")).to_have_count(2)
+    expect(page.locator("#stage-standings")).to_be_hidden()
     expect(page.locator("#stage-ties")).to_be_hidden()
 
-    # mata-mata: confrontos no lugar da classificação
+    # mata-mata: um bloco por confronto, sem classificação nem card de agregado à parte
     select.select_option(knockout_value)
     expect(page).to_have_url(re.compile(rf"stage={knockout_value}"))
-    expect(page.locator("#stage-ties")).to_be_visible()
+    expect(page.locator("#round-matches .tie-group")).not_to_have_count(0)
+    expect(page.locator("#stage-ties")).to_be_hidden()
     expect(page.locator("#stage-standings .standings")).to_have_count(0)
     expect(page.locator("#round-label")).to_have_text(re.compile("Final", re.I))
     expect(page.locator("#round-next")).to_be_disabled()
 
-    # rodada anterior: semifinais de ida e volta, com agregado, vencedor e forma da decisão
+    # rodada anterior: semifinais de ida e volta; o card da volta traz o agregado, quem avança
+    # e a forma da decisão
     page.click("#round-prev")
     expect(page.locator("#round-label")).to_have_text(re.compile("Semifinal", re.I))
-    ties = page.locator("#stage-ties .tie")
+    ties = page.locator("#round-matches .tie-group")
     expect(ties).to_have_count(2)
     for i in range(2):
-        tie = ties.nth(i)
-        expect(tie.locator(".tie__team.is-winner")).to_have_count(1)
-        expect(tie.locator(".tie__adv")).to_contain_text("avança")
-        expect(tie.locator(".tie__decided")).to_contain_text("classificado")
-        expect(tie.locator(".tie__leg")).to_have_count(2)
-        aggregates = [int(t) for t in tie.locator(".tie__agg").all_inner_texts()]
-        assert len(aggregates) == 2
-    decided = " ".join(page.locator("#stage-ties .tie__decided").all_inner_texts())
+        legs = ties.nth(i).locator("article.match")
+        expect(legs).to_have_count(2)
+        expect(legs.nth(0).locator(".match__tie")).to_have_text(re.compile("Jogo de ida"))
+        expect(legs.nth(0).locator(".match__tie-agg")).to_have_count(0)
+        expect(legs.nth(1).locator(".match__tie")).to_contain_text("Agregado")
+        expect(legs.nth(1).locator(".match__tie-agg")).to_have_count(1)
+        expect(legs.nth(1).locator(".tie__adv")).to_contain_text("avança")
+    decided = " ".join(page.locator("#round-matches .tie-group .tie__adv").all_inner_texts()).lower()
     assert "prorrogação" in decided and "agregado" in decided
     expect(page.locator("#round-matches article.match")).not_to_have_count(0)
 
@@ -777,7 +780,7 @@ def test_competicao_mata_mata_e_navegacao_de_rodadas(new_context, console):
 
 def test_mata_mata_ao_vivo_agregado_e_penaltis_na_pagina_da_competicao(new_context, console, base_url):
     """A final (jogo único, sem prorrogação) vai aos pênaltis com a página aberta: o card do
-    jogo e o do confronto mudam pelo stream, sem recarregar."""
+    jogo muda pelo stream, sem recarregar, e no fim diz quem avança e como."""
     from playwright.sync_api import expect
 
     final = next(m for m in _today_matches(base_url) if m["tie"] is not None)
@@ -789,10 +792,8 @@ def test_mata_mata_ao_vivo_agregado_e_penaltis_na_pagina_da_competicao(new_conte
     page.goto("/competition.html?slug=copa-pernambuco")
     expect(page.locator("#round-label")).to_have_text(re.compile("Final", re.I))
     card = _card(page, final["id"])
-    tie = page.locator(f'#stage-ties .tie[data-tie-id="{final["tie"]["id"]}"]')
-    home_row = tie.locator(".tie__team").filter(has_text=final["home"]["name"])
-    away_row = tie.locator(".tie__team").filter(has_text=final["away"]["name"])
-    expect(home_row.locator(".tie__agg")).to_have_text("–")
+    expect(page.locator(f'#round-matches .tie-group[data-tie-id="{final["tie"]["id"]}"] article.match')).to_have_count(1)
+    expect(card.locator(".match__tie")).to_be_hidden()  # jogo único: nada até alguém avançar
     page.evaluate("window.__sameDocument = true")
 
     api = ApiOperator(new_context().request)
@@ -802,8 +803,6 @@ def test_mata_mata_ao_vivo_agregado_e_penaltis_na_pagina_da_competicao(new_conte
     api.event(mid, {"type": "goal", "minute": 40, "team_id": away_id, "payload": {"player": "Camisa Dez"}})
     expect(card.locator('[data-hook="score-home"]')).to_have_text("1")
     expect(card.locator('[data-hook="score-away"]')).to_have_text("1")
-    expect(home_row.locator(".tie__agg")).to_have_text("1")
-    expect(away_row.locator(".tie__agg")).to_have_text("1")
     api.event(mid, {"type": "half_time"})
     api.event(mid, {"type": "second_half_start"})
     # empate no jogo decisivo: o fim de jogo é recusado (vai aos pênaltis, sem prorrogação)
@@ -816,10 +815,8 @@ def test_mata_mata_ao_vivo_agregado_e_penaltis_na_pagina_da_competicao(new_conte
     api.event(mid, {"type": "match_end"})
     expect(card.locator(".match__status .pill")).to_have_text(re.compile("Encerrado", re.I))
     expect(card.locator(".score__pen")).to_have_text("(3) × (0) pên.")
-    expect(home_row).to_have_class(re.compile("is-winner"))
-    expect(home_row.locator(".tie__adv")).to_contain_text("avança")
-    expect(away_row).to_have_class(re.compile("is-loser"))
-    expect(tie.locator(".tie__decided")).to_contain_text("nos pênaltis")
+    expect(card.locator(".match__tie")).to_contain_text(final["home"]["name"])
+    expect(card.locator(".match__tie .tie__adv")).to_contain_text("avança nos pênaltis")
     assert page.evaluate("window.__sameDocument") is True
 
 

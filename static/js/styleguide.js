@@ -8,7 +8,7 @@ import { icon, ICONS, eventIconName } from './icons.js';
 import { createCrest } from './crest.js';
 import { ServerClock, mountClock } from './clock.js';
 import { formatTime } from './format.js';
-import { createMatchCard, updateMatchCard, tickMatchCards, createTieCard, createTieGroup, tiesFromMatches, createLatestGoal, createGoalAlert } from './match-card.js';
+import { createMatchCard, updateMatchCard, tickMatchCards, createTieGroup, tiesFromMatches, createLatestGoal, createGoalAlert } from './match-card.js';
 import { createStandings } from './standings.js';
 import * as F from './fixtures.js';
 
@@ -121,10 +121,10 @@ function renderCompetitionSection(comp) {
       const full = Object.values(F.MATCHES).find((x) => x.id === m.id);
       return createMatchCard(m, { now, onExpand: () => new Promise((resolve) => setTimeout(() => { if (full?.events) updateMatchCard(cardOf(m.id), full); resolve(); }, 600)) });
     };
-    if (stage.format === 'knockout') { // como na home: um bloco por confronto, agregado à direita
+    if (stage.format === 'knockout') { // como na home: um bloco por confronto, agregado no card da volta
       b.matches.classList.add('tie-groups');
       b.matches.replaceChildren(...tiesFromMatches(stage.matches).map((tie) =>
-        createTieGroup(tie, tie.matches.map(card), createTieCard(tie, { now, legs: false }), { title: false })));
+        createTieGroup(tie, tie.matches.map(card), { title: false })));
       b.standings.remove();
       b['stage-grid'].classList.add('split--no-aside');
     } else {
@@ -142,7 +142,7 @@ $('sg-home-competitions').replaceChildren(...F.HOME.competitions.map(renderCompe
 /* --- Classificação e mata-mata ------------------------------------------------------------- */
 $('sg-standings').append(createStandings(F.STANDINGS));
 $('sg-standings-groups').append(createStandings(F.STANDINGS_GROUPS, { compact: true }));
-$('sg-ties').replaceChildren(...F.TIES.map((t) => createTieCard(t, { now })));
+$('sg-ties').replaceChildren(...F.TIES.map((t) => createTieGroup(t, (t.matches || []).map((m) => createMatchCard(m, { now, details: false, showRound: true })))));
 
 /* --- Estados: avisos ------------------------------------------------------------------------ */
 $('sg-toast').addEventListener('click', () => showToast('Lance lançado: gol de Zé Roberto (72\').', { kind: 'ok' }));

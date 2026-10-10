@@ -254,7 +254,7 @@ def fixtures():
     script = (
         f"const F = await import({json.dumps((STATIC / 'js' / 'fixtures.js').as_uri())});"
         "console.log(JSON.stringify({HOME: F.HOME, COMPETITION: F.COMPETITION, COMPETITIONS: F.COMPETITIONS,"
-        "MATCHES: F.MATCHES, ME: F.ME, AVAILABLE: F.AVAILABLE, STANDINGS: F.STANDINGS}))"
+        "MATCHES: F.MATCHES, ME: F.ME, AVAILABLE: F.AVAILABLE, STANDINGS: F.STANDINGS, STANDINGS_GROUPS: F.STANDINGS_GROUPS}))"
     )
     data = json.loads(
         subprocess.run(
@@ -416,11 +416,11 @@ class FakeApi:
                     "id": 6,
                     "name": "Fase de grupos",
                     "format": "groups",
-                    "standings": self.fx["STANDINGS"],
+                    "standings": {**self.fx["STANDINGS_GROUPS"], "stage_id": 6},
                     "ties": [],
                     "matches": [
-                        {**_summary(self.fx["MATCHES"]["live"]), "group": {"id": 62, "name": "Grupo B"}},
-                        {**_summary(self.fx["MATCHES"]["finished"]), "group": {"id": 61, "name": "Grupo A"}},
+                        {**_summary(self.fx["MATCHES"]["live"]), "group": {"id": 12, "name": "Grupo B"}},
+                        {**_summary(self.fx["MATCHES"]["finished"]), "group": {"id": 11, "name": "Grupo A"}},
                     ],
                 }
                 data["current_stage_id"], data["current_round_id"] = 6, 26
@@ -813,8 +813,8 @@ def test_home_seletor_de_dias(open_page):
 
 def test_competicao_rodadas_fase_e_slug_inexistente(open_page):
     page, api, errors = open_page("/competition.html?slug=copa-pernambuco", width=390)
-    page.wait_for_selector("#round-matches .tie-group .tie")
-    state = "() => ({label: document.getElementById('round-label').textContent, prev: document.getElementById('round-prev').disabled, next: document.getElementById('round-next').disabled, url: location.search, ties: document.querySelectorAll('#round-matches .tie-group .tie').length, standings: !document.getElementById('stage-standings').hidden, cards: document.querySelectorAll('#round-matches .match').length})"
+    page.wait_for_selector("#round-matches .tie-group .match")
+    state = "() => ({label: document.getElementById('round-label').textContent, prev: document.getElementById('round-prev').disabled, next: document.getElementById('round-next').disabled, url: location.search, ties: document.querySelectorAll('#round-matches .tie-group').length, standings: !document.getElementById('stage-standings').hidden, cards: document.querySelectorAll('#round-matches .match').length})"
     first = page.evaluate(state)
     assert (
         first["label"] == "Semifinal"
@@ -823,6 +823,14 @@ def test_competicao_rodadas_fase_e_slug_inexistente(open_page):
         and first["ties"] == 2
         and not first["standings"]
     )
+    # sem card de agregado à parte: a ida só avisa; a volta traz o agregado e quem avança
+    legs = page.evaluate(
+        "[...document.querySelectorAll('#round-matches .tie-group')].map((g) => [...g.querySelectorAll('.match')].map((c) => { const t = c.querySelector('.match__tie'); return t.hidden ? null : t.textContent; }))"
+    )
+    assert page.evaluate("document.querySelectorAll('#round-matches .tie, #stage-ties:not([hidden])').length") == 0
+    assert legs[0][0] == "Jogo de ida"
+    assert "Agregado" in legs[0][1] and "3 × 3" in legs[0][1] and "Náutico" in legs[0][1] and "avança nos pênaltis" in legs[0][1]
+    assert legs[1] == [None]  # jogo único ainda sem vencedor
     assert first["url"] == "?slug=copa-pernambuco&stage=7&round=30"
     page.click("#round-next")
     page.wait_for_function(
@@ -837,27 +845,38 @@ def test_competicao_rodadas_fase_e_slug_inexistente(open_page):
         and final["ties"] == 0
     )
     page.select_option("#stage-select", "6")
-    page.wait_for_selector("#stage-standings .standings")
+    page.wait_for_selector("#round-matches .group-row .standings")
     groups = page.evaluate(state)
     assert (
         groups["label"] == "Rodada 2"
         and not groups["prev"]
         and not groups["next"]
-        and groups["standings"]
+        and not groups["standings"]  # a tabela de cada grupo vai para a linha do grupo
         and groups["cards"] == 2
     )
-    # fase de grupos: os jogos separados por grupo, na ordem do nome
-    assert page.evaluate(
-        "[...document.querySelectorAll('#round-matches .match-group')].map((g) => [g.querySelector('.match-group__title').textContent, g.querySelectorAll('.match').length])"
-    ) == [["Grupo A", 1], ["Grupo B", 1]]
+    # fase de grupos: uma linha por grupo (na ordem da tabela), com os jogos e a tabela dele
+    rows = "() => [...document.querySelectorAll('#round-matches .group-row:not(.group-row--head):not(.group-row--foot)')].map((g) => [g.querySelector('.match-group__title').textContent, g.querySelectorAll('.match').length, g.querySelector('.group-row__empty')?.textContent || '', g.querySelector('.group-row__table caption')?.textContent || ''])"
+    assert page.evaluate(rows) == [["Grupo A", 1, "", "Grupo A"], ["Grupo B", 1, "", "Grupo B"]]
+    assert page.evaluate("document.querySelector('#round-matches .group-row--foot .legend') !== null")  # legenda uma vez, no fim
     assert page.evaluate(  # cards do grupo com respiro entre si
         "parseFloat(getComputedStyle(document.querySelector('#round-matches .match-group__games')).rowGap) > 0"
     )
+    page.set_viewport_size({"width": 1280, "height": 900})
+    aligned = "() => [...document.querySelectorAll('#round-matches .group-row__table')].map((t) => { const first = t.parentElement.querySelector('.match-group__games, .group-row__empty'); return [Math.round(first.getBoundingClientRect().top - t.getBoundingClientRect().top), t.getBoundingClientRect().left > first.getBoundingClientRect().right]; })"
+    assert page.evaluate(aligned) == [[0, True], [0, True]]  # tabela à direita, topo com o primeiro jogo
+    assert page.evaluate("document.getElementById('competition-grid').classList.contains('split--no-aside')")
+    page.set_viewport_size({"width": 390, "height": 844})
     page.click("#round-prev")
     page.wait_for_function(
         "() => document.getElementById('round-label').textContent === 'Rodada 1'"
     )
     assert any(r[1] == "/api/matches" and "roundId=25" in r[2] for r in api.requests)
+    # grupo sem jogo na rodada: o aviso no lugar dos jogos, a tabela continua ao lado
+    page.wait_for_function("() => document.querySelectorAll('#round-matches .group-row__empty').length > 0")
+    after = page.evaluate(rows)
+    empty = "Não há jogos deste grupo nesta rodada."
+    assert after[:2] == [["Grupo A", 0, empty, "Grupo A"], ["Grupo B", 0, empty, "Grupo B"]]
+    assert [r[1] for r in after[2:]] == [1] and after[2][3] == ""  # jogo de grupo sem tabela: linha à parte, no fim
     assert page.evaluate(
         "document.documentElement.scrollWidth <= document.documentElement.clientWidth"
     )

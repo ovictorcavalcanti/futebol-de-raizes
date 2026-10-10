@@ -150,6 +150,23 @@ function footer(standings, opts, rows = []) {
   return parts.length ? h('div', { class: 'standings__foot' }, ...parts) : null;
 }
 
+/** Legenda, punições e critérios de todos os grupos num card à parte (ou null). */
+function footerCard(standings, opts) {
+  const foot = footer(standings, opts, (standings?.groups || []).flatMap((g) => g.rows || []));
+  return foot ? h('div', { class: 'card' }, foot) : null;
+}
+
+/**
+ * Rodapé comum das tabelas de grupo mostradas uma a uma (página da competição: cada tabela
+ * ao lado dos jogos do grupo, criadas com legend/criteria false e sem punições).
+ * @param {object} standings StageStandingsOut
+ * @returns {HTMLElement|null} <div class="standings"> com o card, ou null sem nada a mostrar
+ */
+export function createStandingsFooter(standings, opts = {}) {
+  const card = footerCard(standings, opts);
+  return card ? h('div', { class: 'standings' }, card) : null;
+}
+
 /**
  * Classificação de uma fase (StageStandingsOut, CONTRACT §3).
  * @param {object} standings StageStandingsOut
@@ -178,9 +195,8 @@ export function updateStandings(el, standings, opts = undefined) {
   const multiple = groups.length > 1;
   const parts = groups.map((g) => groupTable(standings, g, opts, multiple));
   if (multiple) {
-    const allRows = groups.flatMap((g) => g.rows || []);
-    const foot = footer(standings, opts, allRows);
-    if (foot) parts.push(h('div', { class: 'card' }, foot));
+    const foot = footerCard(standings, opts);
+    if (foot) parts.push(foot);
   }
   if (!parts.length) parts.push(h('p', { class: 'muted', text: 'Classificação ainda sem jogos.' }));
   el.dataset.stageId = standings?.stage_id ?? '';

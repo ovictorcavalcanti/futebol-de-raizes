@@ -472,6 +472,16 @@ COMPONENTS_JS = """async () => {
   out.homeIsTeamB = ko.home.id === ko.tie.team_b.id;
   out.aggregate = koCard.querySelector('.match__tie-agg').textContent;
   out.expectedAggregate = `${ko.home.short_name} ${ko.tie.aggregate.team_b} × ${ko.tie.aggregate.team_a} ${ko.away.short_name}`;
+  // a ida não mostra agregado; o TieOut que chega na mensagem da ida atualiza o card da volta
+  const legOne = { ...ko, id: 556, version: 1, home: ko.away, away: ko.home, tie: { ...ko.tie, leg: 1, complete: false, winner_team_id: null, aggregate: { team_a: 1, team_b: 0 } } };
+  const legTwo = { ...ko, id: 557, version: 1, status: 'scheduled', home_score: null, away_score: null, home_penalties: null, away_penalties: null, tie: { ...legOne.tie, leg: 2 } };
+  const legCards = [M.createMatchCard(legOne, {}), M.createMatchCard(legTwo, {})];
+  root.append(...legCards);
+  out.legOneTie = legCards[0].querySelector('.match__tie').textContent;
+  out.legOneAgg = legCards[0].querySelectorAll('.match__tie-agg').length;
+  M.syncTieCards(legCards, { ...legOne, version: 2, tie: { ...legOne.tie, aggregate: { team_a: 2, team_b: 0 } } });
+  out.legTwoAgg = legCards[1].querySelector('.match__tie-agg').textContent;
+  out.legTwoLeg = M.getCardMatch(legCards[1]).tie.leg;
 
   // 4) lance sem time (VAR) mostra o minuto junto do texto
   const timeline = M.renderTimeline(live);
@@ -556,6 +566,8 @@ def test_componentes_no_navegador(browser_page):
         "detalhe atrasado: sem novo pedido ou sem 'Tentar de novo'"
     )
     assert out["homeIsTeamB"] and out["aggregate"] == out["expectedAggregate"]
+    assert out["legOneTie"] == "Jogo de ida · a vaga sai na volta" and out["legOneAgg"] == 0
+    assert out["legTwoAgg"].split()[1:4] == ["0", "×", "2"] and out["legTwoLeg"] == 2  # volta: mandante = team_b
     assert out["varMinute"] == "31'"
     # 1º amarelo + o vermelho do 2º; o tipo vai no nome acessível do ícone, sem legenda repetida
     assert out["secondYellowItems"] == [["Cartão amarelo", ""], ["Cartão vermelho", "Segundo amarelo e vermelho"]]

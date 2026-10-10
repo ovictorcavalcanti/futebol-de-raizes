@@ -495,7 +495,7 @@ confrontos saíram do índice (os endereços continuam, para quem tem permissão
 | --- | --- | --- |
 | Autenticação | `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me` | `/api/docs` |
 | Operação | `POST /api/ops/matches/{id}/events` (+ `Idempotency-Key`), `POST …/events/{eventId}/void`, `POST /api/ops/matches/{id}/status`, `GET /api/ops/catalog` | `/api/docs` |
-| Leitura | `GET /api/home?date=`, `GET /api/competitions`, `GET /api/competitions/{slug}?stage=&round=`, `GET /api/stages/{id}/standings?live=1`, `GET /api/matches?roundId=&date=&status=&stageId=`, `GET /api/matches/{id}` | `/api/docs` |
+| Leitura | `GET /api/home?date=`, `GET /api/competitions`, `GET /api/competitions/{slug}?stage=&round=`, `GET /api/stages/{id}/standings?live=1`, `GET /api/matches?roundId=&date=&status=&stageId=&limit=&offset=` (até 500 por página; `has_more` → próxima com `offset` + `limit`), `GET /api/matches/{id}` | `/api/docs` |
 | Tempo real | `GET /api/stream?after=` (SSE) | `docs/CONTRACT.md` §5 |
 | Pública | `GET /public/v1/competitions`, `/competitions/{slug}`, `/matches`, `/matches/{id}`, `/stages/{id}/standings` | `/public/v1/docs` |
 

@@ -267,7 +267,7 @@ riscado (`<s>`), nunca como placar atual.
 ### `api.js`
 * `apiFetch(path, {method, body, query, headers, idempotencyKey, timeout = 15000, signal}) → Promise<json>` — `credentials: 'same-origin'`, `X-CSRFToken` (cookie `csrftoken`; reserva: `csrf_token` de `/api/auth/me`) só nos métodos que mudam estado, `Idempotency-Key` quando pedido, tempo limite com `AbortController`.
 * `ApiError {status, code, message, details, warnings, isNetwork}` — formato de erro do contrato; o padrão do ninja (`{detail}`) vira `csrf_failed`/`invalid_input`/… ; falha de rede = `network_error`, tempo esgotado = `timeout` (status 0).
-* Rotas: `getMe`, `login`, `logout`, `getHome(date?)`, `getCompetitions`, `getCompetition(slug, {stage, round})`, `getStageStandings`, `listMatches({roundId, date, status, stageId})`, `getMatch`, `getCatalog`, `postEvent(id, body, key)`, `voidEvent(id, eventId, reason)`, `changeStatus(id, body, key)`.
+* Rotas: `getMe`, `login`, `logout`, `getHome(date?)`, `getCompetitions`, `getCompetition(slug, {stage, round})`, `getStageStandings`, `listMatches({roundId, date, status, stageId, limit, offset}) → {matches, has_more}` (até 500 por página), `getMatch`, `getCatalog`, `postEvent(id, body, key)`, `voidEvent(id, eventId, reason)`, `changeStatus(id, body, key)`.
 * `newIdempotencyKey()` (`crypto.randomUUID`, com reserva fora de contexto seguro), `getCookie`, `queryString`, `toApiError`.
 
 ### `stream.js`

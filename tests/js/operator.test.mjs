@@ -6,7 +6,7 @@ import {
   splitActions, structuralConfirm, sortByStatus, clockSetRange, editedToast,
 } from '../../static/js/operator.js';
 import {
-  ApiError, apiFetch, getCookie, queryString, toApiError, newIdempotencyKey, setCsrfToken,
+  ApiError, apiFetch, getCookie, listMatches, queryString, toApiError, newIdempotencyKey, setCsrfToken,
 } from '../../static/js/api.js';
 
 const MIN = 60_000;
@@ -224,6 +224,14 @@ test('apiFetch: JSON, mesma origem, CSRF só nos métodos que mudam estado, Idem
   assert.equal(post.init.headers['Idempotency-Key'], 'k-1');
   assert.equal(post.init.headers['Content-Type'], 'application/json');
   assert.equal(post.init.body, JSON.stringify({ type: 'goal' }));
+});
+
+test('listMatches pagina com limit e offset', async () => {
+  const urls = [];
+  const fetchImpl = async (url) => { urls.push(url); return new Response('{"matches":[],"has_more":false}', { headers: { 'Content-Type': 'application/json' } }); };
+  await listMatches({ date: '2026-10-03', limit: 50, offset: 100 }, { fetchImpl });
+  await listMatches({ roundId: 7 }, { fetchImpl });
+  assert.deepEqual(urls, ['/api/matches?date=2026-10-03&limit=50&offset=100', '/api/matches?roundId=7']);
 });
 
 test('apiFetch: erro tipado, tempo esgotado e falha de rede', async () => {

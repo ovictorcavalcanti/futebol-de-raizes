@@ -381,7 +381,7 @@ usado volta no `X-Request-ID` da resposta e vai nos logs e na auditoria.
 | `GET /api/competitions` | `{"competitions": [{"id","name","slug","short_name","position"}]}` |
 | `GET /api/competitions/{slug}?stage=&round=` | CompetitionOut (micro-cache no servidor, §3) |
 | `GET /api/stages/{id}/standings?live=1` | StageStandingsOut + `server_time`, `timezone` |
-| `GET /api/matches?roundId=&date=&status=&stageId=&limit=&offset=` | `{"server_time","timezone","matches": [MatchOut],"has_more": bool}` (`date` = dia de Brasília pelo `kickoff_at`; `status` aceita vários separados por vírgula; em ordem de início, com ou sem filtro, no máximo 500 por resposta: `limit` 1–500, padrão 500, `offset` 0–100000, padrão 0, fora disso `400`; `has_more` = há partidas depois desta página, peça a próxima com `offset` + `limit`) |
+| `GET /api/matches?roundId=&date=&status=&stageId=&limit=&offset=` | `{"server_time","timezone","matches": [MatchOut],"has_more": bool}` (`date` = dia de Brasília pelo `kickoff_at`; `status` aceita vários separados por vírgula; em ordem de início, com ou sem filtro, no máximo 500 por resposta: `limit` 1–500, padrão 500, `offset` 0–100000, padrão 0, fora disso `400`; `has_more` = há partidas depois desta página e a próxima, `offset` + `limit`, cabe no teto de `offset` — quem segue `has_more` nunca recebe `400`; além do teto, filtre por `date`/`roundId`) |
 | `GET /api/matches/{id}` | `{"server_time","timezone","cursor","match": MatchOut(detalhe), "available": Available}` |
 | `GET /api/stream?after=N` | SSE (seção 5) |
 

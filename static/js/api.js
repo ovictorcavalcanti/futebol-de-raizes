@@ -209,7 +209,7 @@ export const getCompetitions = (opts) => get('/api/competitions', null, opts);
 export const getCompetition = (slug, { stage, round } = {}, opts) => get(`/api/competitions/${encodeURIComponent(slug)}`, { stage, round }, opts);
 export const getRanking = (rankingId, { live = true } = {}, opts) => get(`/api/rankings/${encodeURIComponent(rankingId)}`, { live: live ? 1 : null }, opts);
 export const getStageStandings = (stageId, { live = true } = {}, opts) => get(`/api/stages/${encodeURIComponent(stageId)}/standings`, { live: live ? 1 : null }, opts);
-export const listMatches = ({ roundId, date, status, stageId } = {}, opts) => get('/api/matches', { roundId, date, status, stageId }, opts);
+export const listMatches = ({ roundId, date, status, stageId, limit, offset } = {}, opts) => get('/api/matches', { roundId, date, status, stageId, limit, offset }, opts);
 export const getMatch = (matchId, opts) => get(`/api/matches/${encodeURIComponent(matchId)}`, null, opts);
 
 /* --- Operação --------------------------------------------------------------------------- */

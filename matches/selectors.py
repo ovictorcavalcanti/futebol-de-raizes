@@ -903,7 +903,8 @@ def matches_list(
     """GET /api/matches. `date` = dia de Brasília (date ou "AAAA-MM-DD"); `status` aceita
     vários separados por vírgula. Com ou sem filtro, uma página de no máximo
     MATCHES_LIST_LIMIT partidas (`limit`, a partir de `offset`, em ordem de início);
-    `has_more` diz se há partidas depois desta página.
+    `has_more` diz se há partidas depois desta página — e só quando a próxima (offset +
+    limit) cabe em MATCHES_LIST_MAX_OFFSET: quem segue `has_more` nunca recebe 400.
     Status desconhecido ou data inválida → ValueError (a API responde 400)."""
     query = Match.objects.all()
     if round_id is not None:
@@ -924,7 +925,8 @@ def matches_list(
     offset = max(0, min(offset, MATCHES_LIST_MAX_OFFSET))
     # Um a mais que a página só para saber se há mais; o custo fica limitado pelo teto.
     rows = list(query.select_related(*MATCH_RELATED).order_by("kickoff_at", "id")[offset : offset + limit + 1])
-    return {**_stamp(), "matches": serialize_matches(rows[:limit]), "has_more": len(rows) > limit}
+    has_more = len(rows) > limit and offset + limit <= MATCHES_LIST_MAX_OFFSET
+    return {**_stamp(), "matches": serialize_matches(rows[:limit]), "has_more": has_more}
 
 
 # --- Catálogo do operador -------------------------------------------------------------------

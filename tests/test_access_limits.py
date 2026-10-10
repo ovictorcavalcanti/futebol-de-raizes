@@ -7,7 +7,7 @@ import time
 
 import pytest
 from django.contrib.auth.backends import ModelBackend
-from django.core.cache import cache
+from django.core.cache import caches
 from django.core.exceptions import PermissionDenied
 from django.test import Client, RequestFactory
 
@@ -29,15 +29,14 @@ THROTTLE = {
     "IP_WINDOW": 900,
     "IP_LOCK": 600,
 }
+login_cache = caches["login"]  # o do bloqueio de login (accounts/throttle.py)
 
 
 @pytest.fixture
 def limits_on(settings):
-    cache.clear()
     throttle._in_flight.clear()  # vaga presa por outro teste não vaza para este
     settings.LOGIN_THROTTLE = dict(THROTTLE)
-    yield settings
-    cache.clear()
+    return settings
 
 
 class Clock:
@@ -165,7 +164,6 @@ def test_admin_login_shows_lock_message(limits_on, operator_user, monkeypatch):
 
 
 def test_throttle_disabled_by_setting(settings, operator_user):
-    cache.clear()
     settings.LOGIN_THROTTLE = {**THROTTLE, "ENABLED": False}
     client = Client(enforce_csrf_checks=True)
     for _ in range(5):
@@ -232,7 +230,7 @@ class SlowReads:
 
 def test_simultaneous_failures_all_count_and_lock(limits_on, monkeypatch):
     limits_on.LOGIN_THROTTLE = {**THROTTLE, "USER_FAILURES": 10, "IP_FAILURES": 10}
-    monkeypatch.setattr(throttle, "cache", SlowReads(cache))
+    monkeypatch.setattr(throttle, "cache", SlowReads(login_cache))
     user_locks = metrics.value("fdr_login_lockouts_total", scope="user_ip")
     ip_locks = metrics.value("fdr_login_lockouts_total", scope="ip")
     checked, locks = concurrent_logins(monkeypatch, 10)
@@ -300,10 +298,10 @@ def test_password_check_error_releases_the_attempt_once(limits_on, monkeypatch):
 
 def test_cache_error_on_failure_releases_the_attempt(limits_on, operator_user, monkeypatch, short_wait):
     limits_on.LOGIN_THROTTLE = {**THROTTLE, "USER_FAILURES": 2}
-    monkeypatch.setattr(throttle, "cache", BrokenWrites(cache, fail_on=":ip:"))
+    monkeypatch.setattr(throttle, "cache", BrokenWrites(login_cache, fail_on=":ip:"))
     with pytest.raises(ConnectionError):
         backend_login("errada")  # a falha do par foi gravada; a do IP, não
-    monkeypatch.setattr(throttle, "cache", cache)
+    monkeypatch.setattr(throttle, "cache", login_cache)
     assert not throttle._in_flight
     # 1 falha de 2: com a vaga presa, esta esperaria e seria recusada.
     assert backend_login("senha-forte-123") == operator_user
@@ -312,10 +310,10 @@ def test_cache_error_on_failure_releases_the_attempt(limits_on, operator_user, m
 def test_cache_error_on_success_releases_the_attempt(limits_on, operator_user, monkeypatch, short_wait):
     limits_on.LOGIN_THROTTLE = {**THROTTLE, "USER_FAILURES": 2}
     assert backend_login("errada") is None  # 1 falha de 2
-    monkeypatch.setattr(throttle, "cache", BrokenWrites(cache, fail_on=":u:"))
+    monkeypatch.setattr(throttle, "cache", BrokenWrites(login_cache, fail_on=":u:"))
     with pytest.raises(ConnectionError):
         backend_login("senha-forte-123")  # zerar a contagem falha
-    monkeypatch.setattr(throttle, "cache", cache)
+    monkeypatch.setattr(throttle, "cache", login_cache)
     assert not throttle._in_flight
     assert backend_login("senha-forte-123") == operator_user
 
@@ -334,7 +332,6 @@ def test_zero_limit_counts_as_one(limits_on, operator_user, short_wait, limit):
 
 
 def test_api_rate_limit_per_ip(settings):
-    cache.clear()
     settings.API_RATE_LIMIT_PER_MINUTE = 5
     client = Client()
     codes = [client.get("/api/competitions", REMOTE_ADDR="10.1.1.1").status_code for _ in range(6)]
@@ -345,11 +342,9 @@ def test_api_rate_limit_per_ip(settings):
     # Outro IP segue livre; páginas e /health não entram no limite.
     assert client.get("/api/competitions", REMOTE_ADDR="10.1.1.2").status_code == 200
     assert client.get("/health", REMOTE_ADDR="10.1.1.1").status_code == 200
-    cache.clear()
 
 
 def test_api_rate_limit_ignores_forwarded_header(settings):
-    cache.clear()
     settings.API_RATE_LIMIT_PER_MINUTE = 2
     client = Client()
     codes = [
@@ -357,7 +352,37 @@ def test_api_rate_limit_ignores_forwarded_header(settings):
         for n in range(3)
     ]
     assert codes == [200, 200, 429]
-    cache.clear()
+
+
+def test_many_ips_do_not_evict_login_lock_or_public_api_count(limits_on, operator_user, monkeypatch):
+    # O limite por IP grava uma chave por IP por minuto: mil IPs distintos (mais que
+    # as 300 entradas padrão do LocMem) não podem despejar o bloqueio de login — que
+    # voltaria com falhas e strikes zerados — nem o contador da API pública.
+    from types import SimpleNamespace
+
+    from core import ratelimit
+    from public_api import throttle as public_throttle
+
+    clock = Clock(monkeypatch)
+    limits_on.API_RATE_LIMIT_PER_MINUTE = 5
+    for _ in range(3):
+        assert backend_login("errada") is None  # a 3ª bloqueia por 60 s (1º strike)
+    attacker = RequestFactory().post("/api/auth/login", REMOTE_ADDR="10.0.0.20")
+    assert throttle.check(attacker, "operador") == throttle.Lock(60)
+    api_key = SimpleNamespace(pk=7, rate_limit_per_minute=100)
+    assert public_throttle.hit(api_key).count == 1
+
+    for n in range(1000):
+        request = RequestFactory().get("/api/competitions", REMOTE_ADDR=f"10.9.{n // 250}.{n % 250 + 1}")
+        assert ratelimit._limited(request) is None
+
+    assert throttle.check(attacker, "operador") == throttle.Lock(60)
+    assert public_throttle.hit(api_key).count == 2
+    # O strike também ficou: o próximo bloqueio dobra (120 s), não recomeça em 60 s.
+    clock.advance(61)
+    for _ in range(3):
+        assert backend_login("errada") is None
+    assert throttle.check(attacker, "operador") == throttle.Lock(120)
 
 
 def test_large_body_rejected(settings, operator_client):

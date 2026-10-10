@@ -28,9 +28,10 @@ encerrada mesmo se o cache falhar no meio, para a vaga não ficar presa.
 Limites de falhas (`USER_FAILURES`, `IP_FAILURES`) abaixo de 1 valem 1: bloqueia
 na primeira falha, e o login certo continua passando.
 
-O estado fica no cache `default` do processo e a trava vale para o processo,
-suficiente com um processo ASGI só; com mais processos, troque o cache por
-Redis/Memcached e a trava por uma do próprio cache (ex.: lock do Redis).
+O estado fica no cache `login` do processo (à parte, para o giro de chaves do
+limite por IP não despejá-lo) e a trava vale para o processo, suficiente com um
+processo ASGI só; com mais processos, troque o cache por Redis/Memcached e a trava
+por uma do próprio cache (ex.: lock do Redis).
 """
 
 from __future__ import annotations
@@ -43,13 +44,15 @@ from collections import Counter
 from dataclasses import dataclass
 
 from django.conf import settings
-from django.core.cache import cache
+from django.core.cache import caches
+from django.utils.connection import ConnectionProxy
 
 from core.net import client_ip
 from observability.logging import get_logger
 from observability.metrics import metrics
 
 log = get_logger("security")
+cache = ConnectionProxy(caches, "login")
 
 PREFIX = "fdr:login"
 WAIT_LIMIT = 30  # s esperando tentativas em andamento; passou disso, recusa

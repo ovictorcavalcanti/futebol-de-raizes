@@ -209,13 +209,33 @@ API_RATE_LIMIT_PER_MINUTE = int(env("API_RATE_LIMIT_PER_MINUTE", "240"))
 DATA_UPLOAD_MAX_MEMORY_SIZE = int(env("DATA_UPLOAD_MAX_MEMORY_SIZE", str(1024 * 1024)))
 
 # --- Cache --------------------------------------------------------------------
-# "default": limite de uso da API pública. "reads": micro-cache das leituras mais
-# quentes (GET /api/home e /api/competitions/{slug}), separado para que as chaves
-# do limite de uso nunca sejam despejadas por ele.
+# Um cache por tipo de estado. Cheio, o LocMem despeja 1/3 das chaves menos usadas
+# (e chave vencida só sai assim); separados, o tráfego que gira muito não leva
+# junto o estado de segurança.
+# "login": bloqueio de login (accounts/throttle.py: falhas, bloqueio e strikes por
+#   usuário+IP e por IP). Só cresce com senha errada; folga grande.
+# "ratelimit": limite por IP das rotas /api/ (core/ratelimit.py), uma chave por IP
+#   por minuto, que vence sem ser lida de novo: cabem ~13 mil IPs distintos por
+#   minuto (a janela atual e a anterior) antes de despejar contador em uso.
+# "default": limite de uso da API pública (public_api/throttle.py), uma chave por
+#   chave de API por minuto.
+# "reads": micro-cache das leituras mais quentes (GET /api/home e
+#   /api/competitions/{slug}).
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
         "LOCATION": "fdr",
+        "OPTIONS": {"MAX_ENTRIES": 10_000},
+    },
+    "login": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "fdr-login",
+        "OPTIONS": {"MAX_ENTRIES": 50_000},
+    },
+    "ratelimit": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "fdr-ratelimit",
+        "OPTIONS": {"MAX_ENTRIES": 20_000},
     },
     "reads": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",

@@ -549,8 +549,10 @@ Contra força bruta e enxurrada:
 
 Todos os números são configuráveis no `.env` (`LOGIN_THROTTLE_*`,
 `API_RATE_LIMIT_PER_MINUTE`, `REALTIME_MAX_STREAMS*`). Os contadores ficam na memória do
-processo — certo com um processo ASGI só; com mais processos, troque o cache `default`
-por Redis ou Memcached (e, no login, a trava do processo por uma do cache). Métricas:
+processo, cada um no seu cache (`login`, `ratelimit` e, o da API pública, `default`),
+para o giro de uma chave por IP por minuto não despejar o bloqueio de login — certo com
+um processo ASGI só; com mais processos, troque esses caches por Redis ou Memcached (e,
+no login, a trava do processo por uma do cache). Métricas:
 `fdr_login_lockouts_total`, `fdr_rate_limited_total`.
 
 ## Métricas, logs e auditoria

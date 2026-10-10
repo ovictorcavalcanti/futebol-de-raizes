@@ -2,12 +2,18 @@
 teto de conexões do stream."""
 
 import json
+import threading
+import time
 
 import pytest
+from django.contrib.auth.backends import ModelBackend
 from django.core.cache import cache
+from django.core.exceptions import PermissionDenied
 from django.test import Client, RequestFactory
 
 from accounts import throttle
+from accounts.backends import ThrottledModelBackend
+from observability.metrics import metrics
 from observability.models import AuditLog
 from realtime import views as stream_views
 
@@ -164,6 +170,86 @@ def test_throttle_disabled_by_setting(settings, operator_user):
     for _ in range(5):
         assert api_login(client, "operador", "errada").status_code == 401
     assert api_login(client, "operador", "senha-forte-123").status_code == 200
+
+
+def concurrent_logins(monkeypatch, attempts, ip="10.0.0.9"):
+    """`attempts` logins errados do "operador", do mesmo IP, ao mesmo tempo. A
+    conferência da senha espera até todas estarem conferindo juntas (ou 0,5 s,
+    se o bloqueio não deixar tantas chegarem lá): é a janela em que tentativas
+    concorrentes se atropelam. Devolve (senhas conferidas, bloqueios recebidos)."""
+    checked = []
+    together = threading.Barrier(attempts, timeout=0.5)
+
+    def slow_password_check(self, request, username=None, password=None, **kwargs):
+        checked.append(username)
+        try:
+            together.wait()
+        except threading.BrokenBarrierError:
+            pass
+        return None
+
+    monkeypatch.setattr(ModelBackend, "authenticate", slow_password_check)
+    backend = ThrottledModelBackend()
+    start = threading.Barrier(attempts)
+    locks = []
+
+    def attempt():
+        request = RequestFactory().post("/api/auth/login", REMOTE_ADDR=ip)
+        start.wait()
+        try:
+            backend.authenticate(request, username="operador", password="errada")
+        except PermissionDenied:
+            pass
+        if getattr(request, "login_lock", None) is not None:
+            locks.append(request.login_lock)
+
+    threads = [threading.Thread(target=attempt) for _ in range(attempts)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+    assert not any(thread.is_alive() for thread in threads)
+    return len(checked), locks
+
+
+class SlowReads:
+    """O cache de verdade, mas cada leitura demora um pouco: alarga a janela entre
+    ler e gravar a contagem, como um cache fora do processo faria."""
+
+    def __init__(self, real):
+        self.real = real
+
+    def get(self, *args, **kwargs):
+        value = self.real.get(*args, **kwargs)
+        time.sleep(0.01)
+        return value
+
+    def __getattr__(self, name):
+        return getattr(self.real, name)
+
+
+def test_simultaneous_failures_all_count_and_lock(limits_on, monkeypatch):
+    limits_on.LOGIN_THROTTLE = {**THROTTLE, "USER_FAILURES": 10, "IP_FAILURES": 10}
+    monkeypatch.setattr(throttle, "cache", SlowReads(cache))
+    user_locks = metrics.value("fdr_login_lockouts_total", scope="user_ip")
+    ip_locks = metrics.value("fdr_login_lockouts_total", scope="ip")
+    checked, locks = concurrent_logins(monkeypatch, 10)
+    assert checked == 10  # cabem todas no limite: conferem a senha juntas
+    # Nenhuma das 10 falhas se perde: as duas contagens chegam ao limite e bloqueiam.
+    assert metrics.value("fdr_login_lockouts_total", scope="user_ip") == user_locks + 1
+    assert metrics.value("fdr_login_lockouts_total", scope="ip") == ip_locks + 1
+    assert len(locks) == 1
+    other_user = RequestFactory().post("/api/auth/login", REMOTE_ADDR="10.0.0.9")
+    assert throttle.check(other_user, "outro") == throttle.Lock(600)
+
+
+def test_simultaneous_attempts_beyond_the_limit_never_reach_the_password(limits_on, monkeypatch):
+    # Limite de 3 falhas (THROTTLE): de 8 tentativas simultâneas, só 3 conferem a
+    # senha; as outras esperam por elas e já encontram o bloqueio.
+    checked, locks = concurrent_logins(monkeypatch, 8)
+    assert checked == 3
+    assert len(locks) == 6  # o da 3ª falha + as 5 que esperavam
+    assert all(0 < lock.retry_after <= 60 for lock in locks)
 
 
 # --- Limite de requisições por IP -------------------------------------------------

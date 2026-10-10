@@ -535,7 +535,9 @@ Contra força bruta e enxurrada:
   (20 falhas em 15 min, com qualquer usuário, bloqueiam o IP por 15 min). Bloqueado,
   a senha nem é conferida; a API responde `429 login_locked` com `Retry-After` e o admin
   mostra o aviso. Não há bloqueio só por usuário, para um atacante não trancar fora o
-  operador de verdade. Toda tentativa vai para a auditoria (`accounts/throttle.py`).
+  operador de verdade. Tentativas simultâneas contam todas e não passam do limite: as
+  que poderiam passar esperam as que já conferem a senha. Toda tentativa vai para a
+  auditoria (`accounts/throttle.py`).
 - **Requisições por IP** nas rotas `/api/`: 240 por minuto; passou, `429 rate_limited`
   com `Retry-After`, antes de chegar à view ou ao banco (`core/ratelimit.py`).
 - **Stream**: até 20 conexões abertas por IP (`429 too_many_streams`) e 5000 no processo
@@ -548,7 +550,8 @@ Contra força bruta e enxurrada:
 Todos os números são configuráveis no `.env` (`LOGIN_THROTTLE_*`,
 `API_RATE_LIMIT_PER_MINUTE`, `REALTIME_MAX_STREAMS*`). Os contadores ficam na memória do
 processo — certo com um processo ASGI só; com mais processos, troque o cache `default`
-por Redis ou Memcached. Métricas: `fdr_login_lockouts_total`, `fdr_rate_limited_total`.
+por Redis ou Memcached (e, no login, a trava do processo por uma do cache). Métricas:
+`fdr_login_lockouts_total`, `fdr_rate_limited_total`.
 
 ## Métricas, logs e auditoria
 

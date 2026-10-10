@@ -236,7 +236,7 @@ def _row_out(row, team, zones: Sequence[Zone], playing: set[int], qualified: dic
             zone = None
     return {
         "position": row.position,
-        "rank": row.rank or row.position,  # linha gravada antes do campo: a ordem
+        "rank": row.rank,
         "team": serialize_team(team),
         "played": row.played,
         "won": row.won,
@@ -311,10 +311,11 @@ def stages_standings(stages: Iterable[Stage], live: bool = True, conditional: bo
             teams = members.get(group.id, [])
             rows = cached.get(group.id, [])
             stale = {row.team_id for row in rows} != {item.team_id for item in teams} or any(
-                row.adjustment != stage_adjustments_.get(row.team_id, 0) for row in rows
+                row.adjustment != stage_adjustments_.get(row.team_id, 0) or not row.rank for row in rows
             )
             if stale:
-                # Sem cache (ou cache de outro elenco ou de outros ajustes): calcula na hora, sem gravar.
+                # Sem cache (ou cache de outro elenco, de outros ajustes ou gravado antes da posição
+                # exibida `rank`): calcula na hora, sem gravar.
                 group.stage = stage
                 team_map = {item.team_id: item.team for item in teams}
                 computed = compute_group(group, rules=rules, teams=teams, adjustments=stage_adjustments_)[kind]

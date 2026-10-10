@@ -3,24 +3,10 @@
 from django.db import migrations, models
 
 
-def fill_rank(apps, schema_editor):
-    """Preenche a posição exibida das linhas já gravadas (o cache refaz tudo no próximo lance).
-    Empatadas seguidas com os mesmos números dividem a posição da primeira (1, 2, 2, 4)."""
-    Standing = apps.get_model("standings", "Standing")
-    changed = []
-    previous = None  # (grupo, tabela, empatada, números) da linha anterior e o rank dela
-    for row in Standing.objects.order_by("group_id", "kind", "position").iterator():
-        key = (row.group_id, row.kind, row.points, row.won, row.goals_for - row.goals_against, row.goals_for)
-        if row.tied and previous and previous[0] == key and previous[1]:
-            row.rank = previous[2]
-        else:
-            row.rank = row.position
-        previous = (key, row.tied, row.rank)
-        changed.append(row)
-    Standing.objects.bulk_update(changed, ["rank"], batch_size=1000)
-
-
 class Migration(migrations.Migration):
+    """Posição exibida (`rank`). As linhas gravadas antes ficam com 0: a leitura as trata como
+    cache velho e calcula na hora com os critérios da fase (standings.services.stages_standings),
+    até o próximo lance do grupo ou `python manage.py recompute_standings`."""
 
     dependencies = [
         ("standings", "0004_ranking_group_position_ranking_skip_extra_teams_and_more"),
@@ -34,5 +20,4 @@ class Migration(migrations.Migration):
                 default=0, verbose_name="posição exibida"
             ),
         ),
-        migrations.RunPython(fill_rank, migrations.RunPython.noop),
     ]

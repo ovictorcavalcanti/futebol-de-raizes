@@ -950,10 +950,12 @@ def test_competicao_rodadas_fase_e_slug_inexistente(open_page, fixtures):
     # fase de grupos: uma linha por grupo (na ordem da tabela), com os jogos e a tabela dele; o
     # jogo entre grupos (pelos times da tabela) numa seção à parte, sem tabela
     rows = "() => [...document.querySelectorAll('#round-matches .group-row:not(.group-row--head)')].map((g) => [g.querySelector('.match-group__title').textContent, g.querySelectorAll('.match').length, g.querySelector('.group-row__empty')?.textContent || '', g.querySelector('.group-row__table caption')?.textContent || ''])"
-    assert page.evaluate(rows) == [["Grupo A", 1, "", "Grupo A"], ["Grupo B", 1, "", "Grupo B"], ["Jogos entre grupos", 1, "", ""]]
+    # rodada mista (caso raro): a seção entre grupos traz também as tabelas dos dois grupos
+    assert page.evaluate(rows) == [["Grupo A", 1, "", "Grupo A"], ["Grupo B", 1, "", "Grupo B"], ["Jogos entre grupos", 1, "", "Grupo A"]]
+    assert page.evaluate("[...document.querySelectorAll('#round-matches .group-row--cross caption')].map((c) => c.firstChild.textContent)") == ["Grupo A", "Grupo B"]
     # legenda das cores embaixo de cada grupo; os critérios de desempate uma vez, dentro do card
     # do último grupo (sem caixa à parte depois das tabelas)
-    assert page.evaluate("[...document.querySelectorAll('#round-matches .group-row__table')].map((t) => [!!t.querySelector('.standings__group .legend'), !!t.querySelector('.standings__group .criteria')])") == [[True, False], [True, True]]
+    assert page.evaluate("[...document.querySelectorAll('#round-matches .group-row__table')].map((t) => [!!t.querySelector('.standings__group .legend'), !!t.querySelector('.standings__group .criteria')])") == [[True, False], [True, False], [True, True]]
     assert page.evaluate("document.querySelectorAll('#round-matches .criteria').length") == 1
     assert page.evaluate("document.querySelectorAll('#round-matches .standings > .card:not(.standings__group)').length") == 0
     assert page.evaluate(  # cards do grupo com respiro entre si
@@ -961,7 +963,7 @@ def test_competicao_rodadas_fase_e_slug_inexistente(open_page, fixtures):
     )
     page.set_viewport_size({"width": 1280, "height": 900})
     aligned = "() => [...document.querySelectorAll('#round-matches .group-row__table')].map((t) => { const first = t.parentElement.querySelector('.match-group__games, .group-row__empty'); return [Math.round(first.getBoundingClientRect().top - t.getBoundingClientRect().top), t.getBoundingClientRect().left > first.getBoundingClientRect().right]; })"
-    assert page.evaluate(aligned) == [[0, True], [0, True]]  # tabela à direita, topo com o primeiro jogo
+    assert page.evaluate(aligned) == [[0, True]] * 3  # tabela à direita, topo com o primeiro jogo
     # a tabela (com a legenda) é mais alta que o jogo do grupo: ela define a altura da linha
     sizes = page.evaluate("[...document.querySelectorAll('#round-matches .group-row__table')].map((t) => { const row = t.closest('.group-row'); const games = row.querySelector('.match-group__games'); const next = row.nextElementSibling; return {table: t.getBoundingClientRect().bottom, games: games.getBoundingClientRect().bottom, row: row.getBoundingClientRect().bottom, next: next ? next.getBoundingClientRect().top : null}; })")
     assert all(s["table"] > s["games"] and s["row"] >= s["table"] - 0.5 and (s["next"] is None or s["next"] > s["table"]) for s in sizes), sizes

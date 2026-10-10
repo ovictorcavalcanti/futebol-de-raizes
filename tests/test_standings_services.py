@@ -5,8 +5,10 @@ contados pelos eventos visíveis, StageStandingsOut (critérios, legenda, zona,
 from __future__ import annotations
 
 from datetime import timedelta
+from io import StringIO
 
 import pytest
+from django.core.management import call_command
 
 from competitions.models import GroupTeam, StageCriterion, StandingZone
 from core import timeutils
@@ -126,6 +128,15 @@ def test_rows_computed_on_the_fly_without_cache_or_with_stale_cache(league):
     services.recompute_stage(league["stage"])
     assert set(Standing.objects.values_list("rank", flat=True)) == {1}
     assert [row["rank"] for row in services.stage_standings(league["stage"])["groups"][0]["rows"]] == [1, 1, 1, 1]
+    # cache gravado antes do campo (rank 0): a leitura calcula na hora, sem gravar
+    Standing.objects.update(rank=0)
+    assert [row["rank"] for row in services.stage_standings(league["stage"])["groups"][0]["rows"]] == [1, 1, 1, 1]
+    assert set(Standing.objects.values_list("rank", flat=True)) == {0}
+    # o comando regrava o cache de todas as fases com tabela
+    out = StringIO()
+    call_command("recompute_standings", stdout=out)
+    assert set(Standing.objects.values_list("rank", flat=True)) == {1}
+    assert "recalculada" in out.getvalue()
 
     services.recompute_group(league["group"])
     newcomer = make_team("Afogados")

@@ -4,9 +4,10 @@
  * altura do mais alto dos dois, então a tabela de um grupo nunca invade a linha do seguinte.
  *
  * Jogo entre times de grupos diferentes (pelos times da tabela, não pelo grupo cadastrado na
- * partida) vai para a seção "Jogos entre grupos", depois dos grupos, com as tabelas dos grupos
- * envolvidos uma abaixo da outra (o único lugar com mais de uma tabela ao lado dos jogos). O
- * grupo que só tem jogo entre grupos não ganha linha própria: a tabela dele fica nessa seção.
+ * partida) vai para a seção "Jogos entre grupos", depois dos grupos, com as tabelas de todos os
+ * grupos envolvidos uma abaixo da outra (o único lugar com mais de uma tabela ao lado dos
+ * jogos). O grupo que só tem jogo entre grupos não ganha linha própria; numa rodada mista (caso
+ * raro), o grupo com jogo dentro dele tem a linha dele e a tabela aparece também na seção.
  *
  * Embaixo de cada tabela: a legenda das cores e as punições dos times do grupo; os critérios de
  * desempate ficam uma vez, no card do último grupo exibido.
@@ -63,13 +64,13 @@ function shownGroups(standings, split, only) {
   return playing.length ? playing : groups; // nada casou (dado incompleto): mostra todos
 }
 
-/** Onde fica a tabela de cada grupo exibido: na linha do grupo (tem jogo dentro do grupo, ou
- *  nenhum jogo no recorte) ou na seção dos jogos entre grupos (só jogo entre grupos). `order` é
- *  a ordem das tabelas na tela (a última leva os critérios de desempate). */
+/** Onde ficam as tabelas: na linha do grupo (tem jogo dentro do grupo, ou nenhum jogo no
+ *  recorte) e na seção dos jogos entre grupos (todos os grupos envolvidos neles). `order` é a
+ *  ordem das tabelas na tela (a última leva os critérios de desempate). */
 function placeGroups(standings, split, only) {
   const shown = shownGroups(standings, split, only);
   const own = shown.filter((g) => split.byGroup.has(g.id) || !split.crossGroups.has(g.id));
-  const cross = shown.filter((g) => !split.byGroup.has(g.id) && split.crossGroups.has(g.id));
+  const cross = shown.filter((g) => split.crossGroups.has(g.id));
   return { own, cross, order: [...own, ...cross] };
 }
 
@@ -114,15 +115,15 @@ function groupRow(title, id, cards, empty, tables = [], cls = null) {
  * @param {(match: object) => HTMLElement} card card de cada jogo (a página reaproveita os seus)
  * @param {{only?: 'all'|'playing', when?: string}} [opts] only 'playing': só os grupos com jogo
  *   no recorte; when: "nesta rodada" / "hoje", no aviso do grupo sem jogo
- * @returns {{rows: HTMLElement[], tables: Map<number, HTMLElement>, key: string}}
+ * @returns {{rows: HTMLElement[], tables: HTMLElement[], key: string}}
  */
 export function createGroupRows(standings, matches, card, { only = 'all', when = 'nesta rodada' } = {}) {
   const split = splitGroupMatches(matches, standings);
   const place = placeGroups(standings, split, only);
-  const tables = new Map();
+  const tables = []; // na ordem de place.order (um grupo pode aparecer duas vezes: rodada mista)
   const tableOf = (g) => {
-    const table = createStandings(...tableArgs(standings, place.order, place.order.indexOf(g)));
-    tables.set(g.id, table);
+    const table = createStandings(...tableArgs(standings, place.order, tables.length));
+    tables.push(table);
     return table;
   };
   const rest = new Map(split.byGroup);
@@ -131,7 +132,7 @@ export function createGroupRows(standings, matches, card, { only = 'all', when =
     rest.delete(g.id);
     return groupRow(g.name, g.id, games.map(card), `Não há jogos deste grupo ${when}.`, [tableOf(g)]);
   });
-  // jogos entre grupos, com as tabelas dos grupos que só jogam entre grupos, uma abaixo da outra
+  // jogos entre grupos, com as tabelas dos grupos envolvidos, uma abaixo da outra
   if (split.cross.length) rows.push(groupRow('Jogos entre grupos', null, split.cross.map(card), '', place.cross.map(tableOf), 'group-row--cross'));
   // jogo de grupo que não está na tabela (ex.: sem grupo): linha sem tabela, no fim
   const leftovers = [...rest.values()].sort((a, b) => String(a.group?.name || '').localeCompare(String(b.group?.name || ''), 'pt-BR', { numeric: true }));
@@ -162,13 +163,13 @@ export function createMatchGroupBlocks(matches, standings, card) {
 
 /**
  * Mensagem `standings`: redesenha as tabelas no lugar (os cards não saem do lugar).
- * @param {{tables: Map<number, HTMLElement>, key: string}} layout o que createGroupRows devolveu
+ * @param {{tables: HTMLElement[], key: string}} layout o que createGroupRows devolveu
  * @returns {boolean} false se as linhas mudaram (grupos exibidos, jogos entre grupos): refaça
  */
 export function updateGroupRows(layout, standings, matches, { only = 'all' } = {}) {
   const split = splitGroupMatches(matches, standings);
   const place = placeGroups(standings, split, only);
   if (!layout || layoutKey(place, split) !== layout.key) return false;
-  place.order.forEach((g, i) => updateStandings(layout.tables.get(g.id), ...tableArgs(standings, place.order, i)));
+  place.order.forEach((g, i) => updateStandings(layout.tables[i], ...tableArgs(standings, place.order, i)));
   return true;
 }

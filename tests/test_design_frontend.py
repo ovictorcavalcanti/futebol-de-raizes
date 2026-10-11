@@ -485,7 +485,7 @@ COMPONENTS_JS = """async () => {
   M.syncTieCards(legCards, { ...legOne, version: 2, tie: { ...legOne.tie, aggregate: { team_a: 2, team_b: 0 } } });
   out.legTwoAgg = legCards[1].querySelector('.match__tie-agg').textContent;
   out.legTwoLeg = M.getCardMatch(legCards[1]).tie.leg;
-  // rodada "Final": quem vence é campeão, com a medalha no fim (sem o check do "avança")
+  // rodada "Final": quem vence é campeão, com a estrela no fim (sem o símbolo do "avança")
   const finalCard = M.createMatchCard({ ...ko, id: 558, tie: { ...ko.tie, round: { ...(ko.tie.round || {}), name: 'Final' } } }, {});
   root.append(finalCard);
   const adv = finalCard.querySelector('.match__tie .tie__adv');
@@ -592,7 +592,7 @@ def test_componentes_no_navegador(browser_page):
     assert out["legOneTie"] == "Jogo de ida" and out["legOneAgg"] == 0
     assert out["legOneInfo"] == ["#i-info", "#i-info", 0]
     assert out["legTwoAgg"].split()[1:4] == ["0", "×", "2"] and out["legTwoLeg"] == 2  # volta: mandante = team_b
-    assert out["finalAdv"] == ["Campeão nos pênaltis", True, "#i-medal", False]
+    assert out["finalAdv"] == ["Campeão nos pênaltis", True, "#i-star", False]
     assert out["semiAdv"] == ["avança nos pênaltis", True, "#i-advance", False]
     assert out["delay"] == [False, "Início atrasado — Chuva forte", "#i-alert", False, False] and out["delayGone"]
     assert out["varMinute"] == "31'"

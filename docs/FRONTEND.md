@@ -244,7 +244,7 @@ O card cobre todos os status: agendado (pílula com horário, dia relativo), ao 
 (minuto correndo, faixa vermelha no topo), intervalo (amarelo), encerrado
 (vencedor em destaque, perdedor esmaecido), pênaltis `(4) × (3) pên.`, suspenso,
 adiado e cancelado (hachura). Linha do confronto no mata-mata (no card da volta: agregado e quem
-avança, com o agregado na mesma ordem mandante × visitante do placar do card; nas outras rodadas, "avança" com o símbolo de avançar (⏩) no fim; na rodada "Final", "Campeão" com a medalha dourada no fim; "Jogo de ida" e "Agregado" com o ícone de informação na frente). Atrasado: linha "Início atrasado — motivo" com o alerta na frente nas observações abaixo do placar (onde fica o "Jogo de ida"); some quando o jogo começa.
+avança, com o agregado na mesma ordem mandante × visitante do placar do card; nas outras rodadas, "avança" com o símbolo de avançar (⏩) no fim; na rodada "Final", "Campeão" com a estrela dourada no fim; "Jogo de ida" e "Agregado" com o ícone de informação na frente). Atrasado: linha "Início atrasado — motivo" com o alerta na frente nas observações abaixo do placar (onde fica o "Jogo de ida"); some quando o jogo começa.
 Nome do time: sigla no celular, nome completo a partir de 520 px de card; quebra só entre
 palavras (`overflow-wrap: normal`, `text-wrap: balance`; a sigla nunca quebra) e o ✓ do
 vencedor fica fora do fluxo (no canto, junto da faixa do time), sem apertar o nome; em card

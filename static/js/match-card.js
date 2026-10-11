@@ -444,10 +444,10 @@ function renderTie(p, match) {
     }
     if (winner && tie.complete) {
       const how = tie.decided_by && (tie.legs === 2 || tie.decided_by !== 'aggregate') ? ` ${tie.decided_by_label || ''}` : '';
-      // na final, quem vence é campeão (medalha dourada no fim); nas outras rodadas, avança
+      // na final, quem vence é campeão (estrela dourada no fim); nas outras rodadas, avança
       // (seta dupla para cima no fim)
       const outcome = isFinalRound(tie)
-        ? h('span', { class: 'tie__adv tie__adv--champion' }, `Campeão${how}`, icon('medal'))
+        ? h('span', { class: 'tie__adv tie__adv--champion' }, `Campeão${how}`, icon('star'))
         : h('span', { class: 'tie__adv' }, `avança${how}`, icon('advance'));
       rows.push(row(h('strong', { text: displayName(winner) }), outcome));
     }

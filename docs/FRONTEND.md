@@ -335,7 +335,11 @@ document.addEventListener('visibilitychange', () => document.hidden || clock.che
 * ‹ › trocam a rodada sem recarregar (`history.replaceState`): liga/grupos com
   `GET /api/matches?roundId=`; **mata-mata com `GET /api/competitions/:slug?stage=&round=`**,
   que traz os confrontos com todos os jogos (a ida pode estar em outra rodada).
-  Botões desabilitados nas pontas. O `<select>` troca a fase.
+  Botões desabilitados nas pontas. O `<select>` troca a fase. Mensagens do stream que chegam
+  durante a troca (o card do jogo ainda não existe) ficam guardadas e são aplicadas depois de
+  desenhar a resposta: o card descarta a versão mais velha (`version`) e a classificação só
+  recebe as mensagens depois do `cursor` da resposta. (A home não precisa: a troca de dia
+  reabre o stream no cursor da resposta.)
 * Liga: cards + classificação (legenda e critérios) no aside. Grupos (com a tabela da fase
   exibida): uma linha por grupo, jogos à esquerda e a tabela do grupo à direita, alinhada com o
   primeiro jogo e a legenda das cores embaixo (critérios de desempate uma vez, no card do

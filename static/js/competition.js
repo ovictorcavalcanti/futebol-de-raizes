@@ -63,6 +63,7 @@ const state = {
   rankingTimer: 0,
   rankingToken: 0,
   rankingPending: null, // fases que mudaram durante a carga da classificação (null: sem carga)
+  pending: null, // troca de rodada/fase em andamento: mensagens do stream recebidas no meio
   rankingMatchKeys: new Map(), // match id → {key, stageId}: o que conta na classificação (último visto pelo stream)
   seq: 0, // ignora respostas fora de ordem (troca rápida de rodada/fase)
 };
@@ -340,11 +341,29 @@ async function fetchCompetition({ stage = null, round = null } = {}) {
   }
 }
 
+/** Troca de rodada ou fase: a resposta pode ser de antes de uma mensagem que chegou durante a
+ *  carga (e o card do jogo ainda não existia para recebê-la). Guarda as mensagens e, depois de
+ *  desenhar a resposta, aplica de novo: o card descarta a versão mais velha (`version`), e a
+ *  classificação só recebe as mensagens depois do cursor da resposta (quando ela traz um). */
+function startLoad() {
+  if (!state.pending) state.pending = [];
+}
+
+function finishLoad(cursor = null) {
+  const queued = state.pending || [];
+  state.pending = null;
+  for (const { topic, message, id } of queued) {
+    if (topic === 'match') onMatch(message, id);
+    else if (cursor == null || id == null || id > cursor) onStandings(message, id);
+  }
+}
+
 async function goToRound(index) {
   const round = state.rounds[index];
   if (!round || index === state.roundIndex) return;
   const previous = state.roundIndex;
   const seq = ++state.seq;
+  startLoad();
   state.roundIndex = index;
   paintRoundNav();
   els.matches.setAttribute('aria-busy', 'true');
@@ -356,15 +375,18 @@ async function goToRound(index) {
       if (seq !== state.seq) return;
       sync(data);
       renderMatches(data?.stage?.matches || [], data?.stage?.ties || []);
+      finishLoad(data?.cursor ?? null);
     } else {
       const data = await listMatches({ roundId: round.id });
       if (seq !== state.seq) return;
       sync(data);
       renderMatches(data?.matches || []);
+      finishLoad(); // a lista não traz cursor (a classificação da fase não mudou de tela)
     }
     writeUrl();
   } catch {
     if (seq !== state.seq) return;
+    state.pending = null; // a página continua a mesma: os cards dela já receberam as mensagens
     state.roundIndex = previous;
     paintRoundNav();
     els.matches.removeAttribute('aria-busy');
@@ -374,6 +396,7 @@ async function goToRound(index) {
 
 async function goToStage(stageId) {
   const seq = ++state.seq;
+  startLoad();
   els.stageSelect.disabled = true;
   els.matches.setAttribute('aria-busy', 'true');
   try {
@@ -381,8 +404,10 @@ async function goToStage(stageId) {
     if (seq !== state.seq) return;
     sync(data);
     render(data);
+    finishLoad(data?.cursor ?? null);
   } catch {
     if (seq !== state.seq) return;
+    state.pending = null;
     els.stageSelect.value = String(state.stage?.id ?? '');
     els.stageSelect.disabled = false;
     els.matches.removeAttribute('aria-busy');
@@ -399,6 +424,7 @@ async function reload() {
   if (seq === state.seq) {
     sync(data);
     render(data, round?.id ?? null);
+    state.pending = null; // o stream recomeça do cursor desta leitura: nada se perde
   }
   return data.cursor ?? null;
 }
@@ -440,9 +466,10 @@ function rankingOnMatch(stageId, match) {
   rankingChanged(seen && seen.stageId !== stageId ? [seen.stageId, stageId] : [stageId]);
 }
 
-function onMatch(message) {
+function onMatch(message, id = null) {
   const match = message?.match;
   if (!match) return;
+  state.pending?.push({ topic: 'match', message, id });
   rankingOnMatch(message.stage_id, match);
   const card = state.cards.get(match.id);
   const before = card ? getCardMatch(card) : null;
@@ -454,7 +481,8 @@ function onMatch(message) {
   syncTieCards(state.cards.values(), match);
 }
 
-function onStandings(message) {
+function onStandings(message, id = null) {
+  state.pending?.push({ topic: 'standings', message, id });
   rankingChanged([message?.stage_id]);
   if (state.standingsEl && message?.stage_id === state.standingsStageId && message.standings) {
     updateStandings(state.standingsEl, message.standings);

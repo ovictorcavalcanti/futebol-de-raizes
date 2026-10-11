@@ -995,6 +995,39 @@ def test_competicao_rodadas_fase_e_slug_inexistente(open_page, fixtures):
     assert not errors, errors
 
 
+def test_competicao_gol_durante_a_troca_de_rodada_nao_se_perde(open_page, fixtures):
+    """O gol chega pelo stream enquanto a rodada nova carrega (o card ainda não existe); a
+    resposta, de antes do gol, chega depois com 0 × 0: a tela termina com o placar do gol."""
+    # jogo só da rodada nova (sem card na tela durante a carga)
+    before = {**_summary(fixtures["MATCHES"]["scheduledToday"]), "id": 9101, "status": "live", "period": "first_half", "home_score": 0, "away_score": 0, "version": 5}
+    goal = {**before, "home_score": 1, "version": 6}
+    page, api, errors = open_page("/competition.html?slug=copa-pernambuco&stage=6")
+    page.wait_for_selector("#round-matches .group-row")
+    api.round_matches = [before]
+    held = []  # segura a resposta da rodada nova
+    page.route(lambda url: "/api/matches" in url and "roundId=" in url, lambda route: route.fallback() if held else held.append(route))
+    page.click("#round-prev")
+    for _ in range(50):
+        if held:
+            break
+        page.wait_for_timeout(100)
+    assert held  # a carga está a caminho
+    card = f'#round-matches .match[data-match-id="{before["id"]}"]'
+    assert not page.evaluate(f"!!document.querySelector('{card}')")
+    ping = _sse([("ping", {"server_time": _now_iso()}, None)])
+    api.streams = [_sse([("match", {"stage_id": 6, "competition_id": 2, "match": goal}, 8101)]), ping]
+    for _ in range(50):  # o stream reconecta (retry 200 ms) e entrega
+        if api.streams == [ping]:
+            break
+        page.wait_for_timeout(100)
+    assert api.streams == [ping]
+    page.wait_for_timeout(300)
+    held[0].fallback()  # a resposta velha (0 × 0) chega depois do gol
+    page.wait_for_selector(card)
+    page.wait_for_function(f"() => document.querySelector('{card} [data-hook=\"score-home\"]')?.textContent === '1'", timeout=5_000)
+    assert not errors, errors
+
+
 def test_competicao_grupos_tabelas_atualizam_no_lugar(open_page, fixtures):
     """Mensagem `standings` na fase de grupos: as tabelas redesenham no lugar, sem refazer as
     linhas (os cards e as tabelas continuam os mesmos elementos), mesmo com os jogos da API

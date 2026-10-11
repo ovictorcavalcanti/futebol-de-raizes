@@ -482,6 +482,14 @@ COMPONENTS_JS = """async () => {
   M.syncTieCards(legCards, { ...legOne, version: 2, tie: { ...legOne.tie, aggregate: { team_a: 2, team_b: 0 } } });
   out.legTwoAgg = legCards[1].querySelector('.match__tie-agg').textContent;
   out.legTwoLeg = M.getCardMatch(legCards[1]).tie.leg;
+  // rodada "Final": quem vence é campeão, com a medalha no fim (sem o check do "avança")
+  const finalCard = M.createMatchCard({ ...ko, id: 558, tie: { ...ko.tie, round: { ...(ko.tie.round || {}), name: 'Final' } } }, {});
+  root.append(finalCard);
+  const adv = finalCard.querySelector('.match__tie .tie__adv');
+  out.finalAdv = [adv.textContent, adv.classList.contains('tie__adv--champion'), adv.lastElementChild?.querySelector('use')?.getAttribute('href'), !!adv.querySelector('use[href="#i-advance"]')];
+  // outras rodadas: "avança" com a seta dupla para cima no fim (sem o check antes)
+  const semiAdv = koCard.querySelector('.match__tie .tie__adv');
+  out.semiAdv = [semiAdv.textContent, semiAdv.firstChild?.nodeType === 3, semiAdv.lastElementChild?.querySelector('use')?.getAttribute('href'), !!semiAdv.querySelector('use[href="#i-check"]')];
 
   // 4) lance sem time (VAR) mostra o minuto junto do texto
   const timeline = M.renderTimeline(live);
@@ -571,6 +579,8 @@ def test_componentes_no_navegador(browser_page):
     assert out["homeIsTeamB"] and out["aggregate"] == out["expectedAggregate"]
     assert out["legOneTie"] == "Jogo de ida · a vaga sai na volta" and out["legOneAgg"] == 0
     assert out["legTwoAgg"].split()[1:4] == ["0", "×", "2"] and out["legTwoLeg"] == 2  # volta: mandante = team_b
+    assert out["finalAdv"] == ["Campeão nos pênaltis", True, "#i-medal", False]
+    assert out["semiAdv"] == ["avança nos pênaltis", True, "#i-advance", False]
     assert out["varMinute"] == "31'"
     # 1º amarelo + o vermelho do 2º; o tipo vai no nome acessível do ícone, sem legenda repetida
     assert out["secondYellowItems"] == [["Cartão amarelo", ""], ["Cartão vermelho", "Segundo amarelo e vermelho"]]

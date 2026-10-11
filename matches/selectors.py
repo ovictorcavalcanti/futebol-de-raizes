@@ -42,6 +42,10 @@ SUMMARY_EVENT_TYPES = (
     EventType.STOPPAGE_TIME,
     EventType.SUSPENDED,
     EventType.DELAYED,
+    # motivo do status (`status_note`) e retomada do suspenso (`resumes_at`) também nas listas
+    EventType.POSTPONED,
+    EventType.CANCELLED,
+    EventType.RESCHEDULED,
 )
 DETAIL_PREFETCH = (
     Prefetch(
@@ -342,20 +346,39 @@ def _clock(match, timeline: Timeline) -> dict | None:
     }
 
 
-_NOTE_EVENT = {Status.DELAYED: EventType.DELAYED, Status.POSTPONED: EventType.POSTPONED}
+_NOTE_EVENT = {
+    Status.DELAYED: EventType.DELAYED,
+    Status.POSTPONED: EventType.POSTPONED,
+    Status.SUSPENDED: EventType.SUSPENDED,
+    Status.CANCELLED: EventType.CANCELLED,
+}
 
 
 def _status_note(match, timeline: Timeline) -> str | None:
-    """Motivo do atraso ou do adiamento (texto do operador, o do último lance do tipo), só
-    com o jogo atrasado ou adiado."""
+    """Motivo do status (texto do operador) com o jogo atrasado, adiado, suspenso ou cancelado:
+    o do último lance do tipo (o que abriu o status atual; sem motivo nele, nada)."""
     event_type = _NOTE_EVENT.get(match.status)
     if event_type is None:
         return None
     note = None
     for row in timeline.rows:
         if row.type == event_type:
-            note = _payload(row).get("reason") or note
+            note = _payload(row).get("reason") or None
     return note
+
+
+def _resumes_at(match, timeline: Timeline) -> str | None:
+    """Jogo suspenso com data nova (reagendado depois da última suspensão): o `kickoff_at`, quando
+    ele é retomado de onde parou. Fora disso, null."""
+    if match.status != Status.SUSPENDED:
+        return None
+    rescheduled = False
+    for row in timeline.rows:
+        if row.type == EventType.SUSPENDED:
+            rescheduled = False
+        elif row.type == EventType.RESCHEDULED:
+            rescheduled = True
+    return iso_utc(match.kickoff_at) if rescheduled else None
 
 
 def match_winner(match) -> str | None:
@@ -463,6 +486,7 @@ def serialize_match(match, detail: bool = False, events: Iterable[MatchEvent] | 
         "status": match.status,
         "status_label": domain.STATUS_LABELS.get(match.status, match.status),
         "status_note": _status_note(match, timeline),
+        "resumes_at": _resumes_at(match, timeline),
         "partial_info": match.partial_info,
         "period": period,
         "period_label": domain.PERIOD_LABELS.get(period) if period else None,

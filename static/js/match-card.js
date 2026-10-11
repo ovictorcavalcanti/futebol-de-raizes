@@ -313,7 +313,7 @@ function boardLabel(match, now) {
   const home = displayName(match.home);
   const away = displayName(match.away);
   if (!hasScore(match)) {
-    const when = match.kickoff_at ? `, ${formatWhen(match.kickoff_at, now).replace(' · ', ' às ').toLowerCase()}` : '';
+    const when = match.kickoff_at ? `, ${whenText(match.kickoff_at, now)}` : '';
     const note = NOTICES[match.status] && match.status_note ? `: ${match.status_note}` : '';
     return `${home} contra ${away}${when}. ${match.status_label || ''}${note}`.trim();
   }
@@ -401,15 +401,21 @@ function teamById(tie, id) {
 const NOTICES = {
   delayed: { text: 'Início atrasado', icon: 'alert' },
   postponed: { text: 'Jogo adiado', icon: 'alert' },
+  suspended: { text: 'Jogo suspenso', icon: 'alert' },
+  cancelled: { text: 'Jogo cancelado', icon: 'alert' },
 };
+
+/** "hoje às 16:00", "sáb, 03/10 às 16:00" */
+const whenText = (value, now) => formatWhen(value, now).replace(' · ', ' às ').toLowerCase();
 
 /** Rodada chamada "Final" (o vencedor do confronto é o campeão). */
 const isFinalRound = (tie) => String(tie.round?.name || '').trim().toLowerCase() === 'final';
 
 /**
- * Observações do jogo, abaixo do placar: o atraso ou o adiamento ("Início atrasado — motivo",
- * "Jogo adiado — motivo", com o alerta na frente; somem com a mudança de status) e o confronto
- * do mata-mata. Ida e volta: a ida diz "Jogo
+ * Observações do jogo, abaixo do placar: o aviso de status ("Início atrasado", "Jogo adiado",
+ * "Jogo suspenso" ou "Jogo cancelado" — motivo, com o alerta na frente; some com a mudança de
+ * status), a retomada do suspenso com data nova ("Retomada: amanhã às 16:00", com o calendário)
+ * e o confronto do mata-mata. Ida e volta: a ida diz "Jogo
  * de ida"; a volta traz o agregado (parcial até o fim do confronto) — as duas com o ícone de
  * informação na frente — e, no fim, quem avança e como. Jogo único: só quem avança, no fim.
  */
@@ -431,6 +437,10 @@ function renderTie(p, match) {
     const note = row(h('span', null, h('strong', { text: notice.text }), match.status_note ? ` — ${match.status_note}` : ''));
     note.classList.add('match__tie-row--note');
     rows.push(lead(notice.icon, note, 'icon--warn'));
+  }
+  if (match.status === 'suspended' && match.resumes_at) {
+    // parou num dia e volta em outro, de onde parou
+    rows.push(lead('calendar', row(h('span', null, h('strong', { text: 'Retomada:' }), ` ${whenText(match.resumes_at)}`))));
   }
   const tie = match.tie;
   if (!tie) {

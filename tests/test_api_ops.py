@@ -382,11 +382,16 @@ def test_status_postpone_reschedule_suspend_resume_cancel(league, operator_clien
     later = make_match(league["stage"], sport, nautico, kickoff_at=timeutils.now() + timedelta(days=1), round=league["rounds"][0])
     op = ApiOp(operator_client, later)
 
+    def listed():  # o jogo como sai nas listas (resumo), não na resposta do operador
+        matches = operator_client.get(f"/api/matches?roundId={league['rounds'][0].id}").json()["matches"]
+        return next(m for m in matches if m["id"] == later.id)
+
     postponed = op.status("postpone", reason="Chuva forte")
     assert postponed["replayed"] is False and set(postponed) == {"event", "match", "available", "replayed"}
     assert postponed["event"]["type"] == "postponed" and postponed["event"]["kind"] == "status"
     assert postponed["event"]["payload"] == {"reason": "Chuva forte"}
     assert postponed["match"]["status"] == "postponed"
+    assert postponed["match"]["status_note"] == listed()["status_note"] == "Chuva forte"
     assert "reschedule" in postponed["available"]["status"] and postponed["available"]["events"] == []
 
     assert_error(op.status("reschedule", expect=422), "invalid_payload")
@@ -406,17 +411,24 @@ def test_status_postpone_reschedule_suspend_resume_cancel(league, operator_clien
     assert suspended["match"]["status"] == "suspended" and suspended["match"]["period"] == "first_half"
     assert suspended["match"]["clock"]["running"] is False and suspended["match"]["clock"]["paused_at"]
     assert set(suspended["available"]["status"]) == {"resume", "reschedule", "cancel"}
+    assert suspended["match"]["status_note"] == "Queda de energia" and suspended["match"]["resumes_at"] is None
     assert_error(op.goal(sport, 10, expect=422), "match_not_live")
     # suspenso reagendado: segue suspenso (relógio parado), na data nova; retoma de onde parou
     moved = op.status("reschedule", kickoff_at="2026-10-14T19:00")
     assert moved["match"]["status"] == "suspended" and moved["match"]["period"] == "first_half"
     assert moved["match"]["kickoff_at"] == "2026-10-14T22:00:00Z" and moved["match"]["clock"]["running"] is False
+    # o card mostra o motivo da suspensão e a retomada, também nas listas
+    assert moved["match"]["resumes_at"] == listed()["resumes_at"] == "2026-10-14T22:00:00Z"
+    assert moved["match"]["status_note"] == listed()["status_note"] == "Queda de energia"
     resumed = op.status("resume")
     assert resumed["match"]["status"] == "live" and resumed["match"]["clock"]["running"] is True
+    assert resumed["match"]["status_note"] is None and resumed["match"]["resumes_at"] is None
     assert_error(op.status("cancel", expect=422), "invalid_status_action")  # ao vivo não cancela
-    op.status("suspend")
+    again = op.status("suspend")  # nova suspensão sem motivo: nem o motivo nem a data da anterior
+    assert again["match"]["status_note"] is None and again["match"]["resumes_at"] is None
     cancelled = op.status("cancel", reason="Sem condições de jogo")
     assert cancelled["match"]["status"] == "cancelled" and cancelled["available"] == {"events": [], "status": []}
+    assert cancelled["match"]["status_note"] == listed()["status_note"] == "Sem condições de jogo"
     types = list(MatchEvent.objects.filter(match=later).order_by("sequence").values_list("type", flat=True))
     assert types == ["postponed", "rescheduled", "match_start", "suspended", "rescheduled", "resumed", "suspended", "cancelled"]
 

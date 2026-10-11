@@ -298,7 +298,7 @@ Sem vencedor: `winner_team_id`, `decided_by` e `decided_by_label` são `null` e 
  "group": {"id": 4, "name": "Tabela"}, "round": {"id": 9, "number": 5, "name": "Rodada 5"},
  "kickoff_at": "2026-10-03T19:30:00Z", "finished_at": null,
  "venue": "Ilha do Retiro", "city": "Recife, PE",
- "status": "live", "status_label": "Ao vivo",
+ "status": "live", "status_label": "Ao vivo", "status_note": null, "resumes_at": null,
  "period": "second_half", "period_label": "2º tempo", "period_short": "2T",
  "period_started_at": "2026-10-03T20:35:12Z",
  "clock": {"running": true, "offset": 45, "regular_end": 90, "stoppage_announced": 4, "paused_at": null},
@@ -316,6 +316,10 @@ Sem vencedor: `winner_team_id`, `decided_by` e `decided_by_label` são `null` e 
   inteiros entre `period_started_at` e `paused_at` + 1); ao vivo, `paused_at` é null.
   `stoppage_announced` = minutos do último `stoppage_time` visível do período corrente (ou null).
 * `winner`: "home" | "away" | "draw" | null (só com status finished; considera pênaltis).
+* `status_note`: motivo do operador (`payload.reason` do último lance do tipo: o que abriu o
+  status atual) com o jogo atrasado, adiado, suspenso ou cancelado; senão null.
+  `resumes_at`: jogo suspenso reagendado depois da última suspensão (parou num dia, volta em
+  outro, de onde parou) → o `kickoff_at`, em UTC; senão null. Os dois vêm também nas listas.
 * Detalhe (`GET /api/matches/:id`) e mensagem `match` do stream acrescentam:
   `"events": [EventOut]`, `"lineups": {"home": LineupOut|null, "away": LineupOut|null}`,
   `"officials": [{"role","role_label","name","state"}]`,

@@ -62,6 +62,7 @@
     /* variantes para texto pequeno (AA) */
     --verde-ink: #0A733C;
     --amarelo-ink: #7D5A00;
+    --ouro-ink: #5C4200; /* "Campeão": dourado escuro, ~8:1 sobre surface-2 */
     --vermelho-ink: #B00E28;
     /* texto sobre fundos de cor */
     --on-azul: #FFFFFF;
@@ -120,6 +121,7 @@
     --verde: #3DD68C;
     --verde-ink: #3DD68C;
     --amarelo-ink: #FFCB3D;
+    --ouro-ink: #FFCB3D;
     --vermelho-ink: #FF7A88;
     --on-azul: #0C1322;
     --on-vermelho: #0C1322;
@@ -942,10 +944,9 @@
   .match__tie-row > .icon { align-self: center; }
   .match__tie .tie__adv { margin-left: 0; align-items: baseline; }
   .match__tie .tie__adv .icon { align-self: center; color: inherit; } /* seta do "avança" no verde do texto */
-  /* final: "Campeão" com a medalha dourada no fim */
-  .match__tie .tie__adv--champion { color: var(--amarelo-ink); }
-  /* a medalha pesa embaixo (fita em cima, disco embaixo): apoiada na linha do texto, como um emoji */
-  .match__tie .tie__adv--champion .icon { width: 16px; height: 16px; color: var(--amarelo); align-self: baseline; transform: translateY(0.1em); }
+  /* final: "Campeão" em dourado escuro (contraste) com a medalha dourada no fim, centrada como a seta do "avança" */
+  .match__tie .tie__adv--champion { color: var(--ouro-ink); font-weight: 700; }
+  .match__tie .tie__adv--champion .icon { color: var(--amarelo); }
   .match__tie .icon { width: 16px; height: 16px; color: var(--amarelo-ink); }
   .match__tie strong { color: var(--ink); font-weight: 600; }
   .match__tie-agg { font-family: var(--font-num); font-weight: 700; font-size: 0.9375rem; color: var(--ink); }

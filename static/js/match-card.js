@@ -169,7 +169,7 @@ export function updateMatchCard(el, match, opts = {}) {
   renderMeta(meta, match, now, st.opts);
   renderBoard(board, match, now);
   renderSummary(summary, match);
-  renderTie(tie, match);
+  renderTie(tie, match, now);
 
   if (flash && prev) flashScore(el, prev, match);
 
@@ -419,7 +419,7 @@ const isFinalRound = (tie) => String(tie.round?.name || '').trim().toLowerCase()
  * de ida"; a volta traz o agregado (parcial até o fim do confronto) — as duas com o ícone de
  * informação na frente — e, no fim, quem avança e como. Jogo único: só quem avança, no fim.
  */
-function renderTie(p, match) {
+function renderTie(p, match, now) {
   // uma linha por informação (atraso; agregado; quem avança), centradas; o espaço entre as
   // partes mantém o texto legível para leitor de tela e cópia
   const rows = [];
@@ -440,7 +440,7 @@ function renderTie(p, match) {
   }
   if (match.status === 'suspended' && match.resumes_at) {
     // parou num dia e volta em outro, de onde parou
-    rows.push(lead('calendar', row(h('span', null, h('strong', { text: 'Retomada:' }), ` ${whenText(match.resumes_at)}`))));
+    rows.push(lead('calendar', row(h('span', null, h('strong', { text: 'Retomada:' }), ` ${whenText(match.resumes_at, now)}`))));
   }
   const tie = match.tie;
   if (!tie) {

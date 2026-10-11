@@ -404,8 +404,9 @@ function teamById(tie, id) {
 const isFinalRound = (tie) => String(tie.round?.name || '').trim().toLowerCase() === 'final';
 
 /**
- * Linha do confronto no card. Ida e volta: a ida só avisa que a vaga sai na volta; a volta
- * traz o agregado (parcial até o fim do confronto) e, no fim, quem avança e como. Jogo
+ * Linha do confronto no card, sem ícone na frente. Ida e volta: a ida diz "Jogo de ida" (com
+ * o ícone de informação "a vaga sai no jogo de volta" enquanto o confronto está aberto); a
+ * volta traz o agregado (parcial até o fim do confronto) e, no fim, quem avança e como. Jogo
  * único: só quem avança, no fim.
  */
 function renderTie(p, match) {
@@ -415,21 +416,24 @@ function renderTie(p, match) {
     p.replaceChildren();
     return;
   }
-  // uma linha por informação (agregado; quem avança), centradas; o espaço entre elas
+  // uma linha por informação (agregado; quem avança), centradas; o espaço entre as partes
   // mantém o texto legível para leitor de tela e cópia
   const rows = [];
   const spaced = (items) => items.filter(Boolean).flatMap((item, i) => (i ? [' ', item] : [item]));
-  const row = (lead, ...children) => h('span', { class: 'match__tie-row' }, lead, ...spaced(children)); // lead: ícone
+  const row = (...children) => h('span', { class: 'match__tie-row' }, ...spaced(children));
   const winner = tie.winner_team_id != null ? teamById(tie, tie.winner_team_id) : null;
   if (tie.legs === 2 && tie.leg === 1) {
-    rows.push(row(icon('trophy'), h('span', { text: tie.complete ? 'Jogo de ida' : 'Jogo de ida · a vaga sai na volta' })));
+    const hint = 'A vaga sai no jogo de volta';
+    const first = row(h('span', { text: 'Jogo de ida' }));
+    if (!tie.complete) first.append(h('span', { class: 'match__tie-info', role: 'img', 'aria-label': hint, title: hint }, icon('info')));
+    rows.push(first);
   } else {
     if (tie.legs === 2 && tie.aggregate) {
       // agregado na mesma ordem do placar do card (mandante à esquerda), não na ordem team_a/team_b
       const flip = match.home?.id != null && match.home.id === tie.team_b?.id;
       const [left, right] = flip ? [tie.team_b, tie.team_a] : [tie.team_a, tie.team_b];
       const [aggLeft, aggRight] = flip ? [tie.aggregate.team_b, tie.aggregate.team_a] : [tie.aggregate.team_a, tie.aggregate.team_b];
-      rows.push(row(icon('trophy'), h('span', { text: tie.complete ? 'Agregado' : 'Agregado parcial' }),
+      rows.push(row(h('span', { text: tie.complete ? 'Agregado' : 'Agregado parcial' }),
         h('span', { class: 'match__tie-agg', text: `${left?.short_name || ''} ${formatScore(aggLeft, aggRight)} ${right?.short_name || ''}` })));
     }
     if (winner && tie.complete) {
@@ -439,7 +443,7 @@ function renderTie(p, match) {
       const outcome = isFinalRound(tie)
         ? h('span', { class: 'tie__adv tie__adv--champion' }, `Campeão${how}`, icon('medal'))
         : h('span', { class: 'tie__adv' }, `avança${how}`, icon('advance'));
-      rows.push(row(rows.length ? null : icon('trophy'), h('strong', { text: displayName(winner) }), outcome));
+      rows.push(row(h('strong', { text: displayName(winner) }), outcome));
     }
   }
   p.hidden = rows.length === 0;

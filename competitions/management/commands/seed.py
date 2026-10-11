@@ -1,4 +1,5 @@
-"""Carga de demonstração: duas competições, clubes reais de Pernambuco, jogos do dia.
+"""Carga de demonstração: cinco competições (um caso de classificação em cada), clubes do
+Nordeste, jogos do dia.
 
 Uso: `python manage.py seed [--reset | --clear] [--date YYYY-MM-DD]` (padrão: hoje, horário de Brasília).
 
@@ -6,15 +7,30 @@ Uso: `python manage.py seed [--reset | --clear] [--date YYYY-MM-DD]` (padrão: h
   SEED_ADMIN_PASSWORD / SEED_OPERATOR_PASSWORD (padrão "raizes-admin-2026" /
   "raizes-operador-2026"). Usuário que já existe mantém a senha, a não ser que a
   variável de ambiente venha preenchida.
-* "Pernambucano Raiz" (posição 1): fase única de pontos corridos com as regras do
-  primeiro campeonato (3/1/0; pontos, vitórias, saldo, gols pró, confronto direto;
-  Classificados 1–4 e Rebaixados 17–20), 20 clubes, turno único de 19 rodadas: as 4
-  primeiras encerradas, a 5ª no dia (2 jogos encerrados, 2 ao vivo — um no 2º tempo,
-  com gol anulado pelo VAR e 2º amarelo, outro no 1º tempo — e o resto mais tarde),
-  as demais agendadas.
-* "Copa Pernambuco" (posição 2): fase de grupos (A e B, encerrada), semifinais de ida e
-  volta com prorrogação (uma decidida na prorrogação, outra no agregado) e a final, em
-  jogo único sem prorrogação, no dia.
+* "Pernambucano Raiz" (posição 1, pontos corridos): regras do primeiro campeonato
+  (3/1/0; pontos, vitórias, saldo, gols pró, confronto direto; Classificados 1–4 e
+  Rebaixados 17–20), 20 clubes, turno único de 19 rodadas: as 9 primeiras encerradas, a
+  10ª no dia (2 jogos encerrados, 2 ao vivo — um no 2º tempo, com gol anulado pelo VAR e
+  2º amarelo, outro no 1º tempo — e o resto mais tarde), as demais agendadas.
+* "Copa Pernambuco" (posição 2, grupos + mata-mata): fase de grupos (A e B, encerrada),
+  semifinais de ida e volta com prorrogação (uma decidida na prorrogação, outra no
+  agregado) e a final, em jogo único sem prorrogação, no dia.
+* "Copa do Nordeste Raiz" (posição 3, jogos entre grupos): grupos A e B em que cada time
+  enfrenta os quatro do outro grupo (como na Copa do Nordeste); 3 rodadas encerradas e a
+  4ª no dia. Cada jogo conta para a tabela de cada time, no grupo dele.
+* "Copa do Interior" (posição 4, grupos + "posição nos grupos"): grupos A, B e C; o 1º de
+  cada grupo e o melhor 2º (classificação "Melhores segundos", zona condicional) avançam.
+  2 rodadas encerradas e a 3ª no dia; o Grupo C fica com dois empates em todos os
+  critérios (posições 1, 1, 3, 3).
+* "Série A2 Raiz" (posição 5, turnos + classificação geral): 1º turno encerrado, 2º turno
+  com 2 rodadas encerradas e a 3ª no dia, "Classificação geral" somando os dois turnos e
+  uma punição de 3 pontos no 2º turno.
+
+Horários: todo jogo encerrado ou agendado fica num dos horários de SLOTS (15h, 16h, 18h30,
+19h, 20h, 20h30, 21h; nada de madrugada). Os jogos do dia que já deveriam ter terminado vão
+para os horários de hoje que já passaram (ou de ontem) e os que ainda vão começar, para os
+próximos (ou de amanhã). Só os jogos ao vivo começam "agora", e só quando isso cai entre
+15h e 22h30: de madrugada ou de manhã não há jogo ao vivo (eles ficam agendados).
 
 Todo lance e toda mudança de status passam pelos serviços (`matches.services`, origem
 "script", com `at=` para datar os lances e o relógio dos jogos ao vivo fazer sentido).
@@ -85,14 +101,19 @@ from matches.models import (
     Tie,
 )
 from realtime.models import Outbox
-from standings.models import Standing
+from standings.models import PointAdjustment, Ranking, RankingCriterion, RankingZone, Standing
 
-SEED_SLUGS = ("pernambucano-raiz", "copa-pernambuco")
+SEED_SLUGS = ("pernambucano-raiz", "copa-pernambuco", "copa-do-nordeste-raiz", "copa-do-interior", "serie-a2-raiz")
 FIRST_CHAMPIONSHIP_CRITERIA = ("points", "wins", "goal_difference", "goals_for", "head_to_head")
 RNG_SEED = 2026
-PAST_ROUNDS = 4
-TODAY_ROUND = 5
-LEAGUE_SLOTS = (time(16, 0), time(18, 30), time(20, 0), time(21, 30), time(16, 0))
+TODAY_ROUND = 10  # rodada do Pernambucano no dia (as anteriores, encerradas)
+# horários dos jogos: nada de madrugada (os ao vivo começam "agora", dentro de LIVE_WINDOW)
+SLOTS = (time(15, 0), time(16, 0), time(18, 30), time(19, 0), time(20, 0), time(20, 30), time(21, 0))
+LEAGUE_SLOTS = (time(15, 0), time(16, 0), time(18, 30), time(20, 0), time(21, 0))  # 5 jogos por dia
+MIDWEEK_SLOTS = (time(19, 0), time(20, 30), time(21, 0), time(19, 0))
+LIVE_WINDOW = (time(15, 0), time(22, 30))  # jogo ao vivo só começa nesse intervalo
+GAME_LENGTH = timedelta(minutes=125)  # do início ao fim, com intervalo e acréscimos
+PER_SLOT = 2  # jogos da mesma competição no mesmo horário
 FORMATIONS = {"4-3-3": (4, 3, 3), "4-4-2": (4, 4, 2), "4-2-3-1": (4, 5, 1), "3-5-2": (3, 5, 2), "4-1-4-1": (4, 5, 1)}
 
 
@@ -141,6 +162,18 @@ COPA_CLUBS = (
     Club("Unibol", "UNI", "Paulista", "#E87722", "#1B1B1B", "Ademir Cunha", "Paulista, PE", 1),
     Club("Torre", "TOR", "Recife", "#7A1F1F", "#FFFFFF", "Estádio Municipal do Recife", "Recife, PE", 1),
 )
+
+NORDESTE_CLUBS = (
+    Club("Bahia", "BAH", "Salvador", "#0055A4", "#E30613", "Fonte Nova", "Salvador, BA", 3),
+    Club("Vitória", "VTR", "Salvador", "#E30613", "#000000", "Barradão", "Salvador, BA", 3),
+    Club("Fortaleza", "FOR", "Fortaleza", "#0B3D91", "#E30613", "Castelão", "Fortaleza, CE", 3),
+    Club("Ceará", "CEA", "Fortaleza", "#000000", "#FFFFFF", "Presidente Vargas", "Fortaleza, CE", 3),
+    Club("CRB", "CRB", "Maceió", "#E30613", "#FFFFFF", "Rei Pelé", "Maceió, AL", 2),
+    Club("CSA", "CSA", "Maceió", "#0057A8", "#FFFFFF", "Rei Pelé", "Maceió, AL", 2),
+    Club("ABC", "ABC", "Natal", "#000000", "#FFFFFF", "Frasqueirão", "Natal, RN", 2),
+    Club("Botafogo-PB", "BOT", "João Pessoa", "#000000", "#FFFFFF", "Almeidão", "João Pessoa, PB", 2),
+)
+ALL_CLUBS = (*PERNAMBUCANO_CLUBS, *COPA_CLUBS, *NORDESTE_CLUBS)
 
 COACH_FIRST_NAMES = ("Givanildo", "Waldemar", "Severino", "Evaristo", "Nelson", "Arnaldo", "Ivan", "Gilberto", "Roberval", "Ademir", "Hélcio", "Josias")
 STATES = ("PE", "PE", "PE", "PB", "AL", "RN", "BA", "CE", "SE")
@@ -252,7 +285,7 @@ class Seeder:
             competitions.delete()  # temporadas, fases, critérios, zonas, punições, grupos, rodadas, classificação
             counts["outbox"] = purge_outbox_for(match_ids, stage_ids)
             kept = []
-            for team in Team.objects.filter(name__in=[club.name for club in (*PERNAMBUCANO_CLUBS, *COPA_CLUBS)]):
+            for team in Team.objects.filter(name__in=[club.name for club in ALL_CLUBS]):
                 try:
                     with transaction.atomic():
                         team.delete()
@@ -294,7 +327,7 @@ class Seeder:
     # --- Times e elencos --------------------------------------------------------------------
 
     def ensure_teams(self) -> None:
-        for club in (*PERNAMBUCANO_CLUBS, *COPA_CLUBS):
+        for club in ALL_CLUBS:
             team, _ = Team.objects.update_or_create(
                 name=club.name,
                 defaults={
@@ -476,36 +509,58 @@ class Seeder:
             kickoff = local_dt(self.league_day(number, index), LEAGUE_SLOTS[index % 5])
             self.create_match(stage, home, away, kickoff, group=group, round_=round_)
 
-    def later_today(self, offset: timedelta) -> datetime:
-        """Horário mais tarde no dia (limitado às 23h30), a partir do próximo meio-hora;
-        perto da meia-noite, logo depois de agora (um jogo agendado nunca fica no passado)."""
-        base = ceil_to(self.ref_now + timedelta(minutes=40), 30)
-        kickoff = min(base + offset, self.day_end - timedelta(minutes=30))
-        soonest = self.ref_now + timedelta(minutes=5)
-        return kickoff if kickoff >= soonest else min(soonest, self.day_end - timedelta(minutes=1))
+    # --- Horários ------------------------------------------------------------------------------
 
-    def earlier_today(self, before: timedelta) -> tuple[datetime, float]:
-        """Início (arredondado) de um jogo já encerrado hoje e a escala do relógio dele
-        (< 1 quando o dia ainda não tem tempo para um jogo inteiro: logo depois da
-        meia-noite, o jogo cabe na metade do tempo que passou, e termina antes de agora)."""
-        kickoff = max(floor_to(self.ref_now - before, 30), self.day_start)
-        elapsed = (self.ref_now - kickoff).total_seconds() / 60
-        available = elapsed - 5 if elapsed > 10 else elapsed / 2
-        return kickoff, max(0.001, min(1.0, available / 125))
+    def slots(self, day: date) -> list[datetime]:
+        return [local_dt(day, at) for at in SLOTS]
+
+    @staticmethod
+    def fill(pool: list[datetime], count: int) -> list[datetime]:
+        """Os `count` primeiros horários da lista, com até PER_SLOT jogos em cada."""
+        return [kickoff for kickoff in pool for _ in range(PER_SLOT)][:count]
+
+    def finished_kickoffs(self, count: int) -> list[datetime]:
+        """Jogos do dia já encerrados: os horários de hoje que já terminaram, do mais recente
+        para trás (até PER_SLOT jogos em cada); faltando, os de ontem."""
+        today = [kickoff for kickoff in self.slots(self.day) if kickoff + GAME_LENGTH <= self.ref_now]
+        pool = sorted(today, reverse=True) + sorted(self.slots(self.day - timedelta(days=1)), reverse=True)
+        return sorted(self.fill(pool, count))
+
+    def scheduled_kickoffs(self, count: int) -> list[datetime]:
+        """Jogos do dia que ainda vão começar: os próximos horários de hoje (a partir de 20 min
+        depois de agora), até PER_SLOT jogos em cada; faltando, os dos dias seguintes."""
+        soon = self.ref_now + timedelta(minutes=20)
+        pool = [kickoff for kickoff in self.slots(self.day) if kickoff >= soon]
+        for ahead in (1, 2):
+            pool += self.slots(self.day + timedelta(days=ahead))
+        return self.fill(pool, count)
+
+    def final_kickoff(self) -> datetime:
+        """A final: o último horário de hoje que ainda não começou (ou 16h de amanhã)."""
+        soon = self.ref_now + timedelta(minutes=20)
+        today = [kickoff for kickoff in self.slots(self.day) if kickoff >= soon]
+        return today[-1] if today else local_dt(self.day + timedelta(days=1), time(16, 0))
+
+    def live_allowed(self) -> bool:
+        """Jogo ao vivo começa "agora" (o do 2º tempo, ~90 min atrás; o do 1º, ~25 min atrás):
+        só quando os dois começam dentro de LIVE_WINDOW — de madrugada ou de manhã, não há."""
+        low, high = (local_dt(self.day, at) for at in LIVE_WINDOW)
+        return low <= self.ref_now - timedelta(minutes=90) and self.ref_now - timedelta(minutes=24) <= high
 
     def league_today(self, stage, group, round_, pairs, sport, nautico, santa) -> None:
         live_late = next(pair for pair in pairs if pair == (sport, nautico))
         live_early = next(pair for pair in pairs if santa in pair)
         others = [pair for pair in pairs if pair not in (live_late, live_early)]
         finished, scheduled = others[:2], others[2:]
+        if not self.live_allowed():  # de madrugada ou de manhã: os dois jogos ficam para mais tarde
+            self.league_scheduled(stage, group, round_, [live_late, live_early, *scheduled])
+            for (home, away), kickoff in zip(finished, self.finished_kickoffs(len(finished)), strict=True):
+                self.league_finished_today(stage, group, round_, home, away, kickoff)
+            return
 
-        # Encerrados mais cedo.
-        for (home, away), before in zip(finished, (timedelta(hours=4, minutes=40), timedelta(hours=2, minutes=40)), strict=True):
-            kickoff, scale = self.earlier_today(before)
-            match = self.create_match(stage, home, away, kickoff, group=group, round_=round_)
-            home_goals, away_goals = self.random_score()
-            self.enrich(match, lineups=True, stats=(home_goals, away_goals, 1.0))
-            self.play_finished(match, home_goals, away_goals, kickoff + timedelta(minutes=2 * scale), scale=scale, subs=(3, 5))
+        # Encerrados mais cedo (num horário de hoje que já terminou, ou de ontem).
+        for (home, away), kickoff in zip(finished, self.finished_kickoffs(len(finished)), strict=True):
+            self.league_finished_today(stage, group, round_, home, away, kickoff)
 
         # Ao vivo no 2º tempo (~70'): Sport × Náutico, com gol anulado pelo VAR e 2º amarelo.
         second_half = self.ref_now - timedelta(minutes=25, seconds=20)
@@ -550,9 +605,17 @@ class Seeder:
         self.play(match, plays, start, first_stoppage=2, second_stoppage=4, until=self.ref_now)
         self.live.append(match)
 
-        # Mais tarde no dia, em pares de horário.
-        for index, (home, away) in enumerate(scheduled):
-            kickoff = self.later_today(timedelta(minutes=90 * (index // 2)))
+        # Mais tarde (nos próximos horários), dois jogos por horário.
+        self.league_scheduled(stage, group, round_, scheduled)
+
+    def league_finished_today(self, stage, group, round_, home, away, kickoff) -> None:
+        match = self.create_match(stage, home, away, kickoff, group=group, round_=round_)
+        home_goals, away_goals = self.random_score()
+        self.enrich(match, lineups=True, stats=(home_goals, away_goals, 1.0))
+        self.play_finished(match, home_goals, away_goals, kickoff + timedelta(minutes=2), subs=(3, 5))
+
+    def league_scheduled(self, stage, group, round_, pairs) -> None:
+        for (home, away), kickoff in zip(pairs, self.scheduled_kickoffs(len(pairs)), strict=True):
             match = self.create_match(stage, home, away, kickoff, group=group, round_=round_)
             self.enrich(match)
 
@@ -588,7 +651,7 @@ class Seeder:
             for number, pairs in enumerate(round_robin(members[key]), start=1):
                 match_day = self.day - timedelta(days=63 - 7 * (number - 1))
                 for index, (home, away) in enumerate(pairs):
-                    kickoff = local_dt(match_day, time(19, 30) if index == 0 else time(21, 30))
+                    kickoff = local_dt(match_day, time(19, 0) if index == 0 else time(21, 0))
                     match = self.create_match(groups_stage, home, away, kickoff, group=group, round_=rounds[number - 1])
                     home_goals, away_goals = self.random_score()
                     self.play_finished(match, home_goals, away_goals, kickoff + timedelta(minutes=self.rng.randint(0, 3)))
@@ -608,8 +671,8 @@ class Seeder:
         tie_two = Tie.objects.create(stage=knockout, round=semifinal, position=2, legs=2, extra_time=True, team_a=second_a, team_b=first_b)
         first_leg, second_leg = self.day - timedelta(days=21), self.day - timedelta(days=14)
         for tie, kickoff_time, legs in (
-            (tie_one, time(19, 30), ((1, 0), (1, 0, "extra"))),
-            (tie_two, time(21, 30), ((0, 2), (1, 1, None))),
+            (tie_one, time(19, 0), ((1, 0), (1, 0, "extra"))),
+            (tie_two, time(21, 0), ((0, 2), (1, 1, None))),
         ):
             kickoff = local_dt(first_leg, kickoff_time)
             match = self.create_match(knockout, tie.team_a, tie.team_b, kickoff, round_=semifinal, tie=tie, leg=1)
@@ -637,7 +700,7 @@ class Seeder:
             stage=knockout, round=final_round, position=1, legs=1, extra_time=False,
             team_a=tie_one.winner_team, team_b=tie_two.winner_team,
         )
-        kickoff = self.later_today(timedelta(minutes=60))
+        kickoff = self.final_kickoff()
         match = self.create_match(
             knockout, final.team_a, final.team_b, kickoff, round_=final_round, tie=final, leg=1,
             venue=("Arena de Pernambuco", "São Lourenço da Mata, PE"),
@@ -645,8 +708,136 @@ class Seeder:
         self.enrich(match)
 
 
+    # --- Competições com outros casos de classificação ---------------------------------------
+
+    def new_season(self, name: str, slug: str, short_name: str, position: int) -> Season:
+        competition = Competition.objects.create(name=name, slug=slug, short_name=short_name, position=position)
+        return Season.objects.create(competition=competition, year=self.day.year)
+
+    @staticmethod
+    def new_rounds(stage: Stage, count: int) -> list[Round]:
+        return [Round.objects.create(stage=stage, number=n, name=f"Rodada {n}") for n in range(1, count + 1)]
+
+    @staticmethod
+    def ranking_rules(ranking: Ranking, criteria: tuple[str, ...], zones: list[tuple[str, str, int, int]]) -> None:
+        RankingCriterion.objects.bulk_create(RankingCriterion(ranking=ranking, position=n, key=key) for n, key in enumerate(criteria, start=1))
+        RankingZone.objects.bulk_create(
+            RankingZone(ranking=ranking, name=name, color=color, position_from=start, position_to=end) for name, color, start, end in zones
+        )
+
+    def midweek(self, weeks_ago: int, index: int) -> datetime:
+        """Jogo de rodada passada, numa quarta-feira à noite (MIDWEEK_SLOTS)."""
+        return local_dt(self.day - timedelta(days=7 * weeks_ago + 3), MIDWEEK_SLOTS[index % len(MIDWEEK_SLOTS)])
+
+    def past_match(self, stage, home, away, kickoff, *, group, round_, score=None) -> None:
+        match = self.create_match(stage, home, away, kickoff, group=group, round_=round_)
+        home_goals, away_goals = score if score is not None else self.random_score()
+        self.play_finished(match, home_goals, away_goals, kickoff + timedelta(minutes=self.rng.randint(0, 3)))
+
+    def scheduled_round(self, stage, round_, pairs, group_of) -> None:
+        """Rodada do dia: os jogos nos próximos horários (dois por horário)."""
+        for (home, away), kickoff in zip(pairs, self.scheduled_kickoffs(len(pairs)), strict=True):
+            match = self.create_match(stage, home, away, kickoff, group=group_of(home), round_=round_)
+            self.enrich(match)
+
+    def nordeste(self) -> None:
+        """Jogos entre grupos (como na Copa do Nordeste): cada time do Grupo A enfrenta os
+        quatro do Grupo B; o jogo conta para a tabela de cada time, no grupo dele."""
+        season = self.new_season("Copa do Nordeste Raiz", "copa-do-nordeste-raiz", "Nordeste", 3)
+        stage = Stage.objects.create(season=season, name="Fase de grupos", position=1, format=Stage.Format.GROUPS)
+        self.stage_rules(stage, [("Classificados", "#1B7F3B", 1, 2)])
+        teams = [self.teams[club.name] for club in NORDESTE_CLUBS]
+        sides = {"A": teams[0::2], "B": teams[1::2]}
+        groups = {key: Group.objects.create(stage=stage, name=f"Grupo {key}") for key in sides}
+        GroupTeam.objects.bulk_create(GroupTeam(group=groups[key], team=team) for key in sides for team in sides[key])
+        group_of = {team.pk: groups[key] for key in sides for team in sides[key]}  # o jogo fica no grupo do mandante
+        rounds = self.new_rounds(stage, 4)
+        for number, round_ in enumerate(rounds, start=1):
+            pairs = []
+            for index, team in enumerate(sides["A"]):
+                rival = sides["B"][(index + number - 1) % 4]
+                pairs.append((team, rival) if (index + number) % 2 == 0 else (rival, team))
+            if number < len(rounds):
+                for index, (home, away) in enumerate(pairs):
+                    self.past_match(stage, home, away, self.midweek(len(rounds) - number, index), group=group_of[home.pk], round_=round_)
+            else:
+                self.scheduled_round(stage, round_, pairs, lambda team: group_of[team.pk])
+
+    def interior(self) -> None:
+        """Grupos e "posição nos grupos": o 1º de cada grupo e o melhor 2º (classificação
+        "Melhores segundos", zona condicional) avançam. O Grupo C fica com dois empates em
+        todos os critérios: posições exibidas 1, 1, 3, 3."""
+        season = self.new_season("Copa do Interior", "copa-do-interior", "Interior", 4)
+        stage = Stage.objects.create(season=season, name="Fase de grupos", position=1, format=Stage.Format.GROUPS)
+        self.stage_rules(stage, [("Classificados", "#1B7F3B", 1, 1)])
+        ranking = Ranking.objects.create(season=season, name="Melhores segundos", scope=Ranking.Scope.POSITION, position=1, group_position=2)
+        ranking.stages.add(stage)
+        ranking.show_on_stages.add(stage)
+        self.ranking_rules(ranking, ("points", "wins", "goal_difference", "goals_for"), [("Classificado", "#1B7F3B", 1, 1)])
+        StandingZone.objects.create(
+            stage=stage, name="Melhor 2º", color="#2E7D9A", position_from=2, position_to=2,
+            ranking=ranking, ranking_position_from=1, ranking_position_to=1,
+        )
+        teams = [self.teams[club.name] for club in PERNAMBUCANO_CLUBS[3:15]]
+        members = {"A": teams[0:4], "B": teams[4:8], "C": teams[8:12]}
+        groups = {key: Group.objects.create(stage=stage, name=f"Grupo {key}") for key in members}
+        GroupTeam.objects.bulk_create(GroupTeam(group=groups[key], team=team) for key in members for team in members[key])
+        rounds = self.new_rounds(stage, 3)
+        # Grupo C: 1×1 e 0×0, depois 0×0 e 0×0 — dois blocos empatados em tudo (1, 1, 3, 3)
+        tied = {1: ((1, 1), (0, 0)), 2: ((0, 0), (0, 0))}
+        today = []
+        for slot, (key, group) in enumerate(groups.items()):
+            for number, pairs in enumerate(round_robin(members[key]), start=1):
+                if number == len(rounds):
+                    today.extend(pairs)
+                    continue
+                for index, (home, away) in enumerate(pairs):
+                    score = tied[number][index] if key == "C" else None
+                    kickoff = self.midweek(len(rounds) - number, 2 * slot + index)
+                    self.past_match(stage, home, away, kickoff, group=group, round_=rounds[number - 1], score=score)
+        group_of = {team.pk: groups[key] for key in members for team in members[key]}
+        self.scheduled_round(stage, rounds[-1], today, lambda team: group_of[team.pk])
+
+    def serie_a2(self) -> None:
+        """Dois turnos e a "Classificação geral", que soma os dois (botão na página da
+        competição); uma punição de 3 pontos no 2º turno."""
+        season = self.new_season("Série A2 Raiz", "serie-a2-raiz", "A2", 5)
+        teams = [self.teams[club.name] for club in COPA_CLUBS[:6]]
+        turns = [
+            Stage.objects.create(season=season, name=f"{n}º turno", position=n, format=Stage.Format.LEAGUE, points_win=3, points_draw=1, points_loss=0)
+            for n in (1, 2)
+        ]
+        for stage in turns:
+            self.stage_rules(stage, [("Vencedor do turno", "#1B7F3B", 1, 1)])
+            GroupTeam.objects.bulk_create(GroupTeam(group=stage.groups.get(), team=team) for team in teams)
+        ranking = Ranking.objects.create(season=season, name="Classificação geral", scope=Ranking.Scope.OVERALL, position=1, show_on_competition=True)
+        ranking.stages.add(*turns)
+        self.ranking_rules(ranking, FIRST_CHAMPIONSHIP_CRITERIA, [("Acesso", "#1B7F3B", 1, 2), ("Rebaixado", "#B3261E", 6, 6)])
+        # punição antes dos jogos do 2º turno: cada lançamento recalcula o grupo já com ela
+        PointAdjustment.objects.create(stage=turns[1], team=teams[-1], points=-3, reason="escalação irregular")
+        schedule = round_robin(teams)  # 5 rodadas por turno
+        today_round = 3  # do 2º turno
+        for turn, stage in enumerate(turns, start=1):
+            group = stage.groups.get()
+            rounds = self.new_rounds(stage, len(schedule))
+            for number, pairs in enumerate(schedule, start=1):
+                round_ = rounds[number - 1]
+                if turn == 2:
+                    pairs = [(away, home) for home, away in pairs]  # returno: mando invertido
+                if turn == 1 or number < today_round:
+                    weeks_ago = (today_round - number) + (len(schedule) if turn == 1 else 0)
+                    for index, (home, away) in enumerate(pairs):
+                        self.past_match(stage, home, away, self.midweek(weeks_ago, index), group=group, round_=round_)
+                elif number == today_round:
+                    self.scheduled_round(stage, round_, pairs, lambda team, group=group: group)
+                else:
+                    day = self.day + timedelta(days=7 * (number - today_round) - 3)
+                    for index, (home, away) in enumerate(pairs):
+                        self.create_match(stage, home, away, local_dt(day, MIDWEEK_SLOTS[index]), group=group, round_=round_)
+
+
 class Command(BaseCommand):
-    help = "Carga de demonstração: duas competições com clubes de Pernambuco, jogos encerrados, ao vivo e do dia."
+    help = "Carga de demonstração: cinco competições (pontos corridos, grupos, jogos entre grupos, turnos com classificação geral), jogos encerrados, ao vivo e do dia."
 
     def add_arguments(self, parser):
         modes = parser.add_mutually_exclusive_group()
@@ -685,6 +876,9 @@ class Command(BaseCommand):
             seeder.ensure_teams()
             seeder.pernambucano()
             seeder.copa()
+            seeder.nordeste()
+            seeder.interior()
+            seeder.serie_a2()
         elapsed = clock_time.monotonic() - started
         self.stdout.write(
             self.style.SUCCESS(

@@ -176,6 +176,14 @@ docker compose up -d --build                 # monta de novo, migra e reinicia
 O stream ao vivo cai por alguns segundos na reinicialização; os navegadores reconectam
 sozinhos.
 
+Quando a atualização muda o que fica gravado nas classificações (ex.: a posição exibida no
+empate, `rank`), regrave o cache uma vez — sem isso nada fica errado, só mais lento: a leitura
+calcula na hora os grupos com cache velho, até o próximo lance de cada um:
+
+```bash
+docker compose exec app python manage.py recompute_standings
+```
+
 ## Trocar para um domínio próprio
 
 1. No painel do domínio, crie um registro **A** apontando para o IP do Droplet (e, se

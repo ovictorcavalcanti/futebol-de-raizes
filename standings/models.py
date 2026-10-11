@@ -67,6 +67,9 @@ class Standing(models.Model):
     yellow_cards = models.PositiveSmallIntegerField("CA", default=0)
     red_cards = models.PositiveSmallIntegerField("CV", default=0)
     tied = models.BooleanField("empate não desfeito", default=False)
+    # posição exibida: empatados em todos os critérios repetem a posição (1, 2, 2, 4);
+    # `position` continua a ordem 1..n (zonas e "posição nos grupos")
+    rank = models.PositiveSmallIntegerField("posição exibida", default=0)
 
     class Meta:
         db_table = "standings"

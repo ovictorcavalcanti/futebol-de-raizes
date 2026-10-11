@@ -357,7 +357,7 @@ export const TIES = [
 const ZONE_SEMI = { name: 'Semifinal', color: '#1B7F3B' };
 const ZONE_DOWN = { name: 'Rebaixamento', color: '#C8102E' };
 const row = (position, t, played, won, drawn, lost, gf, ga, extra = {}) => ({
-  position, team: t, played, won, drawn, lost, goals_for: gf, goals_against: ga, goal_difference: gf - ga,
+  position, rank: position, team: t, played, won, drawn, lost, goals_for: gf, goals_against: ga, goal_difference: gf - ga,
   points: won * 3 + drawn + (extra.points_adjustment || 0), points_adjustment: 0,
   yellow_cards: (t.id * 3) % 9, red_cards: t.id % 3 === 0 ? 1 : 0, tied: false,
   zone: position <= 4 ? ZONE_SEMI : position >= 7 ? ZONE_DOWN : null, playing: false, ...extra,
@@ -388,7 +388,7 @@ export const STANDINGS = {
       row(3, T.santa, 5, 2, 3, 0, 6, 3, { playing: true }),
       row(4, T.retro, 5, 2, 2, 1, 7, 5, { playing: true }),
       row(5, T.central, 4, 2, 0, 2, 5, 6, { tied: true }),
-      row(6, T.salgueiro, 4, 2, 0, 2, 5, 6, { tied: true }),
+      row(6, T.salgueiro, 4, 2, 0, 2, 5, 6, { tied: true, rank: 5 }), // empatado em tudo com o 5º
       row(7, T.nautico, 5, 1, 1, 3, 5, 9, { playing: true, points_adjustment: -3 }),
       row(8, T.ibis, 5, 0, 0, 5, 2, 12),
     ],

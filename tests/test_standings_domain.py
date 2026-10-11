@@ -105,6 +105,8 @@ def test_wc2018_group_h_tied_on_default_criteria():
     ]
     # Pontos, vitórias, saldo, gols pró e confronto direto (2–2) empatados: sobra o empate.
     assert [row.tied for row in rows] == [False, True, True, False]
+    # a posição exibida se repete no empate e a contagem segue (a ordem continua 1..n)
+    assert [row.rank for row in rows] == [1, 2, 2, 4]
     table = by_name(rows)
     assert (table["Japan"].yellow_cards, table["Senegal"].yellow_cards) == (4, 6)
     assert table["Colombia"].red_cards == 1
@@ -222,6 +224,20 @@ def test_euro2004_group_c_three_team_head_to_head_left_tied():
     rows = league.table(("points", "head_to_head"))
     assert names(rows) == ["Denmark", "Italy", "Sweden", "Bulgaria"]
     assert [row.tied for row in rows] == [True, True, True, False]
+    assert [row.rank for row in rows] == [1, 1, 1, 4] and [row.position for row in rows] == [1, 2, 3, 4]
+
+
+def test_rank_two_separate_ties_side_by_side():
+    """Dois empates vizinhos (separados pelos pontos): cada bloco divide a sua posição."""
+    rows = (
+        League("A", "B", "C", "D")
+        .play("A", 1, 0, "C").play("B", 1, 0, "D")  # A e B com 3 pontos
+        .play("C", 0, 0, "D")  # C e D com 1 ponto
+        .table(("points",))
+    )
+    assert names(rows) == ["A", "B", "C", "D"]
+    assert [row.rank for row in rows] == [1, 1, 3, 3]
+    assert [row.tied for row in rows] == [True, True, True, True]
 
 
 # --- Confronto direto ---------------------------------------------------------------

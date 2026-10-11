@@ -764,16 +764,16 @@ def test_competicao_mata_mata_e_navegacao_de_rodadas(new_context, console):
     # Pernambucano: ‹ › trocam a rodada sem recarregar
     page.goto("/competition.html?slug=pernambucano-raiz")
     label = page.locator("#round-label")
-    expect(label).to_have_text(re.compile(r"Rodada 5"))
+    expect(label).to_have_text(re.compile(r"Rodada 10"))
     page.evaluate("window.__sameDocument = true")
     page.click("#round-prev")
-    expect(label).to_have_text(re.compile(r"Rodada 4"))
+    expect(label).to_have_text(re.compile(r"Rodada 9"))
     expect(page).to_have_url(re.compile(r"round=\d+"))
     expect(page.locator("#round-matches article.match")).to_have_count(10)
     expect(page.locator("#round-matches .pill--live")).to_have_count(0)
     page.click("#round-next")
     page.click("#round-next")
-    expect(label).to_have_text(re.compile(r"Rodada 6"))
+    expect(label).to_have_text(re.compile(r"Rodada 11"))
     expect(page.locator("#round-matches .pill--scheduled")).to_have_count(10)
     assert page.evaluate("window.__sameDocument") is True  # não recarregou
 

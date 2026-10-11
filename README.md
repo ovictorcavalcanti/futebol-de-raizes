@@ -260,7 +260,7 @@ python manage.py seed --clear            # só apaga o que o seed criou, sem rec
 python manage.py seed --date 2026-10-03  # outro dia
 ```
 
-**Apagar os dados de teste.** `seed --clear` apaga as duas competições do seed com tudo o que
+**Apagar os dados de teste.** `seed --clear` apaga as cinco competições do seed com tudo o que
 há dentro delas (temporadas, fases, grupos, rodadas, partidas, lances, confrontos, escalações,
 punições e a classificação), os times do seed que não são usados fora dele e as mensagens do
 outbox dessas partidas e fases (com a trava de escrita, sem cruzar com um lançamento). Usuários,
@@ -358,13 +358,23 @@ mostram o rótulo (`season.label`).
 
 O seed lança tudo pelos serviços de escrita, com origem `script` e horários reais:
 
-- **Pernambucano Raiz**: pontos corridos com as regras do primeiro campeonato (3/1/0;
-  pontos, vitórias, saldo, gols pró, confronto direto; Classificados 1–4, Rebaixados 17–20),
-  20 clubes e turno único. As 4 primeiras rodadas estão encerradas; a 5ª é no dia, com dois
-  jogos encerrados, dois **ao vivo** (um no 2º tempo, com gol anulado pelo VAR e 2º amarelo)
-  e o resto mais tarde.
-- **Copa Pernambuco**: grupos A e B encerrados, semifinais de ida e volta com prorrogação e
-  a final no dia, em jogo único sem prorrogação.
+- **Pernambucano Raiz** (pontos corridos): regras do primeiro campeonato (3/1/0; pontos,
+  vitórias, saldo, gols pró, confronto direto; Classificados 1–4, Rebaixados 17–20), 20 clubes
+  e turno único. As 9 primeiras rodadas estão encerradas; a 10ª é no dia, com dois jogos
+  encerrados, dois **ao vivo** (um no 2º tempo, com gol anulado pelo VAR e 2º amarelo) e o
+  resto mais tarde.
+- **Copa Pernambuco** (grupos + mata-mata): grupos A e B encerrados, semifinais de ida e volta
+  com prorrogação e a final no dia, em jogo único sem prorrogação.
+- **Copa do Nordeste Raiz** (jogos entre grupos): cada time do Grupo A enfrenta os quatro do
+  Grupo B; 3 rodadas encerradas e a 4ª no dia.
+- **Copa do Interior** (grupos + "posição nos grupos"): grupos A, B e C; avançam o 1º de cada
+  grupo e o melhor 2º (classificação "Melhores segundos", zona condicional). O Grupo C tem dois
+  empates em todos os critérios (posições 1, 1, 3, 3). 2 rodadas encerradas e a 3ª no dia.
+- **Série A2 Raiz** (turnos + classificação geral): 1º turno encerrado, 2º turno com a 3ª
+  rodada no dia, "Classificação geral" somando os dois e uma punição de 3 pontos.
+- **Horários**: jogo encerrado ou agendado começa às 15h, 16h, 18h30, 19h, 20h, 20h30 ou 21h.
+  Só os jogos ao vivo começam "agora", e só entre 15h e 22h30: rodando o seed de madrugada ou
+  de manhã, não há jogo ao vivo (os da rodada ficam agendados para a tarde).
 - Também inclui escalações, arbitragem, transmissões, estatísticas, público e renda. Os
   jogadores são só nomes (gerados em memória para cada time e gravados nas escalações e nos
   lances): não existe cadastro de jogadores.

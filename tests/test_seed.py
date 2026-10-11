@@ -16,7 +16,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db.models import Sum
 
-from competitions.management.commands.seed import SEED_SLUGS
+from competitions.management.commands.seed import SEED_SLUGS, SLOTS
 from competitions.models import Competition, Stage, StageCriterion, StandingZone, Team
 from core.locks import locked_atomic
 from core import timeutils
@@ -26,7 +26,8 @@ from matches.models import Match, MatchEvent, MatchLineup, MatchLineupPlayer, Ma
 from observability.models import AuditLog
 from realtime.models import Outbox
 from realtime.outbox import enqueue
-from standings.models import Standing
+from standings import services as standings_services
+from standings.models import PointAdjustment, Ranking, Standing
 from tests.factories import make_knockout, make_league, make_match, make_tie_matches
 
 pytestmark = pytest.mark.django_db
@@ -47,7 +48,7 @@ def played_sum(stage, kind="official") -> int:
 def check_seeded_day(payload) -> None:
     """Home do dia do seed: as duas competições, jogos ao vivo e últimos gols."""
     competitions = payload["competitions"]
-    assert [item["slug"] for item in competitions] == ["pernambucano-raiz", "copa-pernambuco"]
+    assert [item["slug"] for item in competitions] == list(SEED_SLUGS)  # todas com jogo no dia
     league_block = competitions[0]["stages"][0]
     statuses = [match["status"] for match in league_block["matches"]]
     assert len(statuses) == 10
@@ -85,7 +86,7 @@ def check_structure() -> None:
     assert stage.rounds.count() == 19
     # Classificação coerente com os jogos: cada jogo encerrado conta para os dois times.
     finished = Match.objects.filter(stage=stage, status="finished").count()
-    assert finished == 42
+    assert finished == 92  # 9 rodadas encerradas + 2 jogos do dia
     assert played_sum(stage) == 2 * finished
     live_count = Match.objects.filter(stage=stage, status="live").count()
     assert played_sum(stage, "live") == 2 * (finished + live_count)
@@ -106,13 +107,13 @@ def check_structure() -> None:
 
     # Tudo pelos serviços, com autor; o 2º amarelo gerou o vermelho automático.
     assert set(MatchEvent.objects.values_list("source", flat=True)) == {"script", "system"}
-    classic = Match.objects.get(home_team__name="Sport", away_team__name="Náutico", round__number=5)
+    classic = Match.objects.get(home_team__name="Sport", away_team__name="Náutico", round__number=10)
     types = list(classic.events.values_list("type", flat=True))
     assert "goal_annulled" in types and "var_review" in types
     red = classic.events.get(type="red_card")
     assert red.payload["reason"] == "second_yellow" and red.source == "system"
     # Enriquecimento dos jogos do dia.
-    today_matches = Match.objects.filter(round__number=5, stage=stage)
+    today_matches = Match.objects.filter(round__number=10, stage=stage)
     assert MatchOfficial.objects.filter(match__in=today_matches, role="var").count() == 10
     started = today_matches.exclude(status="scheduled")
     assert MatchLineup.objects.filter(match__in=started).count() == 8
@@ -124,11 +125,46 @@ def check_structure() -> None:
     for goal in MatchEvent.objects.filter(match__in=started, type="goal", voided_at__isnull=True).exclude(payload__origin="own_goal"):
         names = set(MatchLineupPlayer.objects.filter(lineup__match=goal.match, lineup__team_id=goal.team_id).values_list("name", flat=True))
         assert goal.payload["player"] in names
+    # Horários razoáveis: todo jogo que não está ao vivo começa num dos horários do seed.
+    for kickoff in Match.objects.exclude(status="live").values_list("kickoff_at", flat=True):
+        assert kickoff.astimezone(timeutils.app_tz()).time() in SLOTS, kickoff
+    check_other_competitions()
+
+
+def check_other_competitions() -> None:
+    """Jogos entre grupos, "posição nos grupos" com empate em tudo e turnos com classificação geral."""
+    stage = Stage.objects.get(season__competition__slug="copa-do-nordeste-raiz")
+    group_of = dict(stage.groups.values_list("group_teams__team_id", "name"))
+    matches = list(Match.objects.filter(stage=stage))
+    assert len(matches) == 16 and all(group_of[m.home_team_id] != group_of[m.away_team_id] for m in matches)
+    assert Match.objects.filter(stage=stage, status="finished").count() == 12
+    # cada jogo entre grupos conta para a tabela de cada time, no grupo dele
+    assert played_sum(stage) == 2 * 12
+
+    interior = Stage.objects.get(season__competition__slug="copa-do-interior")
+    table = standings_services.stage_standings(interior, live=False)
+    group_c = next(group for group in table["groups"] if group["name"] == "Grupo C")
+    assert [row["rank"] for row in group_c["rows"]] == [1, 1, 3, 3] and [row["position"] for row in group_c["rows"]] == [1, 2, 3, 4]
+    seconds = Ranking.objects.get(season__competition__slug="copa-do-interior")
+    assert seconds.scope == "position" and seconds.group_position == 2
+    assert len(standings_services.ranking_standings(seconds, live=False)["groups"][0]["rows"]) == 3
+    assert StandingZone.objects.filter(stage=interior, ranking=seconds).exists()  # "Melhor 2º", condicional
+
+    overall = Ranking.objects.get(season__competition__slug="serie-a2-raiz")
+    assert overall.scope == "overall" and overall.show_on_competition and overall.stages.count() == 2
+    rows = standings_services.ranking_standings(overall, live=False)["groups"][0]["rows"]
+    assert len(rows) == 6 and all(row["played"] == 7 for row in rows)  # 5 do 1º turno + 2 do 2º
+    punished = PointAdjustment.objects.get(stage__season__competition__slug="serie-a2-raiz")
+    second_turn = standings_services.stage_standings(punished.stage, live=False)["groups"][0]["rows"]
+    assert next(row for row in second_turn if row["team"]["id"] == punished.team_id)["points_adjustment"] == -3
 
 
 def test_seed_runs_on_empty_db_and_reruns_with_reset(monkeypatch):
     monkeypatch.delenv("SEED_ADMIN_PASSWORD", raising=False)
     monkeypatch.delenv("SEED_OPERATOR_PASSWORD", raising=False)
+    # "agora" fixo no fim da tarde de hoje: o dia do seed não depende da hora em que o teste roda
+    afternoon = datetime.combine(timeutils.local_today(), time(17, 41), tzinfo=timeutils.app_tz())
+    monkeypatch.setattr(timeutils, "now", lambda: afternoon)
     output = run_seed()
     assert "raizes-admin-2026" in output and "raizes-operador-2026" in output
     for match in Match.objects.filter(status="live"):
@@ -149,7 +185,7 @@ def test_seed_runs_on_empty_db_and_reruns_with_reset(monkeypatch):
     assert "mantida" in output  # usuários existentes mantêm a senha
     assert (Match.objects.count(), MatchEvent.objects.count(), Team.objects.count()) == counts
     assert User.objects.get(username="admin").pk == admin_user.pk
-    assert Competition.objects.filter(slug__in=["pernambucano-raiz", "copa-pernambuco"]).count() == 2
+    assert Competition.objects.filter(slug__in=SEED_SLUGS).count() == len(SEED_SLUGS)
     check_structure()
     reference = datetime.combine(SEED_DAY, time(17, 41), tzinfo=timeutils.app_tz())
     check_seeded_day(selectors.home_payload(SEED_DAY, reference))
@@ -171,7 +207,7 @@ def test_seed_runs_on_empty_db_and_reruns_with_reset(monkeypatch):
     assert not Competition.objects.filter(slug__in=SEED_SLUGS).exists()
     assert set(Match.objects.values_list("id", flat=True)) == {outside.pk}
     assert not MatchEvent.objects.exists() and not Standing.objects.filter(group__stage_id__in=seed_stages).exists()
-    assert not Team.objects.filter(name="Sport").exists()
+    assert not Team.objects.filter(name__in=["Sport", "Bahia"]).exists()
     assert Team.objects.filter(name="Clube de Fora").exists()
     assert not Outbox.objects.filter(topic="match", payload__match__id__in=list(seed_ids)).exists()
     assert not Outbox.objects.filter(topic="standings", payload__stage_id__in=list(seed_stages)).exists()
@@ -318,21 +354,30 @@ def test_simulate_match_interrupted_keeps_what_was_posted(operator_user, monkeyp
     assert match.status == "live" and match.events.exists()
 
 
-def test_seed_kickoffs_never_land_in_the_past_near_midnight(monkeypatch):
-    """Perto da meia-noite, os jogos "mais tarde" ficam depois de agora; logo depois da
-    meia-noite, os jogos "já encerrados" terminam antes de agora."""
+def test_seed_kickoffs_follow_the_slots_and_skip_live_games_at_night(monkeypatch):
+    """Jogos do dia nos horários do seed: os encerrados nos que já terminaram (ou de ontem),
+    os agendados nos próximos (ou de amanhã), dois por horário; ao vivo só entre 15h e 22h30."""
     from competitions.management.commands.seed import Seeder
 
-    late = datetime.combine(SEED_DAY, time(23, 50), tzinfo=timeutils.app_tz())
-    monkeypatch.setattr(timeutils, "now", lambda: late)
-    seeder = Seeder(SEED_DAY, StringIO())
-    seeder.ref_now = late
-    for minutes in (0, 60, 90, 180):
-        kickoff = seeder.later_today(timedelta(minutes=minutes))
-        assert late < kickoff < seeder.day_end
+    def at(day, hour, minute):
+        return datetime.combine(day, time(hour, minute), tzinfo=timeutils.app_tz())
 
-    early = datetime.combine(SEED_DAY, time(0, 3), tzinfo=timeutils.app_tz())
-    seeder.ref_now = early
-    kickoff, scale = seeder.earlier_today(timedelta(hours=4, minutes=40))
-    assert kickoff == seeder.day_start
-    assert kickoff + timedelta(minutes=125 * scale) <= early
+    seeder = Seeder(SEED_DAY, StringIO())
+    yesterday, tomorrow = SEED_DAY - timedelta(days=1), SEED_DAY + timedelta(days=1)
+
+    seeder.ref_now = at(SEED_DAY, 17, 41)
+    assert seeder.live_allowed()
+    assert seeder.finished_kickoffs(2) == [at(SEED_DAY, 15, 0)] * 2
+    assert seeder.scheduled_kickoffs(3) == [at(SEED_DAY, 18, 30)] * 2 + [at(SEED_DAY, 19, 0)]
+
+    seeder.ref_now = at(SEED_DAY, 23, 50)  # tarde da noite: nada ao vivo, o resto fica para amanhã
+    assert not seeder.live_allowed()
+    assert seeder.finished_kickoffs(2) == [at(SEED_DAY, 21, 0)] * 2
+    assert seeder.scheduled_kickoffs(2) == [at(tomorrow, 15, 0)] * 2
+    assert seeder.final_kickoff() == at(tomorrow, 16, 0)
+
+    seeder.ref_now = at(SEED_DAY, 0, 3)  # madrugada: os encerrados ficam de ontem, os agendados para a tarde
+    assert not seeder.live_allowed()
+    assert seeder.finished_kickoffs(2) == [at(yesterday, 21, 0)] * 2
+    assert seeder.scheduled_kickoffs(2) == [at(SEED_DAY, 15, 0)] * 2
+    assert seeder.final_kickoff() == at(SEED_DAY, 21, 0)

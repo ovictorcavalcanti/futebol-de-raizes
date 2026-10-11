@@ -400,7 +400,7 @@ function teamById(tie, id) {
 /** Aviso de status nas observações, com o motivo do operador (`status_note`), quando houver. */
 const NOTICES = {
   delayed: { text: 'Início atrasado', icon: 'alert' },
-  postponed: { text: 'Jogo adiado', icon: 'calendar' },
+  postponed: { text: 'Jogo adiado', icon: 'alert' },
 };
 
 /** Rodada chamada "Final" (o vencedor do confronto é o campeão). */
@@ -408,7 +408,7 @@ const isFinalRound = (tie) => String(tie.round?.name || '').trim().toLowerCase()
 
 /**
  * Observações do jogo, abaixo do placar: o atraso ou o adiamento ("Início atrasado — motivo",
- * "Jogo adiado — motivo", com o ícone na frente; somem com a mudança de status) e o confronto
+ * "Jogo adiado — motivo", com o alerta na frente; somem com a mudança de status) e o confronto
  * do mata-mata. Ida e volta: a ida diz "Jogo
  * de ida"; a volta traz o agregado (parcial até o fim do confronto) — as duas com o ícone de
  * informação na frente — e, no fim, quem avança e como. Jogo único: só quem avança, no fim.

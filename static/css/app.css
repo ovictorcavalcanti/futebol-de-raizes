@@ -63,6 +63,8 @@
     --verde-ink: #0A733C;
     --amarelo-ink: #7D5A00;
     --ouro-ink: #5C4200; /* "Campeão": dourado escuro, ~8:1 sobre surface-2 */
+    --laranja: #E8730C; /* atrasado e adiado (o amarelo é do intervalo) */
+    --laranja-ink: #8F4000; /* ~6:1 sobre surface-2 */
     --vermelho-ink: #B00E28;
     /* texto sobre fundos de cor */
     --on-azul: #FFFFFF;
@@ -122,6 +124,8 @@
     --verde-ink: #3DD68C;
     --amarelo-ink: #FFCB3D;
     --ouro-ink: #FFCB3D;
+    --laranja: #FF9A3D;
+    --laranja-ink: #FFB066;
     --vermelho-ink: #FF7A88;
     --on-azul: #0C1322;
     --on-vermelho: #0C1322;
@@ -623,7 +627,7 @@
   }
   .pill--interval { background: var(--amarelo); color: var(--on-amarelo); }
   .pill--partial { background: var(--surface-2); color: var(--ink); border: 2px dashed var(--vermelho); }
-  .pill--delayed { background: var(--surface); color: var(--ink); border: 2px solid var(--amarelo); }
+  .pill--delayed, .pill--postponed { background: var(--surface); color: var(--ink); border: 2px solid var(--laranja); }
   .pill--finished { background: var(--ink); color: var(--on-ink); }
   .pill--scheduled {
     background: var(--azul-tint);
@@ -631,7 +635,7 @@
     border-color: color-mix(in srgb, var(--azul) 30%, transparent);
     letter-spacing: 0.03em;
   }
-  .pill--postponed, .pill--suspended, .pill--cancelled {
+  .pill--suspended, .pill--cancelled {
     background: var(--hatch), var(--surface-2);
     color: var(--ink);
     border: 1px dashed var(--ink-3);
@@ -721,15 +725,15 @@
     z-index: 1;
   }
   .match[data-status="live"] { border-color: color-mix(in srgb, var(--vermelho) 35%, var(--line)); }
-  /* faixa de status no topo, nas cores dos selos: agendado azul, ao vivo vermelho, intervalo e
-     atraso amarelo, encerrado tinta, adiado/suspenso/cancelado cinza */
+  /* faixa de status no topo, nas cores dos selos: agendado azul, ao vivo vermelho, intervalo
+     amarelo, atrasado e adiado laranja, encerrado tinta, suspenso e cancelado cinza */
   .match[data-status="scheduled"]::before { background: var(--azul); }
   .match[data-status="live"]::before { background: var(--vermelho); }
   .match[data-period="half_time"]::before, .match[data-period="extra_half_time"]::before { background: var(--amarelo); }
-  .match[data-status="delayed"]::before { background: var(--amarelo); }
+  .match[data-status="delayed"]::before, .match[data-status="postponed"]::before { background: var(--laranja); }
   .match[data-status="finished"]::before { background: var(--ink); }
-  .match[data-status="postponed"]::before, .match[data-status="suspended"]::before, .match[data-status="cancelled"]::before { background: var(--ink-3); }
-  .match[data-status="postponed"], .match[data-status="cancelled"] { background: var(--hatch), var(--surface); }
+  .match[data-status="suspended"]::before, .match[data-status="cancelled"]::before { background: var(--ink-3); }
+  .match[data-status="cancelled"] { background: var(--hatch), var(--surface); } /* adiado sem hachura: atrapalha a leitura */
 
   /* faixa de meta */
   .match__meta {
@@ -962,7 +966,7 @@
   .match__tie .tie__adv--champion { color: var(--ouro-ink); font-weight: 700; }
   .match__tie .tie__adv--champion .icon { color: var(--amarelo); }
   .match__tie .icon { width: 14px; height: 14px; color: var(--ink-3); } /* informação na frente; seta e estrela têm cor própria */
-  .match__tie .icon.icon--warn { width: 16px; height: 16px; color: var(--amarelo-ink); } /* alerta do atraso */
+  .match__tie .icon.icon--warn { width: 16px; height: 16px; color: var(--laranja-ink); } /* alerta do atraso e do adiamento */
   .match__tie strong { color: var(--ink); font-weight: 600; }
   .match__tie-agg { font-family: var(--font-num); font-weight: 700; font-size: 0.9375rem; color: var(--ink); }
 

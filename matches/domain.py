@@ -1257,6 +1257,10 @@ def _plan_status(state: MatchState, event_type: str) -> _Transition | DomainErro
         return _Transition(Status.LIVE, state.period, state.period)
     if event_type == EventType.RESCHEDULED and current in (Status.SCHEDULED, Status.DELAYED, Status.POSTPONED):
         return _Transition(Status.SCHEDULED, None, None)
+    if event_type == EventType.RESCHEDULED and current == Status.SUSPENDED:
+        # suspenso com data nova: segue suspenso (placar, período e minuto guardados) e, no dia,
+        # o operador retoma de onde parou
+        return _Transition(Status.SUSPENDED, state.period, state.period)
     if event_type == EventType.CANCELLED and current in (Status.SCHEDULED, Status.DELAYED, Status.POSTPONED, Status.SUSPENDED):
         return _Transition(Status.CANCELLED, None, state.period)
     message = f"Não é possível {_STATUS_VERBS[event_type]} um jogo {STATUS_LABELS.get(current, current).lower()}."

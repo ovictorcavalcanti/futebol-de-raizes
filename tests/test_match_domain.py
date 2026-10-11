@@ -897,7 +897,12 @@ def test_suspend_keeps_period_and_resume():
     started = sim.state.period_started_seq
     rejects("match_not_live", sim, EventType.GOAL, team_id=SPORT, minute=61, payload={"player": "Zé"})
     rejects("invalid_transition", sim, EventType.MATCH_END)
-    assert available_actions(sim.state, CTX) == {"events": [], "status": ["resume", "cancel"]}
+    assert available_actions(sim.state, CTX) == {"events": [], "status": ["resume", "reschedule", "cancel"]}
+    # reagendado: segue suspenso, no mesmo período, com a data nova; retoma de onde parou
+    rescheduled = sim.status("reschedule", kickoff_at="2026-10-14T19:00:00-03:00")
+    assert rescheduled.period == "second_half" and rescheduled.payload == {"kickoff_at": "2026-10-14T19:00:00-03:00"}
+    assert sim.state.status == Status.SUSPENDED and sim.state.period == Period.SECOND_HALF
+    assert sim.state.rescheduled_to == "2026-10-14T19:00:00-03:00" and sim.state.period_started_seq == started
     resumed = sim.status("resume")
     assert resumed.period == "second_half" and resumed.payload == {}
     assert sim.state.status == Status.LIVE and sim.state.period == Period.SECOND_HALF

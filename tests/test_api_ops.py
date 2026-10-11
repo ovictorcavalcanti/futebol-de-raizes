@@ -405,8 +405,12 @@ def test_status_postpone_reschedule_suspend_resume_cancel(league, operator_clien
     suspended = op.status("suspend", reason="Queda de energia")
     assert suspended["match"]["status"] == "suspended" and suspended["match"]["period"] == "first_half"
     assert suspended["match"]["clock"]["running"] is False and suspended["match"]["clock"]["paused_at"]
-    assert set(suspended["available"]["status"]) == {"resume", "cancel"}
+    assert set(suspended["available"]["status"]) == {"resume", "reschedule", "cancel"}
     assert_error(op.goal(sport, 10, expect=422), "match_not_live")
+    # suspenso reagendado: segue suspenso (relógio parado), na data nova; retoma de onde parou
+    moved = op.status("reschedule", kickoff_at="2026-10-14T19:00")
+    assert moved["match"]["status"] == "suspended" and moved["match"]["period"] == "first_half"
+    assert moved["match"]["kickoff_at"] == "2026-10-14T22:00:00Z" and moved["match"]["clock"]["running"] is False
     resumed = op.status("resume")
     assert resumed["match"]["status"] == "live" and resumed["match"]["clock"]["running"] is True
     assert_error(op.status("cancel", expect=422), "invalid_status_action")  # ao vivo não cancela
@@ -414,7 +418,7 @@ def test_status_postpone_reschedule_suspend_resume_cancel(league, operator_clien
     cancelled = op.status("cancel", reason="Sem condições de jogo")
     assert cancelled["match"]["status"] == "cancelled" and cancelled["available"] == {"events": [], "status": []}
     types = list(MatchEvent.objects.filter(match=later).order_by("sequence").values_list("type", flat=True))
-    assert types == ["postponed", "rescheduled", "match_start", "suspended", "resumed", "suspended", "cancelled"]
+    assert types == ["postponed", "rescheduled", "match_start", "suspended", "rescheduled", "resumed", "suspended", "cancelled"]
 
 
 # --- Formato, permissão e catálogo -------------------------------------------------------------

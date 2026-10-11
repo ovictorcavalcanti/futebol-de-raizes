@@ -597,7 +597,7 @@ def test_componentes_no_navegador(browser_page):
     assert out["finalAdv"] == ["Campeão nos pênaltis", True, "#i-star", False]
     assert out["semiAdv"] == ["avança nos pênaltis", True, "#i-advance", False]
     assert out["delay"] == [False, "Início atrasado — Chuva forte", "#i-alert", False, False] and out["delayGone"]
-    assert out["postponed"] == ["Jogo adiado — Falta de energia", "#i-calendar"]
+    assert out["postponed"] == ["Jogo adiado — Falta de energia", "#i-alert"]
     assert out["varMinute"] == "31'"
     # 1º amarelo + o vermelho do 2º; o tipo vai no nome acessível do ícone, sem legenda repetida
     assert out["secondYellowItems"] == [["Cartão amarelo", ""], ["Cartão vermelho", "Segundo amarelo e vermelho"]]

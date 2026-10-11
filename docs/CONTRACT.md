@@ -99,7 +99,9 @@ Decisões do serviço:
 * **Confronto de ida e volta travado** (`tie_leg_locked`): com o jogo decisivo já começado
   (status fora de agendado/adiado/cancelado), o outro jogo não aceita cancelamento nem
   lançamento que mude o placar dele (o domínio refaz a volta com o placar atual da ida).
-* **Reagendamento**: o payload gravado fica `{"kickoff_at": "<UTC Z>", "previous_kickoff_at":
+* **Reagendamento**: vale para jogo agendado, atrasado ou adiado (volta a agendado) e para jogo
+  suspenso (segue suspenso, no mesmo período, com placar e minuto guardados; na data nova o
+  operador retoma de onde parou). O payload gravado fica `{"kickoff_at": "<UTC Z>", "previous_kickoff_at":
   "<UTC Z>", "reason"?}` (sem fuso = Brasília). Cancelar reagendamento volta ao último
   reagendamento que sobrou ou, sem nenhum, ao `previous_kickoff_at` do mais antigo cancelado.
   O serviço só grava `kickoff_at` quando ele muda (não sobrescreve edição do admin).

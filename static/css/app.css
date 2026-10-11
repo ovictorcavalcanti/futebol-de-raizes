@@ -941,7 +941,7 @@
   .match__tie-row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: center; gap: 4px var(--s-2); }
   .match__tie-row > .icon { align-self: center; }
   .match__tie .tie__adv { margin-left: 0; align-items: baseline; }
-  .match__tie .tie__adv .icon { align-self: center; }
+  .match__tie .tie__adv .icon { align-self: center; color: inherit; } /* seta do "avança" no verde do texto */
   /* final: "Campeão" com a medalha dourada no fim */
   .match__tie .tie__adv--champion { color: var(--amarelo-ink); }
   /* a medalha pesa embaixo (fita em cima, disco embaixo): apoiada na linha do texto, como um emoji */

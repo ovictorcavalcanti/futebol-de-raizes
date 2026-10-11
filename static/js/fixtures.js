@@ -479,6 +479,7 @@ export const CATALOG = {
     { action: 'resume', label: 'Retomar' },
     { action: 'reschedule', label: 'Reagendar' },
     { action: 'cancel', label: 'Cancelar' },
+    { action: 'walkover', label: 'W.O.' },
   ],
 };
 export const AVAILABLE = { events: ['goal', 'goal_annulled', 'yellow_card', 'red_card', 'substitution', 'penalty_awarded', 'penalty_missed', 'var_review', 'stoppage_time', 'match_end'], status: ['suspend'] };

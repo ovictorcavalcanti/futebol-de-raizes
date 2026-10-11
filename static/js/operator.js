@@ -226,7 +226,7 @@ export function lineupPlayers(match, teamId = null, { opponent = false } = {}) {
 let els = null;
 const clock = new ServerClock();
 const now = () => clock.nowMs();
-const STATUS_ICON = { postpone: 'calendar', suspend: 'pause', resume: 'play', reschedule: 'calendar', cancel: 'x-circle' };
+const STATUS_ICON = { postpone: 'calendar', suspend: 'pause', resume: 'play', reschedule: 'calendar', cancel: 'x-circle', walkover: 'flag' };
 const ERROR_FIELD = {
   invalid_minute: 'minute',
   team_required: 'team_id',
@@ -1241,21 +1241,43 @@ async function openStatusDialog(item) {
   const p = hooks(els.statusDialog);
   const reschedule = item.action === 'reschedule';
   const delay = item.action === 'delay';
-  p['status-title'].textContent = delay ? 'Marcar a partida como atrasada?' : `${item.label} a partida?`;
+  const walkover = item.action === 'walkover';
+  p['status-title'].textContent = delay ? 'Marcar a partida como atrasada?' : walkover ? 'Encerrar a partida por W.O.?' : `${item.label} a partida?`;
   p['status-text'].textContent = `${teamName(match.home)} × ${teamName(match.away)} · ${formatWhen(match.kickoff_at, now())} · ${match.status_label || ''}`;
   p['status-kickoff-field'].hidden = !reschedule;
   p['status-kickoff'].required = reschedule;
   p['status-kickoff'].disabled = !reschedule;
   p['status-kickoff'].value = reschedule ? toBrasiliaInput(match.kickoff_at) : '';
+  // W.O.: time beneficiado e placar (padrão 3 × 0 para ele, editável)
+  const [team, homeGoals, awayGoals] = [p['status-wo-team'], p['status-wo-home'], p['status-wo-away']];
+  p['status-wo-team-field'].hidden = !walkover;
+  p['status-wo-score'].hidden = !walkover;
+  for (const input of [team, homeGoals, awayGoals]) {
+    input.required = walkover;
+    input.disabled = !walkover;
+  }
+  team.replaceChildren(h('option', { value: '', text: 'Escolha o time' }),
+    ...[match.home, match.away].map((side) => h('option', { value: String(side?.id ?? ''), text: teamName(side) })));
+  p['status-wo-home-name'].textContent = teamShort(match.home);
+  p['status-wo-away-name'].textContent = teamShort(match.away);
+  homeGoals.value = '';
+  awayGoals.value = '';
+  team.onchange = () => {
+    const home = team.value === String(match.home?.id);
+    homeGoals.value = team.value ? (home ? 3 : 0) : '';
+    awayGoals.value = team.value ? (home ? 0 : 3) : '';
+  };
   p['status-reason'].value = delay ? match.status_note || '' : '';
-  p['status-reason'].required = delay;
-  p['status-reason-label'].textContent = delay ? 'Observação: razão do atraso (obrigatória)' : 'Motivo (opcional)';
-  p['status-ok'].textContent = item.label;
+  p['status-reason'].required = delay || walkover;
+  p['status-reason-label'].textContent = delay ? 'Observação: razão do atraso (obrigatória)'
+    : walkover ? 'Motivo do W.O. (obrigatório)' : 'Motivo (opcional)';
+  p['status-ok'].textContent = walkover ? 'Encerrar por W.O.' : item.label;
   p['status-ok'].classList.toggle('btn--danger', item.action === 'cancel');
   p['status-ok'].classList.toggle('btn--primary', item.action !== 'cancel');
   if (!(await openDialog(els.statusDialog))) return;
   const body = { action: item.action };
   if (reschedule) body.kickoff_at = p['status-kickoff'].value; // sem fuso = horário de Brasília (CONTRACT §2)
+  if (walkover) Object.assign(body, { team_id: Number(team.value), home_score: Number(homeGoals.value), away_score: Number(awayGoals.value) });
   const reason = p['status-reason'].value.trim();
   if (reason) body.reason = reason;
   sendStatus(body, api.newIdempotencyKey(), item.label);
@@ -1342,6 +1364,10 @@ function eventSub(event, match) {
       break;
     case 'rescheduled':
       if (p.kickoff_at) parts.push(`para ${formatWhen(p.kickoff_at, now())}`);
+      if (p.reason) parts.push(p.reason);
+      break;
+    case 'walkover':
+      if (p.home_score != null && p.away_score != null) parts.push(`${p.home_score} × ${p.away_score}`);
       if (p.reason) parts.push(p.reason);
       break;
     default:

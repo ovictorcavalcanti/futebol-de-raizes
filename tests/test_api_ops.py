@@ -410,7 +410,7 @@ def test_status_postpone_reschedule_suspend_resume_cancel(league, operator_clien
     suspended = op.status("suspend", reason="Queda de energia")
     assert suspended["match"]["status"] == "suspended" and suspended["match"]["period"] == "first_half"
     assert suspended["match"]["clock"]["running"] is False and suspended["match"]["clock"]["paused_at"]
-    assert set(suspended["available"]["status"]) == {"resume", "reschedule", "cancel"}
+    assert set(suspended["available"]["status"]) == {"resume", "reschedule", "cancel", "walkover"}
     assert suspended["match"]["status_note"] == "Queda de energia" and suspended["match"]["resumes_at"] is None
     assert_error(op.goal(sport, 10, expect=422), "match_not_live")
     # suspenso reagendado: segue suspenso (relógio parado), na data nova; retoma de onde parou
@@ -427,7 +427,7 @@ def test_status_postpone_reschedule_suspend_resume_cancel(league, operator_clien
     again = op.status("suspend")  # nova suspensão sem motivo: nem o motivo nem a data da anterior
     assert again["match"]["status_note"] is None and again["match"]["resumes_at"] is None
     cancelled = op.status("cancel", reason="Sem condições de jogo")
-    assert cancelled["match"]["status"] == "cancelled" and cancelled["available"] == {"events": [], "status": []}
+    assert cancelled["match"]["status"] == "cancelled" and cancelled["available"] == {"events": [], "status": ["walkover"]}
     assert cancelled["match"]["status_note"] == listed()["status_note"] == "Sem condições de jogo"
     types = list(MatchEvent.objects.filter(match=later).order_by("sequence").values_list("type", flat=True))
     assert types == ["postponed", "rescheduled", "match_start", "suspended", "rescheduled", "resumed", "suspended", "cancelled"]
@@ -485,7 +485,7 @@ def test_catalog_lists_every_type_and_labels(operator_client):
     goal = next(spec for spec in data["events"] if spec["type"] == "goal")
     assert goal["minute"] == "optional" and goal["kind"] == "game"  # gol "a confirmar"
     assert {"name": "team_id", "kind": "team", "label": "Time beneficiado", "required": True, "choices": []} in goal["fields"]
-    assert {item["action"] for item in data["status_actions"]} == {"delay", "postpone", "suspend", "resume", "reschedule", "cancel"}
+    assert {item["action"] for item in data["status_actions"]} == {"delay", "postpone", "suspend", "resume", "reschedule", "cancel", "walkover"}
     assert [item["key"] for item in data["periods"]] == [
         "first_half", "half_time", "second_half", "extra_time", "extra_half_time", "extra_second_half", "penalties",
     ]
@@ -532,6 +532,30 @@ def test_status_postpone_with_reason_shows_note(league, operator_client):
     op = ApiOp(operator_client, match)
     postponed = op.status("postpone", reason="Falta de energia no estádio")
     assert postponed["match"]["status"] == "postponed" and postponed["match"]["status_note"] == "Falta de energia no estádio"
+
+
+def test_status_walkover_from_cancelled_counts_in_standings(league, operator_client):
+    """W.O.: encerra com o placar (padrão 3 × 0 para o beneficiado), que conta na tabela; o card
+    recebe o time e o motivo em `walkover`, também nas listas."""
+    sport, nautico = league["teams"][0], league["teams"][1]
+    match = make_match(league["stage"], sport, nautico, kickoff_at=timeutils.now(), round=league["rounds"][0])
+    op = ApiOp(operator_client, match)
+    assert op.status("cancel", reason="Sport não compareceu")["available"]["status"] == ["walkover"]
+    assert_error(op.status("walkover", reason="Sport não compareceu", expect=422), "team_required")
+    assert_error(op.status("walkover", team_id=nautico.id, expect=422), "invalid_payload")  # sem motivo
+    tie_score = {"home_score": 1, "away_score": 1}
+    assert_error(op.status("walkover", team_id=nautico.id, reason="Sport não compareceu", **tie_score, expect=422), "invalid_payload")
+    wo = op.status("walkover", team_id=nautico.id, reason="Sport não compareceu")
+    assert wo["event"]["type"] == "walkover"
+    done = wo["match"]
+    assert done["status"] == "finished" and (done["home_score"], done["away_score"]) == (0, 3) and done["finished_at"]
+    assert done["winner"] == "away" and done["status_note"] is None and wo["available"] == {"events": [], "status": []}
+    assert done["walkover"] == {"team_id": nautico.id, "reason": "Sport não compareceu"}
+    listed = operator_client.get(f"/api/matches?roundId={league['rounds'][0].id}").json()["matches"]
+    assert next(m for m in listed if m["id"] == match.id)["walkover"] == done["walkover"]
+    table = operator_client.get(f"/api/stages/{league['stage'].id}/standings").json()
+    rows = {row["team"]["id"]: row for row in table["groups"][0]["rows"]}
+    assert rows[nautico.id]["points"] == 3 and (rows[nautico.id]["goals_for"], rows[nautico.id]["goals_against"]) == (3, 0)
 
 
 def test_partial_info_switch(match, op, operator_client):

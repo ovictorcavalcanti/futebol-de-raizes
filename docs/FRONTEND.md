@@ -69,7 +69,7 @@ O contexto `brand` (`core/context_processors.py`, `settings.BRAND`) alimenta:
   --vermelho --amarelo --verde`, `--field` (borda de campo de formulário e trilho do
   interruptor, ≥ 3:1 — WCAG 1.4.11), mais variantes AA para texto pequeno
   (`--verde-ink --amarelo-ink --vermelho-ink`), texto sobre cor (`--on-azul`…),
-  tintas (`--azul-tint`…), `--frevo-stripe`, `--hatch`.
+  tintas (`--azul-tint`…), `--frevo-stripe`.
 * **Ajuste de contraste (desvio de IDENTIDADE.md):** `--ink-3` claro passou de
   `#7B7365` para `#6F675A` e o escuro de `#8E8778` para `#A8A193` — os originais
   ficavam abaixo de 4.5:1 sobre `--paper`/`--surface-2` e, no escuro, sobre as tintas
@@ -164,7 +164,7 @@ for (const stage of comp.stages) {
 | `#event-form-card` (`hidden`), `#event-form` | Formulário. `[data-hook]`: `event-form-icon` (`<use>`), `event-form-title`, `event-warnings` (+ `event-warnings-list`, para `confirmation_required`), `event-error`, `event-type` (`#event-type`: `<select>` dos tipos em `available.events`, lances primeiro e os estruturais num `<optgroup label="Andamento do jogo">`), `event-fields`, `event-cancel`, `event-submit`, `event-submit-label`. |
 | `#op-timeline`, `#op-timeline-empty`, `[data-hook="timeline-count"]` | Lançamentos (mais recente primeiro) com `tpl-op-event`. |
 | `#confirm-dialog` | Confirmação genérica (andamento do jogo e avisos `confirmation_required`): `confirm-title`, `confirm-text`, `confirm-list` (`<ul>` dos avisos, `hidden` sem itens), `confirm-ok`; `returnValue` = `"confirm"` ou `"cancel"` ("Voltar"). |
-| `#status-dialog` | `status-title`, `status-text`, `status-kickoff-field` (`hidden`; mostre no reagendar) › `#status-kickoff`, `#status-reason`, `status-ok`. |
+| `#status-dialog` | `status-title`, `status-text`, `status-kickoff-field` (`hidden`; mostre no reagendar) › `#status-kickoff`, `status-wo-team-field` › `#status-wo-team` e `status-wo-score` › `status-wo-home`/`status-wo-away` (`hidden`; mostre no W.O.: time beneficiado e placar, 3 × 0 para ele ao escolher), `#status-reason` (obrigatório no atraso e no W.O.), `status-ok`. |
 | `#void-dialog` | `void-text`, `#void-reason`, `void-ok` (botão de perigo). |
 
 Templates do operador (`partials/operator-templates.html`, um por `kind` do catálogo):
@@ -244,7 +244,7 @@ O card cobre todos os status: agendado (pílula com horário, dia relativo), ao 
 (minuto correndo, faixa vermelha no topo), intervalo (amarelo), encerrado
 (vencedor em destaque, perdedor esmaecido), pênaltis `(4) × (3) pên.`, suspenso,
 adiado e cancelado (hachura). Linha do confronto no mata-mata (no card da volta: agregado e quem
-avança, com o agregado na mesma ordem mandante × visitante do placar do card; nas outras rodadas, "avança" com o símbolo de avançar (⏩) no fim; na rodada "Final", "Campeão" com a estrela dourada no fim; "Jogo de ida" e "Agregado" com o ícone de informação na frente). Atrasado, adiado, suspenso e cancelado: linha "Início atrasado", "Jogo adiado", "Jogo suspenso" ou "Jogo cancelado" — motivo, com o alerta laranja, nas observações abaixo do placar (onde fica o "Jogo de ida"), com o `status_note`; some com a mudança de status. Suspenso reagendado: mais uma linha, "Retomada: amanhã às 16:00", com o calendário (`resumes_at`). Topo do card quase reto (2px) com a faixa de status: agendado azul, ao vivo vermelho, intervalo amarelo, atrasado e adiado laranja (sem hachura no adiado), encerrado tinta, suspenso e cancelado cinza.
+avança, com o agregado na mesma ordem mandante × visitante do placar do card; nas outras rodadas, "avança" com o símbolo de avançar (⏩) no fim; na rodada "Final", "Campeão" com a estrela dourada no fim; "Jogo de ida" e "Agregado" com o ícone de informação na frente). Atrasado, adiado, suspenso e cancelado: linha "Início atrasado", "Jogo adiado", "Jogo suspenso" ou "Jogo cancelado" — motivo, com o alerta laranja, nas observações abaixo do placar (onde fica o "Jogo de ida"), com o `status_note`; some com a mudança de status. Suspenso reagendado: mais uma linha, "Retomada: amanhã às 16:00", com o calendário (`resumes_at`). Encerrado por W.O.: "W.O. em favor do {time} — motivo", com o alerta (`walkover`). Nenhum status tem fundo hachurado nem borda tracejada (atrapalham a leitura): suspenso e cancelado têm selo com borda cinza contínua. Topo do card quase reto (2px) com a faixa de status: agendado azul, ao vivo vermelho, intervalo amarelo, atrasado e adiado laranja, encerrado tinta, suspenso e cancelado cinza, todos sem hachura.
 Nome do time: sigla no celular, nome completo a partir de 520 px de card; quebra só entre
 palavras (`overflow-wrap: normal`, `text-wrap: balance`; a sigla nunca quebra) e o ✓ do
 vencedor fica fora do fluxo (no canto, junto da faixa do time), sem apertar o nome; em card

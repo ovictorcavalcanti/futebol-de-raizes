@@ -46,6 +46,7 @@ SUMMARY_EVENT_TYPES = (
     EventType.POSTPONED,
     EventType.CANCELLED,
     EventType.RESCHEDULED,
+    EventType.WALKOVER,
 )
 DETAIL_PREFETCH = (
     Prefetch(
@@ -367,6 +368,19 @@ def _status_note(match, timeline: Timeline) -> str | None:
     return note
 
 
+def _walkover(match, timeline: Timeline) -> dict | None:
+    """Jogo encerrado por W.O.: {"team_id" (beneficiado), "reason"} do lance; senão null."""
+    if match.status != Status.FINISHED:
+        return None
+    last = None
+    for row in timeline.rows:
+        if row.type == EventType.WALKOVER:
+            last = row
+    if last is None:
+        return None
+    return {"team_id": last.team_id, "reason": _payload(last).get("reason") or None}
+
+
 def _resumes_at(match, timeline: Timeline) -> str | None:
     """Jogo suspenso com data nova (reagendado depois da última suspensão): o `kickoff_at`, quando
     ele é retomado de onde parou. Fora disso, null."""
@@ -487,6 +501,7 @@ def serialize_match(match, detail: bool = False, events: Iterable[MatchEvent] | 
         "status_label": domain.STATUS_LABELS.get(match.status, match.status),
         "status_note": _status_note(match, timeline),
         "resumes_at": _resumes_at(match, timeline),
+        "walkover": _walkover(match, timeline),
         "partial_info": match.partial_info,
         "period": period,
         "period_label": domain.PERIOD_LABELS.get(period) if period else None,

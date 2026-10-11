@@ -83,7 +83,6 @@
     --crest-outline: var(--ink);
     /* faixa do frevo: assinatura da marca */
     --frevo-stripe: linear-gradient(90deg, var(--vermelho) 0 25%, var(--amarelo) 25% 50%, var(--verde) 50% 75%, var(--azul) 75% 100%);
-    --hatch: repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--ink) 10%, transparent) 5px 7px);
     /* foco */
     --focus: var(--azul);
     --focus-halo: color-mix(in srgb, var(--amarelo) 55%, transparent);
@@ -635,11 +634,8 @@
     border-color: color-mix(in srgb, var(--azul) 30%, transparent);
     letter-spacing: 0.03em;
   }
-  .pill--suspended, .pill--cancelled {
-    background: var(--hatch), var(--surface-2);
-    color: var(--ink);
-    border: 1px dashed var(--ink-3);
-  }
+  /* sem hachura nem tracejado em nenhum status: atrapalham a leitura */
+  .pill--suspended, .pill--cancelled { background: var(--surface); color: var(--ink); border: 2px solid var(--ink-3); }
   .pill--sm { height: 20px; padding: 0 8px; font-size: 0.75rem; }
 
   .badge {
@@ -733,7 +729,6 @@
   .match[data-status="delayed"]::before, .match[data-status="postponed"]::before { background: var(--laranja); }
   .match[data-status="finished"]::before { background: var(--ink); }
   .match[data-status="suspended"]::before, .match[data-status="cancelled"]::before { background: var(--ink-3); }
-  .match[data-status="cancelled"] { background: var(--hatch), var(--surface); } /* adiado sem hachura: atrapalha a leitura */
 
   /* faixa de meta */
   .match__meta {
@@ -1604,6 +1599,14 @@
   .dialog__head::before { content: ""; position: absolute; inset: 0 0 auto; height: var(--stripe-h); background: var(--frevo-stripe); }
   .dialog__title { font-size: 1.375rem; }
   .dialog__body { display: grid; gap: var(--s-3); padding: var(--s-2) var(--s-5) var(--s-4); color: var(--ink-2); }
+  /* placar do W.O. no diálogo de status: mandante [n] × [n] visitante */
+  .wo-score { margin: 0; padding: 0; border: 0; }
+  .wo-score > legend { padding: 0; }
+  .wo-score__row { display: flex; align-items: center; gap: var(--s-2); }
+  .wo-score__side { display: flex; flex: 1; align-items: center; gap: var(--s-2); min-width: 0; color: var(--ink); font-weight: 600; }
+  .wo-score__side:last-child { justify-content: flex-start; }
+  .wo-score__side:first-child { justify-content: flex-end; }
+  .wo-score__side .input { width: 4.5rem; text-align: center; }
   .dialog__foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s-2); padding: var(--s-3) var(--s-5) var(--s-4); border-top: 1px solid var(--line); background: color-mix(in srgb, var(--surface-2) 45%, var(--surface)); }
 
   /* --- Segmentado, interruptor ---------------------------------------------------- */

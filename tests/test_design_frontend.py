@@ -511,6 +511,9 @@ COMPONENTS_JS = """async () => {
   out.suspendedMoved = noteRows();
   M.updateMatchCard(lateCard, { ...stopped, status: 'cancelled', status_label: 'Cancelado', status_note: 'Sem condições de jogo', resumes_at: null });
   out.cancelled = noteRows();
+  // W.O.: encerrado com o placar do W.O. e o aviso "W.O. em favor do {time} — motivo"
+  M.updateMatchCard(lateCard, { ...stopped, status: 'finished', status_label: 'Encerrado', status_note: null, home_score: 0, away_score: 3, walkover: { team_id: late.away.id, reason: 'Central não compareceu' } });
+  out.walkover = [noteRows(), `W.O. em favor do ${late.away.name} — Central não compareceu`];
   M.updateMatchCard(lateCard, { ...late, status: 'live', period: 'first_half', status_note: null, home_score: 0, away_score: 0 });
   out.delayGone = notes.hidden && !notes.textContent;
   out.semiAdv = [semiAdv.textContent, semiAdv.firstChild?.nodeType === 3, semiAdv.lastElementChild?.querySelector('use')?.getAttribute('href'), !!semiAdv.querySelector('use[href="#i-check"]')];
@@ -612,6 +615,7 @@ def test_componentes_no_navegador(browser_page):
     assert out["suspendedMoved"][0] == ["Jogo suspenso — Chuva forte", "#i-alert"]
     assert out["suspendedMoved"][1][0].startswith("Retomada: amanhã às ") and out["suspendedMoved"][1][1] == "#i-calendar"
     assert out["cancelled"] == [["Jogo cancelado — Sem condições de jogo", "#i-alert"]]
+    assert out["walkover"][0] == [[out["walkover"][1], "#i-alert"]]
     assert out["varMinute"] == "31'"
     # 1º amarelo + o vermelho do 2º; o tipo vai no nome acessível do ícone, sem legenda repetida
     assert out["secondYellowItems"] == [["Cartão amarelo", ""], ["Cartão vermelho", "Segundo amarelo e vermelho"]]

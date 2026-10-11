@@ -36,7 +36,7 @@ const SEPARATORS = {
   match_end: { label: 'Fim de jogo', icon: 'flag', score: true, end: true },
 };
 const INTERVALS = new Set(['half_time', 'extra_half_time']); // períodos sem relógio entre os tempos
-const STATUS_EVENTS = new Set(['delayed', 'postponed', 'suspended', 'resumed', 'rescheduled', 'cancelled']);
+const STATUS_EVENTS = new Set(['delayed', 'postponed', 'suspended', 'resumed', 'rescheduled', 'cancelled', 'walkover']);
 const TABS = [
   { key: 'events', label: 'Lances', icon: 'list' },
   { key: 'lineups', label: 'Escalações', icon: 'shirt' },
@@ -414,8 +414,9 @@ const isFinalRound = (tie) => String(tie.round?.name || '').trim().toLowerCase()
 /**
  * Observações do jogo, abaixo do placar: o aviso de status ("Início atrasado", "Jogo adiado",
  * "Jogo suspenso" ou "Jogo cancelado" — motivo, com o alerta na frente; some com a mudança de
- * status), a retomada do suspenso com data nova ("Retomada: amanhã às 16:00", com o calendário)
- * e o confronto do mata-mata. Ida e volta: a ida diz "Jogo
+ * status), o W.O. ("W.O. em favor do Sport — motivo", também com o alerta), a retomada do
+ * suspenso com data nova ("Retomada: amanhã às 16:00", com o calendário) e o confronto do
+ * mata-mata. Ida e volta: a ida diz "Jogo
  * de ida"; a volta traz o agregado (parcial até o fim do confronto) — as duas com o ícone de
  * informação na frente — e, no fim, quem avança e como. Jogo único: só quem avança, no fim.
  */
@@ -437,6 +438,13 @@ function renderTie(p, match, now) {
     const note = row(h('span', null, h('strong', { text: notice.text }), match.status_note ? ` — ${match.status_note}` : ''));
     note.classList.add('match__tie-row--note');
     rows.push(lead(notice.icon, note, 'icon--warn'));
+  }
+  if (match.status === 'finished' && match.walkover) {
+    const favored = [match.home, match.away].find((team) => team?.id != null && team.id === match.walkover.team_id);
+    const reason = match.walkover.reason ? ` — ${match.walkover.reason}` : '';
+    const note = row(h('span', null, h('strong', { text: `W.O. em favor do ${displayName(favored)}` }), reason));
+    note.classList.add('match__tie-row--note');
+    rows.push(lead('alert', note, 'icon--warn'));
   }
   if (match.status === 'suspended' && match.resumes_at) {
     // parou num dia e volta em outro, de onde parou
@@ -828,7 +836,9 @@ export function renderTimeline(match, newIds = null) {
       }
       default: {
         if (STATUS_EVENTS.has(e.type)) {
-          const extra = e.type === 'rescheduled' && e.payload?.kickoff_at ? ` para ${formatWhen(e.payload.kickoff_at)}` : '';
+          const favored = e.type === 'walkover' && e.team_side ? match[e.team_side] : null;
+          const extra = e.type === 'rescheduled' && e.payload?.kickoff_at ? ` para ${formatWhen(e.payload.kickoff_at)}`
+            : favored ? ` em favor do ${displayName(favored)}` : '';
           const reason = e.payload?.reason ? ` — ${e.payload.reason}` : '';
           list.append(timelineItem(e, null, { title: `${e.type_label || e.type}${extra}${reason}`, isNew, minuteText: '' }));
         } else {

@@ -509,6 +509,15 @@ def test_status_delay_with_note_then_start(league, operator_client):
     assert started["match"]["status"] == "live" and started["match"]["status_note"] is None
 
 
+def test_status_postpone_with_reason_shows_note(league, operator_client):
+    """Adiado: o motivo (opcional) também vem em `status_note`, para o card mostrar nas observações."""
+    sport, nautico = league["teams"][0], league["teams"][1]
+    match = make_match(league["stage"], sport, nautico, kickoff_at=timeutils.now(), round=league["rounds"][0])
+    op = ApiOp(operator_client, match)
+    postponed = op.status("postpone", reason="Falta de energia no estádio")
+    assert postponed["match"]["status"] == "postponed" and postponed["match"]["status_note"] == "Falta de energia no estádio"
+
+
 def test_partial_info_switch(match, op, operator_client):
     op.post("match_start")
     path = f"/api/ops/matches/{match.id}/partial-info"

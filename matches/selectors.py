@@ -342,13 +342,18 @@ def _clock(match, timeline: Timeline) -> dict | None:
     }
 
 
+_NOTE_EVENT = {Status.DELAYED: EventType.DELAYED, Status.POSTPONED: EventType.POSTPONED}
+
+
 def _status_note(match, timeline: Timeline) -> str | None:
-    """Observação do atraso (texto do operador), só com o jogo atrasado."""
-    if match.status != Status.DELAYED:
+    """Motivo do atraso ou do adiamento (texto do operador, o do último lance do tipo), só
+    com o jogo atrasado ou adiado."""
+    event_type = _NOTE_EVENT.get(match.status)
+    if event_type is None:
         return None
     note = None
     for row in timeline.rows:
-        if row.type == EventType.DELAYED:
+        if row.type == event_type:
             note = _payload(row).get("reason") or note
     return note
 

@@ -314,7 +314,7 @@ function boardLabel(match, now) {
   const away = displayName(match.away);
   if (!hasScore(match)) {
     const when = match.kickoff_at ? `, ${formatWhen(match.kickoff_at, now).replace(' · ', ' às ').toLowerCase()}` : '';
-    const note = match.status === 'delayed' && match.status_note ? `: ${match.status_note}` : '';
+    const note = NOTICES[match.status] && match.status_note ? `: ${match.status_note}` : '';
     return `${home} contra ${away}${when}. ${match.status_label || ''}${note}`.trim();
   }
   let label = `${home} ${match.home_score ?? 0} a ${match.away_score ?? 0} ${away}`;
@@ -397,12 +397,19 @@ function teamById(tie, id) {
   return null;
 }
 
+/** Aviso de status nas observações, com o motivo do operador (`status_note`), quando houver. */
+const NOTICES = {
+  delayed: { text: 'Início atrasado', icon: 'alert' },
+  postponed: { text: 'Jogo adiado', icon: 'calendar' },
+};
+
 /** Rodada chamada "Final" (o vencedor do confronto é o campeão). */
 const isFinalRound = (tie) => String(tie.round?.name || '').trim().toLowerCase() === 'final';
 
 /**
- * Observações do jogo, abaixo do placar: o atraso ("Início atrasado — motivo", com o alerta na
- * frente; some quando o jogo começa) e o confronto do mata-mata. Ida e volta: a ida diz "Jogo
+ * Observações do jogo, abaixo do placar: o atraso ou o adiamento ("Início atrasado — motivo",
+ * "Jogo adiado — motivo", com o ícone na frente; somem com a mudança de status) e o confronto
+ * do mata-mata. Ida e volta: a ida diz "Jogo
  * de ida"; a volta traz o agregado (parcial até o fim do confronto) — as duas com o ícone de
  * informação na frente — e, no fim, quem avança e como. Jogo único: só quem avança, no fim.
  */
@@ -418,11 +425,12 @@ function renderTie(p, match) {
     return el;
   };
   const info = (el) => lead('info', el);
-  if (match.status === 'delayed') {
-    // um texto só, ao lado do alerta: no celular, o motivo quebra como frase
-    const delay = row(h('span', null, h('strong', { text: 'Início atrasado' }), match.status_note ? ` — ${match.status_note}` : ''));
-    delay.classList.add('match__tie-row--note');
-    rows.push(lead('alert', delay, 'icon--warn'));
+  const notice = NOTICES[match.status];
+  if (notice) {
+    // um texto só, ao lado do ícone: no celular, o motivo quebra como frase
+    const note = row(h('span', null, h('strong', { text: notice.text }), match.status_note ? ` — ${match.status_note}` : ''));
+    note.classList.add('match__tie-row--note');
+    rows.push(lead(notice.icon, note, 'icon--warn'));
   }
   const tie = match.tie;
   if (!tie) {

@@ -937,11 +937,15 @@
     text-align: center;
   }
   /* uma linha por informação: agregado em cima, quem avança embaixo */
-  .match__tie-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px var(--s-2); }
-  .match__tie .tie__adv { margin-left: 0; }
+  /* textos de tamanhos e fontes diferentes na mesma linha de base; ícones centrados nela */
+  .match__tie-row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: center; gap: 4px var(--s-2); }
+  .match__tie-row > .icon { align-self: center; }
+  .match__tie .tie__adv { margin-left: 0; align-items: baseline; }
+  .match__tie .tie__adv .icon { align-self: center; }
   /* final: "Campeão" com a medalha dourada no fim */
   .match__tie .tie__adv--champion { color: var(--amarelo-ink); }
-  .match__tie .tie__adv--champion .icon { width: 16px; height: 16px; color: var(--amarelo); }
+  /* a medalha pesa embaixo (fita em cima, disco embaixo): apoiada na linha do texto, como um emoji */
+  .match__tie .tie__adv--champion .icon { width: 16px; height: 16px; color: var(--amarelo); align-self: baseline; transform: translateY(0.1em); }
   .match__tie .icon { width: 16px; height: 16px; color: var(--amarelo-ink); }
   .match__tie strong { color: var(--ink); font-weight: 600; }
   .match__tie-agg { font-family: var(--font-num); font-weight: 700; font-size: 0.9375rem; color: var(--ink); }

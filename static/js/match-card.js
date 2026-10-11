@@ -404,10 +404,9 @@ function teamById(tie, id) {
 const isFinalRound = (tie) => String(tie.round?.name || '').trim().toLowerCase() === 'final';
 
 /**
- * Linha do confronto no card, sem ícone na frente. Ida e volta: a ida diz "Jogo de ida" (com
- * o ícone de informação "a vaga sai no jogo de volta" enquanto o confronto está aberto); a
- * volta traz o agregado (parcial até o fim do confronto) e, no fim, quem avança e como. Jogo
- * único: só quem avança, no fim.
+ * Linha do confronto no card. Ida e volta: a ida diz "Jogo de ida"; a volta traz o agregado
+ * (parcial até o fim do confronto) — as duas com o ícone de informação na frente — e, no fim,
+ * quem avança e como. Jogo único: só quem avança, no fim.
  */
 function renderTie(p, match) {
   const tie = match.tie;
@@ -421,20 +420,22 @@ function renderTie(p, match) {
   const rows = [];
   const spaced = (items) => items.filter(Boolean).flatMap((item, i) => (i ? [' ', item] : [item]));
   const row = (...children) => h('span', { class: 'match__tie-row' }, ...spaced(children));
+  // ícone de informação na frente (sem espaço no texto: o leitor de tela não lê o ícone)
+  const info = (el) => {
+    el.prepend(icon('info'));
+    return el;
+  };
   const winner = tie.winner_team_id != null ? teamById(tie, tie.winner_team_id) : null;
   if (tie.legs === 2 && tie.leg === 1) {
-    const hint = 'A vaga sai no jogo de volta';
-    const first = row(h('span', { text: 'Jogo de ida' }));
-    if (!tie.complete) first.append(h('span', { class: 'match__tie-info', role: 'img', 'aria-label': hint, title: hint }, icon('info')));
-    rows.push(first);
+    rows.push(info(row(h('span', { text: 'Jogo de ida' }))));
   } else {
     if (tie.legs === 2 && tie.aggregate) {
       // agregado na mesma ordem do placar do card (mandante à esquerda), não na ordem team_a/team_b
       const flip = match.home?.id != null && match.home.id === tie.team_b?.id;
       const [left, right] = flip ? [tie.team_b, tie.team_a] : [tie.team_a, tie.team_b];
       const [aggLeft, aggRight] = flip ? [tie.aggregate.team_b, tie.aggregate.team_a] : [tie.aggregate.team_a, tie.aggregate.team_b];
-      rows.push(row(h('span', { text: tie.complete ? 'Agregado' : 'Agregado parcial' }),
-        h('span', { class: 'match__tie-agg', text: `${left?.short_name || ''} ${formatScore(aggLeft, aggRight)} ${right?.short_name || ''}` })));
+      rows.push(info(row(h('span', { text: tie.complete ? 'Agregado' : 'Agregado parcial' }),
+        h('span', { class: 'match__tie-agg', text: `${left?.short_name || ''} ${formatScore(aggLeft, aggRight)} ${right?.short_name || ''}` }))));
     }
     if (winner && tie.complete) {
       const how = tie.decided_by && (tie.legs === 2 || tie.decided_by !== 'aggregate') ? ` ${tie.decided_by_label || ''}` : '';

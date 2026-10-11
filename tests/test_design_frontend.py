@@ -479,8 +479,9 @@ COMPONENTS_JS = """async () => {
   root.append(...legCards);
   out.legOneTie = legCards[0].querySelector('.match__tie').textContent;
   out.legOneAgg = legCards[0].querySelectorAll('.match__tie-agg').length;
-  const info = legCards[0].querySelector('.match__tie-info');
-  out.legOneInfo = [info?.getAttribute('aria-label'), !!info?.querySelector('use[href="#i-info"]'), legCards[0].querySelectorAll('.match__tie use[href="#i-trophy"]').length];
+  // ícone de informação na frente de "Jogo de ida" e de "Agregado" (sem troféu, sem dica)
+  const lead = (el) => el.querySelector('.match__tie-row').firstElementChild?.querySelector('use')?.getAttribute('href');
+  out.legOneInfo = [lead(legCards[0]), lead(koCard), legCards[0].querySelectorAll('.match__tie use[href="#i-trophy"], .match__tie [title]').length];
   M.syncTieCards(legCards, { ...legOne, version: 2, tie: { ...legOne.tie, aggregate: { team_a: 2, team_b: 0 } } });
   out.legTwoAgg = legCards[1].querySelector('.match__tie-agg').textContent;
   out.legTwoLeg = M.getCardMatch(legCards[1]).tie.leg;
@@ -580,7 +581,7 @@ def test_componentes_no_navegador(browser_page):
     )
     assert out["homeIsTeamB"] and out["aggregate"] == out["expectedAggregate"]
     assert out["legOneTie"] == "Jogo de ida" and out["legOneAgg"] == 0
-    assert out["legOneInfo"] == ["A vaga sai no jogo de volta", True, 0]  # ícone de informação, sem troféu
+    assert out["legOneInfo"] == ["#i-info", "#i-info", 0]
     assert out["legTwoAgg"].split()[1:4] == ["0", "×", "2"] and out["legTwoLeg"] == 2  # volta: mandante = team_b
     assert out["finalAdv"] == ["Campeão nos pênaltis", True, "#i-medal", False]
     assert out["semiAdv"] == ["avança nos pênaltis", True, "#i-advance", False]

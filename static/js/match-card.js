@@ -400,6 +400,9 @@ function teamById(tie, id) {
   return null;
 }
 
+/** Rodada chamada "Final" (o vencedor do confronto é o campeão). */
+const isFinalRound = (tie) => String(tie.round?.name || '').trim().toLowerCase() === 'final';
+
 /**
  * Linha do confronto no card. Ida e volta: a ida só avisa que a vaga sai na volta; a volta
  * traz o agregado (parcial até o fim do confronto) e, no fim, quem avança e como. Jogo
@@ -431,8 +434,11 @@ function renderTie(p, match) {
     }
     if (winner && tie.complete) {
       const how = tie.decided_by && (tie.legs === 2 || tie.decided_by !== 'aggregate') ? ` ${tie.decided_by_label || ''}` : '';
-      rows.push(row(rows.length ? null : icon('trophy'),
-        h('strong', { text: displayName(winner) }), h('span', { class: 'tie__adv' }, icon('check'), `avança${how}`)));
+      // na final, quem vence é campeão (medalha dourada no fim); nas outras rodadas, avança
+      const outcome = isFinalRound(tie)
+        ? h('span', { class: 'tie__adv tie__adv--champion' }, `Campeão${how}`, icon('medal'))
+        : h('span', { class: 'tie__adv' }, icon('check'), `avança${how}`);
+      rows.push(row(rows.length ? null : icon('trophy'), h('strong', { text: displayName(winner) }), outcome));
     }
   }
   p.hidden = rows.length === 0;

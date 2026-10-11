@@ -8,7 +8,7 @@ export const ICONS = Object.freeze([
   'ball', 'ball-penalty', 'ball-own', 'ball-x', 'whistle', 'stadium', 'pin', 'tv', 'radio', 'people', 'user',
   'card', 'card-yellow', 'card-red', 'card-second-yellow', 'sub', 'arrow-up', 'arrow-down', 'var', 'clock',
   'bell', 'bell-off', 'speaker', 'speaker-off', 'sun', 'moon', 'chevron-left', 'chevron-right', 'chevron-down',
-  'chevron-up', 'external', 'star', 'trophy', 'shield', 'calendar', 'logout', 'lock', 'x-circle', 'target',
+  'chevron-up', 'external', 'star', 'trophy', 'medal', 'shield', 'calendar', 'logout', 'lock', 'x-circle', 'target',
   'flag', 'pause', 'play', 'check', 'close', 'plus', 'undo', 'alert', 'info', 'refresh', 'list', 'shirt',
   'clipboard', 'chart', 'menu', 'live', 'umbrella',
 ]);

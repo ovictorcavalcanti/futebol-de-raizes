@@ -939,6 +939,9 @@
   /* uma linha por informação: agregado em cima, quem avança embaixo */
   .match__tie-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px var(--s-2); }
   .match__tie .tie__adv { margin-left: 0; }
+  /* final: "Campeão" com a medalha dourada no fim */
+  .match__tie .tie__adv--champion { color: var(--amarelo-ink); }
+  .match__tie .tie__adv--champion .icon { width: 16px; height: 16px; color: var(--amarelo); }
   .match__tie .icon { width: 16px; height: 16px; color: var(--amarelo-ink); }
   .match__tie strong { color: var(--ink); font-weight: 600; }
   .match__tie-agg { font-family: var(--font-num); font-weight: 700; font-size: 0.9375rem; color: var(--ink); }

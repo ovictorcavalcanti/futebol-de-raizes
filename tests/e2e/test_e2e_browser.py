@@ -816,7 +816,7 @@ def test_mata_mata_ao_vivo_agregado_e_penaltis_na_pagina_da_competicao(new_conte
     expect(card.locator(".match__status .pill")).to_have_text(re.compile("Encerrado", re.I))
     expect(card.locator(".score__pen")).to_have_text("(3) × (0) pên.")
     expect(card.locator(".match__tie")).to_contain_text(final["home"]["name"])
-    expect(card.locator(".match__tie .tie__adv")).to_contain_text("avança nos pênaltis")
+    expect(card.locator(".match__tie .tie__adv")).to_contain_text("Campeão nos pênaltis")  # rodada "Final"
     assert page.evaluate("window.__sameDocument") is True
 
 

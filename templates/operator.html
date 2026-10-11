@@ -178,7 +178,7 @@
   </form>
 </dialog>
 
-{# Mudança de status: motivo e, no reagendamento, nova data. #}
+{# Mudança de status: motivo e, no reagendamento, nova data; no W.O., o time beneficiado e o placar. #}
 <dialog id="status-dialog" class="dialog" aria-labelledby="status-title">
   <form method="dialog" class="dialog__form">
     <div class="dialog__head"><h2 id="status-title" class="dialog__title" data-hook="status-title">Mudar status</h2></div>
@@ -188,6 +188,27 @@
         <label class="field__label" for="status-kickoff">Nova data e hora (Brasília)</label>
         <input id="status-kickoff" class="input" type="datetime-local" name="kickoff_at" data-hook="status-kickoff">
       </div>
+      <div class="field" data-hook="status-wo-team-field" hidden>
+        <label class="field__label" for="status-wo-team">Time beneficiado pelo W.O.</label>
+        <span class="select">
+          <select id="status-wo-team" name="team_id" data-hook="status-wo-team"></select>
+          <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+        </span>
+      </div>
+      <fieldset class="field wo-score" data-hook="status-wo-score" hidden>
+        <legend class="field__label">Placar do W.O. (padrão 3 × 0 para o beneficiado)</legend>
+        <div class="wo-score__row">
+          <label class="wo-score__side">
+            <span data-hook="status-wo-home-name">Mandante</span>
+            <input class="input" type="number" min="0" max="99" inputmode="numeric" name="home_score" data-hook="status-wo-home">
+          </label>
+          <span aria-hidden="true">×</span>
+          <label class="wo-score__side">
+            <input class="input" type="number" min="0" max="99" inputmode="numeric" name="away_score" data-hook="status-wo-away">
+            <span data-hook="status-wo-away-name">Visitante</span>
+          </label>
+        </div>
+      </fieldset>
       <div class="field">
         <label class="field__label" for="status-reason" data-hook="status-reason-label">Motivo (opcional)</label>
         <textarea id="status-reason" class="textarea" name="reason" maxlength="280" rows="2" data-hook="status-reason"></textarea>

@@ -343,6 +343,7 @@ class FakeApi:
         self.streams = []  # corpos SSE, um por conexão (o último se repete)
         self.me = {"authenticated": False, "user": None, "csrf_token": "tok-csrf"}
         self.posts = []
+        self.status_posts = []  # POST /api/ops/matches/:id/status
         self.rankings = []  # RankingRef da competição (botões ao lado da tabela)
         self.ranking_stage_ids = []  # fases somadas por GET /api/rankings/{id}
         self.round_matches = None  # MatchOut de GET /api/matches?roundId= (padrão: scheduledToday)
@@ -366,7 +367,7 @@ class FakeApi:
         elif match["status"] == "scheduled":
             available = {
                 "events": ["match_start"],
-                "status": ["postpone", "reschedule", "cancel"],
+                "status": ["postpone", "reschedule", "cancel", "walkover"],
             }
         else:
             available = {"events": [], "status": []}
@@ -497,6 +498,14 @@ class FakeApi:
             return self.json(route, {"user": self.fx["ME"]["user"]})
         if path == "/api/ops/catalog":
             return self.json(route, self.fx["CATALOG"])
+        if path.endswith("/status") and request.method == "POST":
+            body = json.loads(request.post_data)
+            self.status_posts.append(body)
+            match_id = int(path.split("/")[-2])
+            match, _ = self.match_detail(match_id)
+            match = {**match, "status": "finished", "status_label": "Encerrado", "version": match["version"] + 1}
+            event = {"id": 9002, "sequence": 1, "type": body["action"], "kind": "status", "payload": {}}
+            return self.json(route, {"event": event, "match": match, "available": {"events": [], "status": []}, "replayed": False}, 201)
         if path.endswith("/events") and request.method == "POST":
             body = json.loads(request.post_data)
             self.posts.append({"body": body, "headers": dict(request.headers)})
@@ -1253,6 +1262,39 @@ def test_operador_lanca_gol_com_confirmacao(open_page):
     assert (
         sum(1 for r in api.requests if r[1] == "/api/matches/12") >= 2
     )  # busca a partida de novo depois do envio
+    assert not errors, errors
+
+
+def test_operador_encerra_por_wo_com_time_placar_e_motivo(open_page):
+    page, api, errors = open_page("/operator.html")
+    page.wait_for_selector("#op-login:not([hidden])")
+    page.fill("#login-username", "operador")
+    page.fill("#login-password", "certa")
+    page.click("#login-submit")
+    page.wait_for_selector('#picker-list li[data-match-id="14"] .pick-item')
+    page.click('#picker-list li[data-match-id="14"] .pick-item')  # Central × Salgueiro, agendado
+    page.wait_for_selector('#status-actions button[data-action="walkover"]:not(:disabled)')
+    page.click('#status-actions button[data-action="walkover"]')
+    page.wait_for_selector("#status-dialog[open]")
+    dialog = "#status-dialog"
+    assert page.text_content(f"{dialog} [data-hook=status-title]") == "Encerrar a partida por W.O.?"
+    assert page.is_visible(f"{dialog} [data-hook=status-wo-team-field]") and page.is_visible(f"{dialog} [data-hook=status-wo-score]")
+    assert not page.is_visible(f"{dialog} [data-hook=status-kickoff-field]")
+    # sem time, sem placar e sem motivo: a validação nativa barra o envio
+    page.click(f"{dialog} [data-hook=status-ok]")
+    assert api.status_posts == []
+    # o time escolhido recebe o 3 × 0 padrão (aqui o visitante: 0 × 3), editável
+    salgueiro = api.fx["MATCHES"]["scheduledToday"]["away"]["id"]
+    page.select_option("#status-wo-team", value=str(salgueiro))
+    assert [page.input_value(f"{dialog} [data-hook=status-wo-{side}]") for side in ("home", "away")] == ["0", "3"]
+    page.fill(f"{dialog} [data-hook=status-wo-away]", "2")
+    page.fill("#status-reason", "Central não compareceu")
+    page.click(f"{dialog} [data-hook=status-ok]")
+    page.wait_for_function("() => !document.querySelector('#status-dialog').open")
+    page.wait_for_function("() => document.querySelector('.toast')?.textContent.includes('Encerrado')")
+    assert api.status_posts == [
+        {"action": "walkover", "reason": "Central não compareceu", "team_id": salgueiro, "home_score": 0, "away_score": 2}
+    ]
     assert not errors, errors
 
 

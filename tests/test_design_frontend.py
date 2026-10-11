@@ -499,6 +499,21 @@ COMPONENTS_JS = """async () => {
   root.append(lateCard);
   const notes = lateCard.querySelector('.match__tie');
   out.delay = [notes.hidden, notes.textContent, notes.querySelector('.match__tie-row')?.firstElementChild?.querySelector('use')?.getAttribute('href'), lateCard.querySelector('.match__meta').textContent.includes('Chuva'), lateCard.querySelector('.match__board').textContent.includes('Chuva')];
+  M.updateMatchCard(lateCard, { ...late, status: 'postponed', status_label: 'Adiado', status_note: 'Falta de energia' });
+  out.postponed = [notes.textContent, notes.querySelector('.match__tie-row')?.firstElementChild?.querySelector('use')?.getAttribute('href')];
+  // suspenso: o motivo e, com data nova (parou num dia, volta no outro), a retomada com o
+  // calendário; cancelado: o motivo
+  const noteRows = () => [...notes.querySelectorAll('.match__tie-row')].map((r) => [r.textContent, r.firstElementChild?.querySelector('use')?.getAttribute('href')]);
+  const stopped = { ...late, status: 'suspended', status_label: 'Suspenso', period: 'second_half', period_label: '2º tempo', home_score: 0, away_score: 1, status_note: 'Chuva forte' };
+  M.updateMatchCard(lateCard, stopped);
+  out.suspended = noteRows();
+  M.updateMatchCard(lateCard, { ...stopped, resumes_at: F.MATCHES.scheduledTomorrow.kickoff_at });
+  out.suspendedMoved = noteRows();
+  M.updateMatchCard(lateCard, { ...stopped, status: 'cancelled', status_label: 'Cancelado', status_note: 'Sem condições de jogo', resumes_at: null });
+  out.cancelled = noteRows();
+  // W.O.: encerrado com o placar do W.O. e o aviso "W.O. em favor do {time} — motivo"
+  M.updateMatchCard(lateCard, { ...stopped, status: 'finished', status_label: 'Encerrado', status_note: null, home_score: 0, away_score: 3, walkover: { team_id: late.away.id, reason: 'Central não compareceu' } });
+  out.walkover = [noteRows(), `W.O. em favor do ${late.away.name} — Central não compareceu`];
   M.updateMatchCard(lateCard, { ...late, status: 'live', period: 'first_half', status_note: null, home_score: 0, away_score: 0 });
   out.delayGone = notes.hidden && !notes.textContent;
   out.semiAdv = [semiAdv.textContent, semiAdv.firstChild?.nodeType === 3, semiAdv.lastElementChild?.querySelector('use')?.getAttribute('href'), !!semiAdv.querySelector('use[href="#i-check"]')];
@@ -595,6 +610,12 @@ def test_componentes_no_navegador(browser_page):
     assert out["finalAdv"] == ["Campeão nos pênaltis", True, "#i-star", False]
     assert out["semiAdv"] == ["avança nos pênaltis", True, "#i-advance", False]
     assert out["delay"] == [False, "Início atrasado — Chuva forte", "#i-alert", False, False] and out["delayGone"]
+    assert out["postponed"] == ["Jogo adiado — Falta de energia", "#i-alert"]
+    assert out["suspended"] == [["Jogo suspenso — Chuva forte", "#i-alert"]]
+    assert out["suspendedMoved"][0] == ["Jogo suspenso — Chuva forte", "#i-alert"]
+    assert out["suspendedMoved"][1][0].startswith("Retomada: amanhã às ") and out["suspendedMoved"][1][1] == "#i-calendar"
+    assert out["cancelled"] == [["Jogo cancelado — Sem condições de jogo", "#i-alert"]]
+    assert out["walkover"][0] == [[out["walkover"][1], "#i-alert"]]
     assert out["varMinute"] == "31'"
     # 1º amarelo + o vermelho do 2º; o tipo vai no nome acessível do ícone, sem legenda repetida
     assert out["secondYellowItems"] == [["Cartão amarelo", ""], ["Cartão vermelho", "Segundo amarelo e vermelho"]]

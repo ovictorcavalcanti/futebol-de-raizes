@@ -38,6 +38,7 @@ export const EVENT_ICONS = Object.freeze({
   resumed: 'play',
   rescheduled: 'calendar',
   cancelled: 'x-circle',
+  walkover: 'flag',
 });
 
 /**

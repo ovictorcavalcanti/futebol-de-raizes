@@ -132,6 +132,7 @@ class EventType(StrEnum):
     RESUMED = "resumed"
     RESCHEDULED = "rescheduled"
     CANCELLED = "cancelled"
+    WALKOVER = "walkover"  # W.O.: encerra o jogo com o placar dado ao time beneficiado
 
 
 class StatusAction(StrEnum):
@@ -141,6 +142,7 @@ class StatusAction(StrEnum):
     RESUME = "resume"
     RESCHEDULE = "reschedule"
     CANCEL = "cancel"
+    WALKOVER = "walkover"
 
 
 STATUS_ACTION_EVENT: dict[str, str] = {
@@ -150,6 +152,7 @@ STATUS_ACTION_EVENT: dict[str, str] = {
     StatusAction.RESUME: EventType.RESUMED,
     StatusAction.RESCHEDULE: EventType.RESCHEDULED,
     StatusAction.CANCEL: EventType.CANCELLED,
+    StatusAction.WALKOVER: EventType.WALKOVER,
 }
 
 
@@ -209,6 +212,7 @@ STATUS_ACTION_LABELS = {
     StatusAction.RESUME: "Retomar",
     StatusAction.RESCHEDULE: "Reagendar",
     StatusAction.CANCEL: "Cancelar",
+    StatusAction.WALKOVER: "W.O.",
 }
 
 GOAL_ORIGIN_LABELS = {
@@ -389,6 +393,13 @@ CATALOG: dict[str, EventSpec] = {
             _F_REASON_OPTIONAL,
         ),
         _status(EventType.CANCELLED, "Cancelado", "x-circle", _F_REASON_OPTIONAL),
+        _status(
+            EventType.WALKOVER, "W.O.", "flag",
+            FieldSpec("team_id", "team", "Time beneficiado"),
+            FieldSpec("payload.home_score", "int", "Gols do mandante", required=False),
+            FieldSpec("payload.away_score", "int", "Gols do visitante", required=False),
+            FieldSpec("payload.reason", "text", "Motivo do W.O."),
+        ),
     )
 }
 
@@ -814,25 +825,41 @@ def available_actions(state: MatchState, ctx: MatchContext, events: Sequence[Eve
     return {"events": allowed, "status": status}
 
 
-def status_action_event(action: str, *, kickoff_at: str | None = None, reason: str | None = None) -> NewEvent:
+def status_action_event(
+    action: str,
+    *,
+    kickoff_at: str | None = None,
+    reason: str | None = None,
+    team_id: int | None = None,
+    home_score: int | None = None,
+    away_score: int | None = None,
+) -> NewEvent:
     """Converte a ação de status (/status) no evento correspondente.
 
     Ação desconhecida → invalid_status_action; reagendar sem kickoff_at (ou com
     data inválida) → invalid_payload. `kickoff_at` aceita texto ISO 8601 ou datetime
-    e só vale para reagendar.
+    e só vale para reagendar. W.O.: `team_id` (beneficiado), `reason` e, opcionais,
+    `home_score`/`away_score` (padrão 3 × 0 para o beneficiado; o domínio valida).
     """
     event_type = STATUS_ACTION_EVENT.get(action) if isinstance(action, str) else None
     if event_type is None:
         raise DomainError("invalid_status_action", "Ação de status desconhecida.", {"action": action})
-    payload: dict[str, str] = {}
+    payload: dict = {}
     if event_type == EventType.RESCHEDULED:
         if kickoff_at is None or kickoff_at == "":
             raise DomainError("invalid_payload", "Informe a nova data e hora do jogo.", {"field": "kickoff_at"})
         payload["kickoff_at"] = _iso_datetime(kickoff_at, "kickoff_at")
-    text = _text({"reason": reason}, "reason", "payload.reason", required=event_type == EventType.DELAYED, missing=_DELAY_MISSING)
+    walkover = event_type == EventType.WALKOVER
+    text = _text(
+        {"reason": reason}, "reason", "payload.reason", required=event_type in (EventType.DELAYED, EventType.WALKOVER),
+        missing=_WALKOVER_MISSING if walkover else _DELAY_MISSING,
+    )
     if text:
         payload["reason"] = text
-    return NewEvent(type=event_type, payload=payload)
+    if not walkover:
+        return NewEvent(type=event_type, payload=payload)
+    scores = {key: value for key, value in (("home_score", home_score), ("away_score", away_score)) if value is not None}
+    return NewEvent(type=event_type, team_id=team_id, payload={**payload, **scores})
 
 
 # --- Mata-mata -------------------------------------------------------------------------
@@ -943,8 +970,12 @@ _STATUS_ORDER = (
     StatusAction.POSTPONE,
     StatusAction.RESCHEDULE,
     StatusAction.CANCEL,
+    StatusAction.WALKOVER,
 )
 _DELAY_MISSING = "Escreva a razão do atraso."
+_WALKOVER_MISSING = "Escreva o motivo do W.O."
+# placar padrão do W.O.: 3 × 0 para o time beneficiado
+WALKOVER_GOALS = 3
 _STATUS_VERBS = {
     EventType.DELAYED: "marcar atraso em",
     EventType.POSTPONED: "adiar",
@@ -952,6 +983,7 @@ _STATUS_VERBS = {
     EventType.RESUMED: "retomar",
     EventType.RESCHEDULED: "reagendar",
     EventType.CANCELLED: "cancelar",
+    EventType.WALKOVER: "encerrar por W.O.",
 }
 _ORDER_PERIOD = {order: period for period, order in PERIOD_ORDER.items()}
 # "no 1º tempo", "na prorrogação"... (mensagens com a preposição certa)
@@ -1257,11 +1289,20 @@ def _plan_status(state: MatchState, event_type: str) -> _Transition | DomainErro
         return _Transition(Status.LIVE, state.period, state.period)
     if event_type == EventType.RESCHEDULED and current in (Status.SCHEDULED, Status.DELAYED, Status.POSTPONED):
         return _Transition(Status.SCHEDULED, None, None)
+    if event_type == EventType.RESCHEDULED and current == Status.SUSPENDED:
+        # suspenso com data nova: segue suspenso (placar, período e minuto guardados) e, no dia,
+        # o operador retoma de onde parou
+        return _Transition(Status.SUSPENDED, state.period, state.period)
     if event_type == EventType.CANCELLED and current in (Status.SCHEDULED, Status.DELAYED, Status.POSTPONED, Status.SUSPENDED):
         return _Transition(Status.CANCELLED, None, state.period)
+    if event_type == EventType.WALKOVER and current in (
+        Status.SCHEDULED, Status.DELAYED, Status.POSTPONED, Status.SUSPENDED, Status.CANCELLED,
+    ):
+        # W.O. (antes do jogo, no suspenso ou no já cancelado): encerra com o placar do W.O.
+        return _Transition(Status.FINISHED, None, state.period)
     message = f"Não é possível {_STATUS_VERBS[event_type]} um jogo {STATUS_LABELS.get(current, current).lower()}."
-    if event_type == EventType.CANCELLED and current == Status.LIVE:
-        message += " Suspenda o jogo antes de cancelar."
+    if event_type in (EventType.CANCELLED, EventType.WALKOVER) and current == Status.LIVE:
+        message += f" Suspenda o jogo antes de {_STATUS_VERBS[event_type]}."
     return _error("invalid_status_action", message, status=current, type=event_type)
 
 
@@ -1280,7 +1321,7 @@ def _step(
     if spec.kind == "structural":
         return _step_structural(state, new, spec, ctx, sequence, collect)
     if spec.kind == "status":
-        return _step_status(state, new, spec, sequence)
+        return _step_status(state, new, spec, ctx, sequence)
     if spec.type == EventType.CLOCK_ADJUST:
         return _step_clock(state, new, spec, sequence)
     return _step_game(state, new, spec, ctx, history, sequence, collect)
@@ -1397,14 +1438,15 @@ def _step_structural(
     return _Step(replace(state, **changes), event, warnings)
 
 
-def _step_status(state: MatchState, new: NewEvent, spec: EventSpec, sequence: int) -> _Step:
+def _step_status(state: MatchState, new: NewEvent, spec: EventSpec, ctx: MatchContext, sequence: int) -> _Step:
     plan = _plan_status(state, spec.type)
     if isinstance(plan, DomainError):
         raise plan
     if new.minute is not None or _normalized_stoppage(new.stoppage) is not None:
         raise _error("invalid_minute", "Mudança de status não leva minuto.", minute=new.minute)
     raw = _payload_of(new)
-    payload: dict[str, str] = {}
+    payload: dict = {}
+    team_id = None
     changes: dict = {"status": plan.status, "period": plan.period}
     if plan.period is None:
         changes.update(period_started_seq=None, period_pauses=(), clock_marks=())
@@ -1417,12 +1459,42 @@ def _step_status(state: MatchState, new: NewEvent, spec: EventSpec, sequence: in
         if value is None or value == "":
             raise _error("invalid_payload", "Informe a nova data e hora do jogo.", field="payload.kickoff_at")
         payload["kickoff_at"] = changes["rescheduled_to"] = _iso_datetime(value, "payload.kickoff_at")
+    if spec.type == EventType.WALKOVER:
+        team_id, home, away = _walkover_score(new, raw, ctx)
+        payload.update(home_score=home, away_score=away)
+        changes.update(home_score=home, away_score=away, home_penalties=None, away_penalties=None)
     if spec.type != EventType.RESUMED:
-        reason = _text(raw, "reason", "payload.reason", required=spec.type == EventType.DELAYED, missing=_DELAY_MISSING)
+        reason = _text(
+            raw, "reason", "payload.reason", required=spec.type in (EventType.DELAYED, EventType.WALKOVER),
+            missing=_WALKOVER_MISSING if spec.type == EventType.WALKOVER else _DELAY_MISSING,
+        )
         if reason:
             payload["reason"] = reason
-    event = Event(sequence, spec.type, plan.event_period, payload=payload)
+    event = Event(sequence, spec.type, plan.event_period, team_id=team_id, payload=payload)
     return _Step(replace(state, **changes), event)
+
+
+def _walkover_score(new: NewEvent, raw: Mapping, ctx: MatchContext) -> tuple[int, int, int]:
+    """Time beneficiado e placar do W.O. (padrão 3 × 0 para ele); o placar tem de dar a
+    vitória a quem recebe o W.O."""
+    team_id = new.team_id
+    if team_id is None:
+        raise _error("team_required", "Informe o time beneficiado pelo W.O.", field="team_id")
+    if isinstance(team_id, bool) or team_id not in (ctx.home_team_id, ctx.away_team_id):
+        raise _error("team_not_in_match", "O time informado não joga esta partida.", team_id=team_id)
+    home_wins = team_id == ctx.home_team_id
+    goals = {}
+    for side, default in (("home_score", WALKOVER_GOALS if home_wins else 0), ("away_score", 0 if home_wins else WALKOVER_GOALS)):
+        value = raw.get(side)
+        if value is None or value == "":
+            value = default
+        if not _is_int(value) or not 0 <= value <= 99:
+            raise _error("invalid_payload", "Placar do W.O. inválido (0 a 99).", field=f"payload.{side}")
+        goals[side] = value
+    home, away = goals["home_score"], goals["away_score"]
+    if home == away or (home > away) != home_wins:
+        raise _error("invalid_payload", "O placar do W.O. tem de dar a vitória ao time beneficiado.", field="payload.home_score")
+    return team_id, home, away
 
 
 def _iso_datetime(value, field_name: str) -> str:

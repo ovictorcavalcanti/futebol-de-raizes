@@ -63,6 +63,8 @@
     --verde-ink: #0A733C;
     --amarelo-ink: #7D5A00;
     --ouro-ink: #5C4200; /* "Campeão": dourado escuro, ~8:1 sobre surface-2 */
+    --laranja: #E8730C; /* atrasado e adiado (o amarelo é do intervalo) */
+    --laranja-ink: #8F4000; /* ~6:1 sobre surface-2 */
     --vermelho-ink: #B00E28;
     /* texto sobre fundos de cor */
     --on-azul: #FFFFFF;
@@ -81,7 +83,6 @@
     --crest-outline: var(--ink);
     /* faixa do frevo: assinatura da marca */
     --frevo-stripe: linear-gradient(90deg, var(--vermelho) 0 25%, var(--amarelo) 25% 50%, var(--verde) 50% 75%, var(--azul) 75% 100%);
-    --hatch: repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--ink) 10%, transparent) 5px 7px);
     /* foco */
     --focus: var(--azul);
     --focus-halo: color-mix(in srgb, var(--amarelo) 55%, transparent);
@@ -122,6 +123,8 @@
     --verde-ink: #3DD68C;
     --amarelo-ink: #FFCB3D;
     --ouro-ink: #FFCB3D;
+    --laranja: #FF9A3D;
+    --laranja-ink: #FFB066;
     --vermelho-ink: #FF7A88;
     --on-azul: #0C1322;
     --on-vermelho: #0C1322;
@@ -623,7 +626,7 @@
   }
   .pill--interval { background: var(--amarelo); color: var(--on-amarelo); }
   .pill--partial { background: var(--surface-2); color: var(--ink); border: 2px dashed var(--vermelho); }
-  .pill--delayed { background: var(--surface); color: var(--ink); border: 2px solid var(--amarelo); }
+  .pill--delayed, .pill--postponed { background: var(--surface); color: var(--ink); border: 2px solid var(--laranja); }
   .pill--finished { background: var(--ink); color: var(--on-ink); }
   .pill--scheduled {
     background: var(--azul-tint);
@@ -631,11 +634,8 @@
     border-color: color-mix(in srgb, var(--azul) 30%, transparent);
     letter-spacing: 0.03em;
   }
-  .pill--postponed, .pill--suspended, .pill--cancelled {
-    background: var(--hatch), var(--surface-2);
-    color: var(--ink);
-    border: 1px dashed var(--ink-3);
-  }
+  /* sem hachura nem tracejado em nenhum status: atrapalham a leitura */
+  .pill--suspended, .pill--cancelled { background: var(--surface); color: var(--ink); border: 2px solid var(--ink-3); }
   .pill--sm { height: 20px; padding: 0 8px; font-size: 0.75rem; }
 
   .badge {
@@ -708,7 +708,7 @@
     container: match / inline-size;
     background: var(--surface);
     border: 1px solid var(--line);
-    border-radius: var(--radius-l);
+    border-radius: 2px 2px var(--radius-l) var(--radius-l); /* topo quase reto, com a faixa de status */
     box-shadow: var(--shadow-1);
     overflow: clip;
   }
@@ -721,9 +721,14 @@
     z-index: 1;
   }
   .match[data-status="live"] { border-color: color-mix(in srgb, var(--vermelho) 35%, var(--line)); }
+  /* faixa de status no topo, nas cores dos selos: agendado azul, ao vivo vermelho, intervalo
+     amarelo, atrasado e adiado laranja, encerrado tinta, suspenso e cancelado cinza */
+  .match[data-status="scheduled"]::before { background: var(--azul); }
   .match[data-status="live"]::before { background: var(--vermelho); }
-  .match[data-period="half_time"]::before { background: var(--amarelo); }
-  .match[data-status="postponed"], .match[data-status="cancelled"] { background: var(--hatch), var(--surface); }
+  .match[data-period="half_time"]::before, .match[data-period="extra_half_time"]::before { background: var(--amarelo); }
+  .match[data-status="delayed"]::before, .match[data-status="postponed"]::before { background: var(--laranja); }
+  .match[data-status="finished"]::before { background: var(--ink); }
+  .match[data-status="suspended"]::before, .match[data-status="cancelled"]::before { background: var(--ink-3); }
 
   /* faixa de meta */
   .match__meta {
@@ -956,7 +961,7 @@
   .match__tie .tie__adv--champion { color: var(--ouro-ink); font-weight: 700; }
   .match__tie .tie__adv--champion .icon { color: var(--amarelo); }
   .match__tie .icon { width: 14px; height: 14px; color: var(--ink-3); } /* informação na frente; seta e estrela têm cor própria */
-  .match__tie .icon.icon--warn { width: 16px; height: 16px; color: var(--amarelo-ink); } /* alerta do atraso */
+  .match__tie .icon.icon--warn { width: 16px; height: 16px; color: var(--laranja-ink); } /* alerta do atraso e do adiamento */
   .match__tie strong { color: var(--ink); font-weight: 600; }
   .match__tie-agg { font-family: var(--font-num); font-weight: 700; font-size: 0.9375rem; color: var(--ink); }
 
@@ -1594,6 +1599,14 @@
   .dialog__head::before { content: ""; position: absolute; inset: 0 0 auto; height: var(--stripe-h); background: var(--frevo-stripe); }
   .dialog__title { font-size: 1.375rem; }
   .dialog__body { display: grid; gap: var(--s-3); padding: var(--s-2) var(--s-5) var(--s-4); color: var(--ink-2); }
+  /* placar do W.O. no diálogo de status: mandante [n] × [n] visitante */
+  .wo-score { margin: 0; padding: 0; border: 0; }
+  .wo-score > legend { padding: 0; }
+  .wo-score__row { display: flex; align-items: center; gap: var(--s-2); }
+  .wo-score__side { display: flex; flex: 1; align-items: center; gap: var(--s-2); min-width: 0; color: var(--ink); font-weight: 600; }
+  .wo-score__side:last-child { justify-content: flex-start; }
+  .wo-score__side:first-child { justify-content: flex-end; }
+  .wo-score__side .input { width: 4.5rem; text-align: center; }
   .dialog__foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s-2); padding: var(--s-3) var(--s-5) var(--s-4); border-top: 1px solid var(--line); background: color-mix(in srgb, var(--surface-2) 45%, var(--surface)); }
 
   /* --- Segmentado, interruptor ---------------------------------------------------- */

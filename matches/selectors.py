@@ -42,6 +42,11 @@ SUMMARY_EVENT_TYPES = (
     EventType.STOPPAGE_TIME,
     EventType.SUSPENDED,
     EventType.DELAYED,
+    # motivo do status (`status_note`) e retomada do suspenso (`resumes_at`) também nas listas
+    EventType.POSTPONED,
+    EventType.CANCELLED,
+    EventType.RESCHEDULED,
+    EventType.WALKOVER,
 )
 DETAIL_PREFETCH = (
     Prefetch(
@@ -342,15 +347,52 @@ def _clock(match, timeline: Timeline) -> dict | None:
     }
 
 
+_NOTE_EVENT = {
+    Status.DELAYED: EventType.DELAYED,
+    Status.POSTPONED: EventType.POSTPONED,
+    Status.SUSPENDED: EventType.SUSPENDED,
+    Status.CANCELLED: EventType.CANCELLED,
+}
+
+
 def _status_note(match, timeline: Timeline) -> str | None:
-    """Observação do atraso (texto do operador), só com o jogo atrasado."""
-    if match.status != Status.DELAYED:
+    """Motivo do status (texto do operador) com o jogo atrasado, adiado, suspenso ou cancelado:
+    o do último lance do tipo (o que abriu o status atual; sem motivo nele, nada)."""
+    event_type = _NOTE_EVENT.get(match.status)
+    if event_type is None:
         return None
     note = None
     for row in timeline.rows:
-        if row.type == EventType.DELAYED:
-            note = _payload(row).get("reason") or note
+        if row.type == event_type:
+            note = _payload(row).get("reason") or None
     return note
+
+
+def _walkover(match, timeline: Timeline) -> dict | None:
+    """Jogo encerrado por W.O.: {"team_id" (beneficiado), "reason"} do lance; senão null."""
+    if match.status != Status.FINISHED:
+        return None
+    last = None
+    for row in timeline.rows:
+        if row.type == EventType.WALKOVER:
+            last = row
+    if last is None:
+        return None
+    return {"team_id": last.team_id, "reason": _payload(last).get("reason") or None}
+
+
+def _resumes_at(match, timeline: Timeline) -> str | None:
+    """Jogo suspenso com data nova (reagendado depois da última suspensão): o `kickoff_at`, quando
+    ele é retomado de onde parou. Fora disso, null."""
+    if match.status != Status.SUSPENDED:
+        return None
+    rescheduled = False
+    for row in timeline.rows:
+        if row.type == EventType.SUSPENDED:
+            rescheduled = False
+        elif row.type == EventType.RESCHEDULED:
+            rescheduled = True
+    return iso_utc(match.kickoff_at) if rescheduled else None
 
 
 def match_winner(match) -> str | None:
@@ -458,6 +500,8 @@ def serialize_match(match, detail: bool = False, events: Iterable[MatchEvent] | 
         "status": match.status,
         "status_label": domain.STATUS_LABELS.get(match.status, match.status),
         "status_note": _status_note(match, timeline),
+        "resumes_at": _resumes_at(match, timeline),
+        "walkover": _walkover(match, timeline),
         "partial_info": match.partial_info,
         "period": period,
         "period_label": domain.PERIOD_LABELS.get(period) if period else None,

@@ -242,7 +242,7 @@ function statusPill(match) {
     return h('span', { class: 'pill pill--live', text: match.period === 'penalties' ? 'Pênaltis' : 'Ao vivo' });
   }
   if (status === 'delayed') {
-    return h('span', { class: 'pill pill--delayed', title: match.status_note || '' }, icon('clock'), 'Atrasado');
+    return h('span', { class: 'pill pill--delayed' }, icon('clock'), 'Atrasado');
   }
   const cls = { finished: 'finished', postponed: 'postponed', suspended: 'suspended', cancelled: 'cancelled' }[status] || 'scheduled';
   return h('span', { class: `pill pill--${cls}`, text: match.status_label || status });
@@ -336,9 +336,6 @@ function renderBoard(board, match, now) {
     }
   } else {
     center.append(h('span', { class: 'score__vs', 'aria-hidden': 'true', text: '×' }));
-    if (match.status === 'delayed' && match.status_note) {
-      center.append(h('span', { class: 'score__delay', 'aria-hidden': 'true', text: match.status_note }));
-    }
   }
   board.replaceChildren(teamBlock(match.home, 'home'), center, teamBlock(match.away, 'away'));
   board.setAttribute('aria-label', boardLabel(match, now));
@@ -404,42 +401,55 @@ function teamById(tie, id) {
 const isFinalRound = (tie) => String(tie.round?.name || '').trim().toLowerCase() === 'final';
 
 /**
- * Linha do confronto no card. Ida e volta: a ida só avisa que a vaga sai na volta; a volta
- * traz o agregado (parcial até o fim do confronto) e, no fim, quem avança e como. Jogo
- * único: só quem avança, no fim.
+ * Observações do jogo, abaixo do placar: o atraso ("Início atrasado — motivo", com o alerta na
+ * frente; some quando o jogo começa) e o confronto do mata-mata. Ida e volta: a ida diz "Jogo
+ * de ida"; a volta traz o agregado (parcial até o fim do confronto) — as duas com o ícone de
+ * informação na frente — e, no fim, quem avança e como. Jogo único: só quem avança, no fim.
  */
 function renderTie(p, match) {
-  const tie = match.tie;
-  if (!tie) {
-    p.hidden = true;
-    p.replaceChildren();
-    return;
-  }
-  // uma linha por informação (agregado; quem avança), centradas; o espaço entre elas
-  // mantém o texto legível para leitor de tela e cópia
+  // uma linha por informação (atraso; agregado; quem avança), centradas; o espaço entre as
+  // partes mantém o texto legível para leitor de tela e cópia
   const rows = [];
   const spaced = (items) => items.filter(Boolean).flatMap((item, i) => (i ? [' ', item] : [item]));
-  const row = (lead, ...children) => h('span', { class: 'match__tie-row' }, lead, ...spaced(children)); // lead: ícone
+  const row = (...children) => h('span', { class: 'match__tie-row' }, ...spaced(children));
+  // ícone na frente (sem espaço no texto: o leitor de tela não lê o ícone)
+  const lead = (name, el, className = '') => {
+    el.prepend(icon(name, { className }));
+    return el;
+  };
+  const info = (el) => lead('info', el);
+  if (match.status === 'delayed') {
+    // um texto só, ao lado do alerta: no celular, o motivo quebra como frase
+    const delay = row(h('span', null, h('strong', { text: 'Início atrasado' }), match.status_note ? ` — ${match.status_note}` : ''));
+    delay.classList.add('match__tie-row--note');
+    rows.push(lead('alert', delay, 'icon--warn'));
+  }
+  const tie = match.tie;
+  if (!tie) {
+    p.hidden = rows.length === 0;
+    p.replaceChildren(...spaced(rows));
+    return;
+  }
   const winner = tie.winner_team_id != null ? teamById(tie, tie.winner_team_id) : null;
   if (tie.legs === 2 && tie.leg === 1) {
-    rows.push(row(icon('trophy'), h('span', { text: tie.complete ? 'Jogo de ida' : 'Jogo de ida · a vaga sai na volta' })));
+    rows.push(info(row(h('span', { text: 'Jogo de ida' }))));
   } else {
     if (tie.legs === 2 && tie.aggregate) {
       // agregado na mesma ordem do placar do card (mandante à esquerda), não na ordem team_a/team_b
       const flip = match.home?.id != null && match.home.id === tie.team_b?.id;
       const [left, right] = flip ? [tie.team_b, tie.team_a] : [tie.team_a, tie.team_b];
       const [aggLeft, aggRight] = flip ? [tie.aggregate.team_b, tie.aggregate.team_a] : [tie.aggregate.team_a, tie.aggregate.team_b];
-      rows.push(row(icon('trophy'), h('span', { text: tie.complete ? 'Agregado' : 'Agregado parcial' }),
-        h('span', { class: 'match__tie-agg', text: `${left?.short_name || ''} ${formatScore(aggLeft, aggRight)} ${right?.short_name || ''}` })));
+      rows.push(info(row(h('span', { text: tie.complete ? 'Agregado' : 'Agregado parcial' }),
+        h('span', { class: 'match__tie-agg', text: `${left?.short_name || ''} ${formatScore(aggLeft, aggRight)} ${right?.short_name || ''}` }))));
     }
     if (winner && tie.complete) {
       const how = tie.decided_by && (tie.legs === 2 || tie.decided_by !== 'aggregate') ? ` ${tie.decided_by_label || ''}` : '';
-      // na final, quem vence é campeão (medalha dourada no fim); nas outras rodadas, avança
+      // na final, quem vence é campeão (estrela dourada no fim); nas outras rodadas, avança
       // (seta dupla para cima no fim)
       const outcome = isFinalRound(tie)
-        ? h('span', { class: 'tie__adv tie__adv--champion' }, `Campeão${how}`, icon('medal'))
+        ? h('span', { class: 'tie__adv tie__adv--champion' }, `Campeão${how}`, icon('star'))
         : h('span', { class: 'tie__adv' }, `avança${how}`, icon('advance'));
-      rows.push(row(rows.length ? null : icon('trophy'), h('strong', { text: displayName(winner) }), outcome));
+      rows.push(row(h('strong', { text: displayName(winner) }), outcome));
     }
   }
   p.hidden = rows.length === 0;

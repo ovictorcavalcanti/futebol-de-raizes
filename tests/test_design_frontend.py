@@ -479,16 +479,28 @@ COMPONENTS_JS = """async () => {
   root.append(...legCards);
   out.legOneTie = legCards[0].querySelector('.match__tie').textContent;
   out.legOneAgg = legCards[0].querySelectorAll('.match__tie-agg').length;
+  // ícone de informação na frente de "Jogo de ida" e de "Agregado" (sem troféu, sem dica)
+  const lead = (el) => el.querySelector('.match__tie-row').firstElementChild?.querySelector('use')?.getAttribute('href');
+  out.legOneInfo = [lead(legCards[0]), lead(koCard), legCards[0].querySelectorAll('.match__tie use[href="#i-trophy"], .match__tie [title]').length];
   M.syncTieCards(legCards, { ...legOne, version: 2, tie: { ...legOne.tie, aggregate: { team_a: 2, team_b: 0 } } });
   out.legTwoAgg = legCards[1].querySelector('.match__tie-agg').textContent;
   out.legTwoLeg = M.getCardMatch(legCards[1]).tie.leg;
-  // rodada "Final": quem vence é campeão, com a medalha no fim (sem o check do "avança")
+  // rodada "Final": quem vence é campeão, com a estrela no fim (sem o símbolo do "avança")
   const finalCard = M.createMatchCard({ ...ko, id: 558, tie: { ...ko.tie, round: { ...(ko.tie.round || {}), name: 'Final' } } }, {});
   root.append(finalCard);
   const adv = finalCard.querySelector('.match__tie .tie__adv');
   out.finalAdv = [adv.textContent, adv.classList.contains('tie__adv--champion'), adv.lastElementChild?.querySelector('use')?.getAttribute('href'), !!adv.querySelector('use[href="#i-advance"]')];
   // outras rodadas: "avança" com a seta dupla para cima no fim (sem o check antes)
   const semiAdv = koCard.querySelector('.match__tie .tie__adv');
+  // atraso: linha nas observações abaixo do placar (como a do jogo de ida), com o alerta na
+  // frente; nem no placar nem na faixa do horário; some quando o jogo começa
+  const late = { ...F.MATCHES.scheduledToday, id: 559, status: 'delayed', status_label: 'Atrasado', status_note: 'Chuva forte' };
+  const lateCard = M.createMatchCard(late, {});
+  root.append(lateCard);
+  const notes = lateCard.querySelector('.match__tie');
+  out.delay = [notes.hidden, notes.textContent, notes.querySelector('.match__tie-row')?.firstElementChild?.querySelector('use')?.getAttribute('href'), lateCard.querySelector('.match__meta').textContent.includes('Chuva'), lateCard.querySelector('.match__board').textContent.includes('Chuva')];
+  M.updateMatchCard(lateCard, { ...late, status: 'live', period: 'first_half', status_note: null, home_score: 0, away_score: 0 });
+  out.delayGone = notes.hidden && !notes.textContent;
   out.semiAdv = [semiAdv.textContent, semiAdv.firstChild?.nodeType === 3, semiAdv.lastElementChild?.querySelector('use')?.getAttribute('href'), !!semiAdv.querySelector('use[href="#i-check"]')];
 
   // 4) lance sem time (VAR) mostra o minuto junto do texto
@@ -577,10 +589,12 @@ def test_componentes_no_navegador(browser_page):
         "detalhe atrasado: sem novo pedido ou sem 'Tentar de novo'"
     )
     assert out["homeIsTeamB"] and out["aggregate"] == out["expectedAggregate"]
-    assert out["legOneTie"] == "Jogo de ida · a vaga sai na volta" and out["legOneAgg"] == 0
+    assert out["legOneTie"] == "Jogo de ida" and out["legOneAgg"] == 0
+    assert out["legOneInfo"] == ["#i-info", "#i-info", 0]
     assert out["legTwoAgg"].split()[1:4] == ["0", "×", "2"] and out["legTwoLeg"] == 2  # volta: mandante = team_b
-    assert out["finalAdv"] == ["Campeão nos pênaltis", True, "#i-medal", False]
+    assert out["finalAdv"] == ["Campeão nos pênaltis", True, "#i-star", False]
     assert out["semiAdv"] == ["avança nos pênaltis", True, "#i-advance", False]
+    assert out["delay"] == [False, "Início atrasado — Chuva forte", "#i-alert", False, False] and out["delayGone"]
     assert out["varMinute"] == "31'"
     # 1º amarelo + o vermelho do 2º; o tipo vai no nome acessível do ícone, sem legenda repetida
     assert out["secondYellowItems"] == [["Cartão amarelo", ""], ["Cartão vermelho", "Segundo amarelo e vermelho"]]

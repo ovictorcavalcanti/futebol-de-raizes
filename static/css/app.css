@@ -738,10 +738,6 @@
     color: var(--ink-2);
   }
   .match__status { display: inline-flex; align-items: center; gap: var(--s-2); }
-  /* atraso: aviso de largura toda na faixa de informações do jogo */
-  .match__delay { flex-basis: 100%; display: flex; align-items: center; gap: var(--s-2); margin: 2px 0 0; padding: 7px var(--s-3); border-left: 4px solid var(--amarelo); border-radius: var(--radius); background: var(--amarelo-tint); font-size: 0.875rem; line-height: 1.35; color: var(--ink); }
-  .match__delay .icon { flex: none; width: 18px; height: 18px; color: var(--amarelo-ink); }
-  .match__delay strong { font-weight: 700; }
   .match__minute {
     font-family: var(--font-num);
     font-weight: 700;
@@ -946,12 +942,18 @@
   /* entre as partes, o espaço de uma palavra (não um "tab") */
   .match__tie-row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: center; gap: 2px 0.35em; }
   .match__tie-row > .icon { align-self: center; }
+  .match__tie-row--note { flex-wrap: nowrap; } /* atraso: o alerta não fica sozinho numa linha; o texto quebra ao lado */
+  .match__tie-row--note > span { min-width: 0; }
   .match__tie .tie__adv { margin-left: 0; align-items: baseline; }
-  .match__tie .tie__adv .icon { align-self: center; color: inherit; } /* seta do "avança" no verde do texto */
+  /* ícone do fim (avançar, medalha) no meio das maiúsculas: apoiado na linha de base (centrar pela
+     linha inteira o deixava alto, por causa do espaço das descendentes do nome do time) e descido
+     até o centro dele cair na metade da altura das maiúsculas (0,35em) */
+  .match__tie .tie__adv .icon { align-self: baseline; transform: translateY(calc(7px - 0.35em)); color: inherit; }
   /* final: "Campeão" em dourado escuro (contraste) com a medalha dourada no fim, centrada como a seta do "avança" */
   .match__tie .tie__adv--champion { color: var(--ouro-ink); font-weight: 700; }
   .match__tie .tie__adv--champion .icon { color: var(--amarelo); }
   .match__tie .icon { width: 14px; height: 14px; color: var(--ink-3); } /* informação na frente; seta e medalha têm cor própria */
+  .match__tie .icon.icon--warn { width: 16px; height: 16px; color: var(--amarelo-ink); } /* alerta do atraso */
   .match__tie strong { color: var(--ink); font-weight: 600; }
   .match__tie-agg { font-family: var(--font-num); font-weight: 700; font-size: 0.9375rem; color: var(--ink); }
 

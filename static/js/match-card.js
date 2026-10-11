@@ -286,11 +286,6 @@ function renderMeta(meta, match, now, opts) {
       match.city ? h('span', { class: 'match__place-item' }, icon('pin'), h('span', { class: 'visually-hidden', text: 'Cidade: ' }), match.city) : null,
     ));
   }
-  // atraso: aviso de largura toda na faixa de informações (some quando o jogo começa)
-  if (match.status === 'delayed') {
-    parts.push(h('p', { class: 'match__delay' }, icon('alert'),
-      h('span', null, h('strong', { text: 'Início atrasado' }), match.status_note ? ` — ${match.status_note}` : '')));
-  }
   meta.replaceChildren(...parts);
 }
 
@@ -406,27 +401,35 @@ function teamById(tie, id) {
 const isFinalRound = (tie) => String(tie.round?.name || '').trim().toLowerCase() === 'final';
 
 /**
- * Linha do confronto no card. Ida e volta: a ida diz "Jogo de ida"; a volta traz o agregado
- * (parcial até o fim do confronto) — as duas com o ícone de informação na frente — e, no fim,
- * quem avança e como. Jogo único: só quem avança, no fim.
+ * Observações do jogo, abaixo do placar: o atraso ("Início atrasado — motivo", com o alerta na
+ * frente; some quando o jogo começa) e o confronto do mata-mata. Ida e volta: a ida diz "Jogo
+ * de ida"; a volta traz o agregado (parcial até o fim do confronto) — as duas com o ícone de
+ * informação na frente — e, no fim, quem avança e como. Jogo único: só quem avança, no fim.
  */
 function renderTie(p, match) {
-  const tie = match.tie;
-  if (!tie) {
-    p.hidden = true;
-    p.replaceChildren();
-    return;
-  }
-  // uma linha por informação (agregado; quem avança), centradas; o espaço entre as partes
-  // mantém o texto legível para leitor de tela e cópia
+  // uma linha por informação (atraso; agregado; quem avança), centradas; o espaço entre as
+  // partes mantém o texto legível para leitor de tela e cópia
   const rows = [];
   const spaced = (items) => items.filter(Boolean).flatMap((item, i) => (i ? [' ', item] : [item]));
   const row = (...children) => h('span', { class: 'match__tie-row' }, ...spaced(children));
-  // ícone de informação na frente (sem espaço no texto: o leitor de tela não lê o ícone)
-  const info = (el) => {
-    el.prepend(icon('info'));
+  // ícone na frente (sem espaço no texto: o leitor de tela não lê o ícone)
+  const lead = (name, el, className = '') => {
+    el.prepend(icon(name, { className }));
     return el;
   };
+  const info = (el) => lead('info', el);
+  if (match.status === 'delayed') {
+    // um texto só, ao lado do alerta: no celular, o motivo quebra como frase
+    const delay = row(h('span', null, h('strong', { text: 'Início atrasado' }), match.status_note ? ` — ${match.status_note}` : ''));
+    delay.classList.add('match__tie-row--note');
+    rows.push(lead('alert', delay, 'icon--warn'));
+  }
+  const tie = match.tie;
+  if (!tie) {
+    p.hidden = rows.length === 0;
+    p.replaceChildren(...spaced(rows));
+    return;
+  }
   const winner = tie.winner_team_id != null ? teamById(tie, tie.winner_team_id) : null;
   if (tie.legs === 2 && tie.leg === 1) {
     rows.push(info(row(h('span', { text: 'Jogo de ida' }))));

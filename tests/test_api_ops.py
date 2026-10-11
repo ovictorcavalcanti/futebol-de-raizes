@@ -535,12 +535,24 @@ def test_status_postpone_with_reason_shows_note(league, operator_client):
 
 
 def test_status_walkover_from_cancelled_counts_in_standings(league, operator_client):
-    """W.O.: encerra com o placar (padrão 3 × 0 para o beneficiado), que conta na tabela; o card
-    recebe o time e o motivo em `walkover`, também nas listas."""
+    """Cancelado sem W.O. fica fora da tabela (nem o placar parcial conta); o W.O. encerra com o
+    placar dele (padrão 3 × 0 para o beneficiado), que conta; o card recebe o time e o motivo em
+    `walkover`, também nas listas."""
     sport, nautico = league["teams"][0], league["teams"][1]
     match = make_match(league["stage"], sport, nautico, kickoff_at=timeutils.now(), round=league["rounds"][0])
     op = ApiOp(operator_client, match)
-    assert op.status("cancel", reason="Sport não compareceu")["available"]["status"] == ["walkover"]
+
+    def table(live=False):  # oficial (só encerrados) ou ao vivo (com os em andamento e suspensos)
+        body = operator_client.get(f"/api/stages/{league['stage'].id}/standings", {"live": "1"} if live else {}).json()
+        return {row["team"]["id"]: row for row in body["groups"][0]["rows"]}
+
+    op.post("match_start")
+    op.goal(sport, 10)
+    op.status("suspend", reason="Náutico deixou o campo")
+    assert table(live=True)[sport.id]["goals_for"] == 1  # suspenso entra na tabela ao vivo
+    assert op.status("cancel", reason="Náutico deixou o campo")["available"]["status"] == ["walkover"]
+    for rows in (table(), table(live=True)):  # cancelado sem W.O.: fora das duas
+        assert all((rows[team.id]["points"], rows[team.id]["goals_for"]) == (0, 0) for team in (sport, nautico))
     assert_error(op.status("walkover", reason="Sport não compareceu", expect=422), "team_required")
     assert_error(op.status("walkover", team_id=nautico.id, expect=422), "invalid_payload")  # sem motivo
     tie_score = {"home_score": 1, "away_score": 1}
@@ -553,9 +565,9 @@ def test_status_walkover_from_cancelled_counts_in_standings(league, operator_cli
     assert done["walkover"] == {"team_id": nautico.id, "reason": "Sport não compareceu"}
     listed = operator_client.get(f"/api/matches?roundId={league['rounds'][0].id}").json()["matches"]
     assert next(m for m in listed if m["id"] == match.id)["walkover"] == done["walkover"]
-    table = operator_client.get(f"/api/stages/{league['stage'].id}/standings").json()
-    rows = {row["team"]["id"]: row for row in table["groups"][0]["rows"]}
+    rows = table()  # o placar do W.O. (0 × 3), não o 1 × 0 de antes da suspensão
     assert rows[nautico.id]["points"] == 3 and (rows[nautico.id]["goals_for"], rows[nautico.id]["goals_against"]) == (3, 0)
+    assert (rows[sport.id]["points"], rows[sport.id]["goals_for"]) == (0, 0)
 
 
 def test_partial_info_switch(match, op, operator_client):

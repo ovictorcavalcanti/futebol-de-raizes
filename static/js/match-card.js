@@ -242,7 +242,7 @@ function statusPill(match) {
     return h('span', { class: 'pill pill--live', text: match.period === 'penalties' ? 'Pênaltis' : 'Ao vivo' });
   }
   if (status === 'delayed') {
-    return h('span', { class: 'pill pill--delayed', title: match.status_note || '' }, icon('clock'), 'Atrasado');
+    return h('span', { class: 'pill pill--delayed' }, icon('clock'), 'Atrasado');
   }
   const cls = { finished: 'finished', postponed: 'postponed', suspended: 'suspended', cancelled: 'cancelled' }[status] || 'scheduled';
   return h('span', { class: `pill pill--${cls}`, text: match.status_label || status });
@@ -285,6 +285,11 @@ function renderMeta(meta, match, now, opts) {
       match.venue ? h('span', { class: 'match__place-item' }, icon('stadium'), h('span', { class: 'visually-hidden', text: 'Estádio: ' }), match.venue) : null,
       match.city ? h('span', { class: 'match__place-item' }, icon('pin'), h('span', { class: 'visually-hidden', text: 'Cidade: ' }), match.city) : null,
     ));
+  }
+  // atraso: aviso de largura toda na faixa de informações (some quando o jogo começa)
+  if (match.status === 'delayed') {
+    parts.push(h('p', { class: 'match__delay' }, icon('alert'),
+      h('span', null, h('strong', { text: 'Início atrasado' }), match.status_note ? ` — ${match.status_note}` : '')));
   }
   meta.replaceChildren(...parts);
 }
@@ -336,9 +341,6 @@ function renderBoard(board, match, now) {
     }
   } else {
     center.append(h('span', { class: 'score__vs', 'aria-hidden': 'true', text: '×' }));
-    if (match.status === 'delayed' && match.status_note) {
-      center.append(h('span', { class: 'score__delay', 'aria-hidden': 'true', text: match.status_note }));
-    }
   }
   board.replaceChildren(teamBlock(match.home, 'home'), center, teamBlock(match.away, 'away'));
   board.setAttribute('aria-label', boardLabel(match, now));

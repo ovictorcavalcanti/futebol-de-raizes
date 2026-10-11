@@ -492,6 +492,13 @@ COMPONENTS_JS = """async () => {
   out.finalAdv = [adv.textContent, adv.classList.contains('tie__adv--champion'), adv.lastElementChild?.querySelector('use')?.getAttribute('href'), !!adv.querySelector('use[href="#i-advance"]')];
   // outras rodadas: "avança" com a seta dupla para cima no fim (sem o check antes)
   const semiAdv = koCard.querySelector('.match__tie .tie__adv');
+  // atraso: aviso na faixa de informações (não no placar); some quando o jogo começa
+  const late = { ...F.MATCHES.scheduledToday, id: 559, status: 'delayed', status_label: 'Atrasado', status_note: 'Chuva forte' };
+  const lateCard = M.createMatchCard(late, {});
+  root.append(lateCard);
+  out.delay = [lateCard.querySelector('.match__meta .match__delay')?.textContent, !!lateCard.querySelector('.match__board .match__delay, .score__delay')];
+  M.updateMatchCard(lateCard, { ...late, status: 'live', period: 'first_half', status_note: null, home_score: 0, away_score: 0 });
+  out.delayGone = !lateCard.querySelector('.match__delay');
   out.semiAdv = [semiAdv.textContent, semiAdv.firstChild?.nodeType === 3, semiAdv.lastElementChild?.querySelector('use')?.getAttribute('href'), !!semiAdv.querySelector('use[href="#i-check"]')];
 
   // 4) lance sem time (VAR) mostra o minuto junto do texto
@@ -585,6 +592,7 @@ def test_componentes_no_navegador(browser_page):
     assert out["legTwoAgg"].split()[1:4] == ["0", "×", "2"] and out["legTwoLeg"] == 2  # volta: mandante = team_b
     assert out["finalAdv"] == ["Campeão nos pênaltis", True, "#i-medal", False]
     assert out["semiAdv"] == ["avança nos pênaltis", True, "#i-advance", False]
+    assert out["delay"] == ["Início atrasado — Chuva forte", False] and out["delayGone"]
     assert out["varMinute"] == "31'"
     # 1º amarelo + o vermelho do 2º; o tipo vai no nome acessível do ícone, sem legenda repetida
     assert out["secondYellowItems"] == [["Cartão amarelo", ""], ["Cartão vermelho", "Segundo amarelo e vermelho"]]

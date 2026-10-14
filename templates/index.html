@@ -1,11 +1,22 @@
 {% extends "base.html" %}
 {% load static %}
-{% block title %}{{ brand.name }} - Campeonato Pernambucano ao vivo e tabela{% endblock %}
-{% block description %}Campeonato Pernambucano ao vivo: placar lance a lance, jogos de hoje, resultados, gols e classificação atualizada do futebol de Pernambuco.{% endblock %}
+{% block title %}{% if share_title %}{{ share_title }} · {{ brand.name }}{% else %}{{ brand.name }} - Campeonato Pernambucano ao vivo e tabela{% endif %}{% endblock %}
+{% block description %}{% if share_description %}{{ share_description }}{% else %}Campeonato Pernambucano ao vivo: placar lance a lance, jogos de hoje, resultados, gols e classificação atualizada do futebol de Pernambuco.{% endif %}{% endblock %}
 {% block head %}
+  {% if share_title %}
+  {# link compartilhado de um jogo (/?jogo=<id>): a prévia no WhatsApp e nas redes traz o placar e os autores dos gols #}
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="{{ brand.name }}">
+  <meta property="og:title" content="{{ share_title }}">
+  <meta property="og:description" content="{{ share_description }}">
+  <meta property="og:url" content="{{ share_url }}">
+  <meta property="og:locale" content="pt_BR">
+  <meta name="twitter:card" content="summary">
+  {% endif %}
   <link rel="modulepreload" href="{% static 'js/render.js' %}">
   <link rel="modulepreload" href="{% static 'js/format.js' %}">
   <link rel="modulepreload" href="{% static 'js/match-card.js' %}">
+  <link rel="modulepreload" href="{% static 'js/share.js' %}">
   <link rel="modulepreload" href="{% static 'js/minute-format.js' %}">
   <link rel="modulepreload" href="{% static 'js/icons.js' %}">
   <link rel="modulepreload" href="{% static 'js/crest.js' %}">
@@ -17,6 +28,21 @@
   <link rel="modulepreload" href="{% static 'js/alerts.js' %}">
 {% endblock %}
 {% block main %}
+{# Celular: depois que o seletor de dias sai da tela (ao rolar), uma barra fixa no topo repete o dia #}
+{# (‹ dia ›) e traz o atalho dos jogos ao vivo (só aqui). Fora do .container (não entra no espaçamento); #}
+{# escondida (e inerte) enquanto o seletor está na tela e no desktop (home.js).                    #}
+<div class="day-bar" data-hook="day-bar" hidden>
+  <div class="day-bar__inner">
+    <button type="button" class="btn btn--ghost btn--icon" data-hook="day-bar-prev" aria-label="Dia anterior">
+      <svg class="icon" aria-hidden="true"><use href="#i-chevron-left"/></svg>
+    </button>
+    <span class="day-bar__date" data-hook="day-bar-date"></span>
+    <button type="button" class="btn btn--ghost btn--icon" data-hook="day-bar-next" aria-label="Próximo dia">
+      <svg class="icon" aria-hidden="true"><use href="#i-chevron-right"/></svg>
+    </button>
+    <button type="button" class="live-jump" data-hook="live-jump" title="Ir para os jogos ao vivo" hidden><span class="live-dot" aria-hidden="true"></span>Ao vivo <span class="live-jump__count" data-hook="live-count">0</span></button>
+  </div>
+</div>
 <div class="container">
   <header class="section-head page-intro">
     <div class="section-head__titles">
@@ -72,7 +98,8 @@
   </section>
 
   {# Uma seção por competição com jogo no dia (tpl-competition-section), em competitions.position. #}
-  <div id="competitions" class="competitions" data-hook="competitions" aria-busy="true">
+  {# focus-day: dia do jogo do link compartilhado (/?jogo=<id>); a home abre nele, com o card aberto #}
+  <div id="competitions" class="competitions" data-hook="competitions" aria-busy="true"{% if focus_day %} data-focus-day="{{ focus_day }}"{% endif %}>
     <section class="comp-section" aria-hidden="true">
       <div class="section-head"><span class="skeleton skeleton--title" style="width:260px"></span></div>
       <div class="split">
@@ -110,7 +137,12 @@
         <h2 class="section-head__title"><a data-hook="competition-link" href="#"><span data-hook="competition-name"></span></a></h2>
         <span class="frevo frevo--short" aria-hidden="true"></span>
       </div>
-      <a class="stage-block__more" data-hook="competition-more" href="#">Ver competição<svg class="icon icon--sm" aria-hidden="true"><use href="#i-chevron-right"/></svg></a>
+      <div class="section-head__actions">
+        {# resultados do dia desta competição no WhatsApp (mensagem com os jogos e o link do dia) #}
+        {# no celular, só os ícones (o texto fica para leitor de tela: .section-head__label) #}
+        <button type="button" class="btn btn--ghost btn--sm" data-hook="competition-share" title="Resultados no WhatsApp"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-share"/></svg><span class="section-head__label">Resultados no WhatsApp</span></button>
+        <a class="stage-block__more" data-hook="competition-more" href="#" title="Ver competição"><span class="section-head__label">Ver competição</span><svg class="icon icon--sm" aria-hidden="true"><use href="#i-chevron-right"/></svg></a>
+      </div>
     </header>
     <div class="comp-section__stages" data-hook="stages"></div>
   </section>

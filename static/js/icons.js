@@ -10,7 +10,7 @@ export const ICONS = Object.freeze([
   'bell', 'bell-off', 'speaker', 'speaker-off', 'sun', 'moon', 'chevron-left', 'chevron-right', 'chevron-down',
   'chevron-up', 'external', 'star', 'trophy', 'advance', 'shield', 'calendar', 'logout', 'lock', 'x-circle', 'target',
   'flag', 'pause', 'play', 'check', 'close', 'plus', 'undo', 'alert', 'info', 'refresh', 'list', 'shirt',
-  'clipboard', 'chart', 'menu', 'live', 'umbrella',
+  'clipboard', 'chart', 'menu', 'live', 'umbrella', 'share',
 ]);
 
 /** Ícone padrão de cada tipo de evento (espelha matches.domain.CATALOG). */

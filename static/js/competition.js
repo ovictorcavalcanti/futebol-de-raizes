@@ -15,6 +15,7 @@ import { createStandings, updateStandings } from './standings.js';
 import { createGroupRows, updateGroupRows, createMatchGroupBlocks } from './group-rows.js';
 import { getCompetitions, getCompetition, listMatches, getMatch, getRanking } from './api.js';
 import { createStream, liveStatusIndicator } from './stream.js';
+import { shareResultsOnWhatsApp } from './share.js';
 
 const $ = (id) => document.getElementById(id);
 const hook = (name) => document.querySelector(`[data-hook="${name}"]`);
@@ -30,6 +31,7 @@ const els = {
   prev: $('round-prev'),
   next: $('round-next'),
   roundLabel: $('round-label'),
+  share: $('round-share'),
   grid: $('competition-grid'),
   aside: document.querySelector('#competition-grid [data-hook="aside"]'),
   matches: $('round-matches'),
@@ -121,8 +123,19 @@ function groupRowsMode() {
 }
 
 /** Linhas dos grupos (createGroupRows), com os botões das classificações em cima. */
+/** Rodada da tabela: a atual da competição, se é desta fase; senão a exibida. */
+function standingsRound() {
+  const round = state.rounds.find((r) => r.id === state.data?.current_round_id) || state.rounds[state.roundIndex];
+  return round ? round.name || `Rodada ${round.number}` : '';
+}
+
+/** Compartilhar as tabelas no WhatsApp, com o link da página como está (fase e rodada);
+ *  `groups`: tabela de fase de grupos (a classificação geral/personalizada não é grupo, nem
+ *  tem rodada: junta fases). */
+const standingsShare = (groups = false, round = standingsRound) => ({ title: state.data?.competition?.name, url: () => window.location.href, groups, round });
+
 function groupRows(matches, card) {
-  state.groupLayout = createGroupRows(state.standingsData, matches, card);
+  state.groupLayout = createGroupRows(state.standingsData, matches, card, { share: standingsShare(true) });
   const rows = state.groupLayout.rows;
   if (!els.standingsSwitch.hidden) rows.unshift(h('div', { class: 'group-row group-row--head' }, els.standingsSwitch));
   return rows;
@@ -170,6 +183,7 @@ function renderMatches(matches, ties = null) {
   els.matches.removeAttribute('aria-busy');
   els.matches.hidden = blocks.length === 0;
   els.roundEmpty.hidden = blocks.length > 0;
+  if (els.share) els.share.hidden = next.size === 0;
   els.ties.hidden = true; // o agregado fica no card do jogo de volta
   els.tiesList.replaceChildren();
   updateAside();
@@ -181,7 +195,7 @@ function renderStandings(stage) {
     if (state.standingsEl && state.standingsStageId === stage.id) {
       updateStandings(state.standingsEl, stage.standings);
     } else {
-      state.standingsEl = createStandings(stage.standings);
+      state.standingsEl = createStandings(stage.standings, { share: standingsShare(stage.format === 'groups') });
       state.standingsStageId = stage.id;
       els.standings.replaceChildren(state.standingsEl);
     }
@@ -243,7 +257,7 @@ async function loadRanking(id) {
     const data = await getRanking(id);
     if (token !== state.rankingToken || state.view !== id) return; // trocou de botão no meio
     state.rankingStageIds = data.stage_ids || [];
-    els.rankingStandings.replaceChildren(createStandings(data));
+    els.rankingStandings.replaceChildren(createStandings(data, { share: standingsShare(false, '') }));
   } catch {
     if (token === state.rankingToken) showToast('Não deu para carregar a classificação agora.', { kind: 'error' });
   } finally {
@@ -268,6 +282,19 @@ function paintRoundNav() {
   els.roundLabel.textContent = round ? round.name || `Rodada ${round.number}` : 'Sem rodadas';
   els.prev.disabled = state.roundIndex <= 0;
   els.next.disabled = state.roundIndex < 0 || state.roundIndex >= state.rounds.length - 1;
+}
+
+/** Resultados da rodada exibida no WhatsApp, na ordem da página, com o link dela. */
+function shareRound() {
+  const round = state.rounds[state.roundIndex];
+  const stages = state.data?.stages || [];
+  const title = [
+    state.data?.competition?.name,
+    stages.length > 1 ? state.stage?.name : null,
+    round ? round.name || `Rodada ${round.number}` : null,
+  ].filter(Boolean).join(' · ');
+  const matches = [...els.matches.querySelectorAll('.match')].map(getCardMatch).filter(Boolean);
+  shareResultsOnWhatsApp(title, matches, { now: now(), url: window.location.href });
 }
 
 function writeUrl() {
@@ -544,6 +571,7 @@ async function boot() {
   });
 }
 
+els.share?.addEventListener('click', shareRound);
 els.prev.addEventListener('click', () => goToRound(state.roundIndex - 1));
 els.next.addEventListener('click', () => goToRound(state.roundIndex + 1));
 els.stageSelect.addEventListener('change', () => {

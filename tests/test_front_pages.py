@@ -13,7 +13,7 @@ import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, unquote
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -1386,7 +1386,8 @@ NAMES_JS = """() => [...document.querySelectorAll('.match .team__name')].map((na
 @pytest.mark.parametrize("width", [320, 360, 375, 1024])
 @pytest.mark.parametrize("url", ["/", "/competition.html?slug=pernambucano-raiz"])
 def test_nome_do_time_nao_quebra_letra_a_letra(open_page, url, width):
-    """Sigla em 1 linha; nome completo em no máximo 2 linhas (quebra só entre palavras)."""
+    """Nome completo em no máximo 2 linhas (quebra só entre palavras), também no celular, onde
+    fica embaixo do escudo (a sigla não aparece mais no placar)."""
     page, _, errors = open_page(url, width=width)
     page.wait_for_selector("article.match .team__name")
     page.wait_for_timeout(200)
@@ -1395,7 +1396,7 @@ def test_nome_do_time_nao_quebra_letra_a_letra(open_page, url, width):
     bad = [n for n in names if n["lines"] > (1.5 if n["kind"] == "short" else 2.5) or n["overflow"] > 1]
     assert not bad, bad
     if width <= 375:
-        assert {n["kind"] for n in names} == {"short"}
+        assert {n["kind"] for n in names} == {"full"}
     assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
     assert not errors, errors
 
@@ -1418,4 +1419,163 @@ def test_logo_horizontal_largo_nao_empurra_o_cabecalho(open_page, width):
     assert out["logo"][0] == 600 and out["logo"][1] <= 240  # carregou e foi limitado
     assert out["scroll"] <= out["client"], out
     assert out["toggle"] <= width - 16 + 0.5 and out["clock"] < out["toggle"], out
+    assert not errors, errors
+
+
+# --- Compartilhar e link do jogo -----------------------------------------------------------
+
+WHATSAPP_SPY = "() => { window.open = (href) => { window.__opened = decodeURIComponent(href.split('?text=')[1]); }; }"
+
+
+def test_previa_do_link_do_jogo():
+    from core.share import match_preview
+
+    base = {
+        "competition": {"name": "Pernambucano"}, "round": {"name": "Rodada 5"}, "status_label": "Encerrado",
+        "home": {"id": 1, "name": "Sport"}, "away": {"id": 2, "name": "Náutico"}, "home_penalties": None, "away_penalties": None,
+    }
+    finished = {
+        **base, "status": "finished", "home_score": 2, "away_score": 1, "walkover": None,
+        "goals": [
+            {"team_side": "home", "player": "Fulano", "minute_label": "12'", "origin": "open_play"},
+            {"team_side": "away", "player": "Beltrano", "minute_label": "45'", "origin": "penalty"},
+            {"team_side": "home", "player": None, "minute_label": "", "origin": "own_goal"},
+        ],
+    }
+    assert match_preview(finished) == (
+        "Sport 2 × 1 Náutico",
+        "Pernambucano · Rodada 5 · Encerrado. Gols: Sport: Fulano 12', a confirmar (contra); Náutico: Beltrano 45' (pên.)",
+    )
+    scheduled = {**base, "status": "scheduled", "home_score": None, "away_score": None, "goals": [], "kickoff_at": "2026-10-18T19:00:00Z"}
+    assert match_preview(scheduled) == ("Sport × Náutico", "Pernambucano · Rodada 5 · 18/10 às 16:00")
+    walkover = {**finished, "home_score": 0, "away_score": 3, "goals": [], "walkover": {"team_id": 2, "reason": "x"}}
+    assert match_preview(walkover) == ("Sport 0 × 3 Náutico", "Pernambucano · Rodada 5 · Encerrado · W.O. em favor do Náutico")
+
+
+def test_home_com_jogo_compartilhado_traz_a_previa_e_o_dia(client, db):
+    from tests.factories import make_league, make_match, utc
+
+    league = make_league()
+    sport, nautico = league["teams"][0], league["teams"][1]
+    match = make_match(league["stage"], sport, nautico, kickoff_at=utc(2026, 10, 18, 2, 30), round=league["rounds"][0])
+    response = client.get(f"/?jogo={match.id}")
+    assert response.status_code == 200 and response["Cache-Control"] == "public, max-age=60"
+    html = response.content.decode()
+    assert f'<meta property="og:title" content="{sport.name} × {nautico.name}">' in html
+    assert f"<title>{sport.name} × {nautico.name} · " in html
+    assert 'data-focus-day="2026-10-17"' in html  # 23h30 de Brasília: o dia é o de Brasília
+    for value in ("999999", "abc", "9" * 12):  # jogo que não existe ou id inválido: a home de sempre
+        html = _html(client, f"/?jogo={value}")
+        assert "og:title" not in html and "data-focus-day" not in html
+
+
+def test_home_abre_no_dia_do_jogo_compartilhado_com_o_card_aberto(open_page):
+    # o HTML que o servidor manda para /?jogo=12 com o jogo noutro dia (sem banco: o navegador
+    # roda num loop assíncrono); a API de exemplo devolve a home do dia pedido
+    request = RequestFactory().get("/?jogo=12")
+    context = {"page": "home", "share_title": "Sport 2 × 1 Náutico", "share_description": "Pernambucano", "share_url": "http://fdr.test/?jogo=12", "focus_day": "2030-01-05"}
+    html = render_to_string("index.html", context, request=request)
+    page, api, errors = open_page("/?jogo=12", prepare=lambda api: api.pages.__setitem__("/", html))
+    page.wait_for_selector('.match[data-match-id="12"] > .match__details[open] .tl-item')
+    assert any(path == "/api/home" and "date=2030-01-05" in query for _, path, query, _ in api.requests)
+    assert page.get_attribute("#home-date", "datetime") == "2030-01-05"
+    assert page.evaluate("""() => { const r = document.querySelector('.match[data-match-id="12"]').getBoundingClientRect(); return r.top >= 0 && r.top < innerHeight; }""")
+    assert page.locator(".match > .match__details[open]").count() == 1  # só o do link
+    page.click("#day-next")  # trocar de dia tira o ?jogo da URL
+    page.wait_for_function("() => !location.search.includes('jogo')")
+    assert not errors, errors
+
+
+def test_resultados_no_whatsapp_da_rodada_e_do_dia(open_page, fixtures):
+    page, api, errors = open_page("/competition.html?slug=x")
+    page.wait_for_selector("#round-share:not([hidden])")
+    page.evaluate(WHATSAPP_SPY)
+    page.click("#round-share")
+    page.wait_for_function("() => window.__opened")
+    lines = page.evaluate("window.__opened").split("\n")
+    title = page.text_content("[data-hook=competition-name]").strip()
+    cards = page.locator("#round-matches .match").count()
+    assert lines[0].startswith(f"*{title}") and lines[0].endswith("*") and lines[1] == ""
+    assert len(lines) == cards + 4 and lines[-2:] == ["", "🔗 " + page.evaluate("location.href")]
+
+    # classificação (fase de grupos: uma tabela por grupo): o botão no canto manda a tabela do
+    # grupo, uma linha por time, com o link da página
+    page, api, errors_groups = open_page("/competition.html?slug=x&stage=6")
+    page.wait_for_selector("#round-matches .group-row__table .standings__share")
+    table = page.locator("#round-matches .group-row__table .standings__group").first
+    table.locator(".standings__share").click()  # a janela com a imagem da tabela
+    page.wait_for_selector("dialog.share-sheet .share-sheet__img:not([hidden])")
+    assert page.text_content("dialog.share-sheet .dialog__title") == "Compartilhar classificação"
+    href = page.get_attribute("dialog.share-sheet [data-hook=share-whatsapp]", "href")  # sem Web Share: o link do WhatsApp
+    assert href.startswith("https://api.whatsapp.com/send?text=")
+    lines = unquote(href.split("?text=", 1)[1]).split("\n")
+    group = table.locator("caption").text_content().replace("Ao vivo", "").strip()
+    assert lines[0].lower() == f"*classificação do {group.lower()}*"  # é de grupo: diz qual
+    round_name = page.text_content("#round-label").strip()
+    assert lines[1] == f"{title} · Fase de grupos · {round_name}"  # competição · fase · rodada
+    assert len(lines) == table.locator("tbody tr").count() + 5 and lines[2] == ""
+    lines = lines[2:]  # a partir da linha em branco antes dos times
+    assert re.fullmatch(r"1\. .+ — \d+ pts? · \d+J · GP \d+ · SG [+-]?\d+", lines[1]) and lines[-1] == "🔗 " + page.evaluate("location.href")
+    errors += errors_groups
+
+    page, api, errors_home = open_page("/")
+    page.wait_for_selector("[data-hook=competition] [data-hook=competition-share]")
+    page.evaluate(WHATSAPP_SPY)
+    section = page.locator("[data-hook=competition]").first
+    section.locator("[data-hook=competition-share]").click()
+    page.wait_for_function("() => window.__opened")
+    lines = page.evaluate("window.__opened").split("\n")
+    name = section.locator("[data-hook=competition-name]").text_content().strip()
+    assert lines[0].startswith(f"*{name} · ") and len(lines) == section.locator(".match").count() + 4
+    assert re.fullmatch(r"🔗 http://fdr\.test/\?date=\d{4}-\d\d-\d\d", lines[-1])
+    assert not errors and not errors_home, errors + errors_home
+
+
+def test_home_no_celular_barra_do_dia_ao_vivo_nomes_e_gaveta(open_page, fixtures):
+    page, api, errors = open_page("/", width=390)
+    page.wait_for_selector("[data-hook=competition] .match")
+    # no topo, o seletor de dias está na tela: a barra fixa não aparece (nunca os dois juntos); o
+    # atalho "Ao vivo" só existe nela
+    assert page.is_hidden("[data-hook=day-bar]") and page.locator("[data-hook=live-jump]").count() == 1
+    # ao rolar além do seletor, a barra aparece com o dia e "Ao vivo N"
+    page.evaluate("window.scrollTo(0, document.getElementById('competitions').getBoundingClientRect().top + scrollY + 400)")
+    page.wait_for_function("() => !document.querySelector('[data-hook=day-bar]').hidden")
+    live = page.evaluate("[...document.querySelectorAll('#competitions .match')].filter((c) => c.dataset.status === 'live').length")
+    chip = page.locator("[data-hook=day-bar] [data-hook=live-jump]")
+    assert live > 0 and chip.is_visible() and chip.locator("[data-hook=live-count]").text_content() == str(live)
+    # cada toque leva ao próximo jogo ao vivo, no topo da tela, sem ficar atrás da barra
+    chip.click()
+    page.wait_for_timeout(700)  # rolagem suave
+    first = page.evaluate("""() => {
+      const card = [...document.querySelectorAll('#competitions .match')].find((c) => c.dataset.status === 'live');
+      return [card.getBoundingClientRect().top, document.querySelector('[data-hook=day-bar]').getBoundingClientRect().bottom];
+    }""")
+    assert first[1] <= first[0] < first[1] + 40
+    # a barra repete o dia; o › dela troca o dia (como o do seletor) e volta ao topo
+    assert page.text_content("[data-hook=day-bar-date]").strip() == "Hoje"
+    page.click("[data-hook=day-bar-next]")
+    page.wait_for_function("() => new URLSearchParams(location.search).has('date') && window.scrollY === 0")
+    page.wait_for_function("() => document.querySelector('[data-hook=day-bar]').hidden")
+    # placar estreito: o nome do time (não a sigla), ao lado do escudo
+    card = page.locator("#competitions .match").first
+    assert card.locator(".team__full").first.is_visible() and not card.locator(".team__short").first.is_visible()
+    assert page.evaluate("""() => {
+      const team = document.querySelector('#competitions .match .team--away');
+      const [crest, name] = [team.querySelector('.crest'), team.querySelector('.team__name')].map((el) => el.getBoundingClientRect());
+      return name.left >= crest.right && Math.abs((name.top + name.bottom) / 2 - (crest.top + crest.bottom) / 2) < 12;
+    }""")
+    # cabeçalho da competição: só os ícones (o texto fica para leitor de tela), alvos de 44 px
+    label = page.locator("[data-hook=competition] .section-head__label").first.bounding_box()
+    share = page.locator("[data-hook=competition] [data-hook=competition-share]").first.bounding_box()
+    assert label["width"] <= 1 and share["width"] >= 44 and share["height"] >= 44
+    # botão de compartilhar do card: área de toque além do desenho de 32 px
+    box = card.locator(".match__share").bounding_box()
+    hit = page.evaluate(f"document.elementFromPoint({box['x'] - 4}, {box['y'] + box['height'] / 2})?.closest('.match__share') !== null")
+    assert box["width"] == 32 and hit
+    # a janela de compartilhar abre como gaveta, presa embaixo e na largura da tela
+    card.locator(".match__share").click()
+    page.wait_for_selector("dialog.share-sheet[open]")
+    page.wait_for_timeout(300)  # animação
+    sheet = page.locator("dialog.share-sheet").bounding_box()
+    assert abs(sheet["y"] + sheet["height"] - 900) <= 1 and sheet["width"] == 390
     assert not errors, errors

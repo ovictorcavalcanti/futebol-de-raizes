@@ -11,9 +11,10 @@
 import { h, clear, setText } from './render.js';
 import { icon, eventIconName } from './icons.js';
 import { createCrest } from './crest.js';
-import { formatTime, formatWhen, formatDay, formatInt, formatMoney, formatScore, toDate } from './format.js';
+import { formatWhen, formatInt, formatMoney, formatScore, toDate } from './format.js';
 import { liveMinuteLabel } from './clock.js';
 import { getMinuteFormat, minuteLabel } from './minute-format.js';
+import { openMatchShare } from './share.js';
 
 /** Estado por card: {match, opts, eventIds, requested, activeTab, failed}. */
 const STATE = new WeakMap();
@@ -90,6 +91,8 @@ const displayName = (team) => team?.name || team?.short_name || '';
  * @property {boolean} [details=true] false = sem acordeão (ex.: placar do operador)
  * @property {boolean} [showRound] mostra rodada/fase na faixa de meta
  * @property {boolean} [showCompetition] mostra a competição na faixa de meta
+ * @property {boolean} [share=true] botão de compartilhar no canto (link, texto e imagem do jogo);
+ *   sem acordeão (operador), não há botão
  */
 export function createMatchCard(match, opts = {}) {
   const id = ++seq;
@@ -110,6 +113,17 @@ export function createMatchCard(match, opts = {}) {
     details.append(toggle, body);
     details.addEventListener('toggle', () => onToggle(el));
     el.append(details);
+  }
+  if (opts.details !== false && opts.share !== false) {
+    // no canto de cima, por cima da faixa de meta (que deixa o espaço); compartilha o jogo como está agora
+    el.classList.add('match--shareable');
+    el.append(h('button', {
+      type: 'button', class: 'btn btn--secondary btn--icon btn--sm match__share', 'aria-label': 'Compartilhar jogo no WhatsApp', title: 'Compartilhar no WhatsApp',
+      onclick: () => {
+        const st = STATE.get(el);
+        if (st?.match) openMatchShare(st.match, { now: nowOf(st.opts) });
+      },
+    }, icon('share')));
   }
   STATE.set(el, { uid: id, match: null, opts: { ...opts, flash: false }, eventIds: null, requested: false, activeTab: null, failed: false });
   updateMatchCard(el, match, { flash: false });
@@ -232,10 +246,7 @@ export function setMatchCardError(el) {
 
 function statusPill(match) {
   const { status } = match;
-  if (status === 'scheduled') {
-    const time = formatTime(match.kickoff_at);
-    return h('span', { class: 'pill pill--scheduled' }, icon('clock'), h('span', { class: 'visually-hidden', text: 'Agendado para ' }), time || 'A definir');
-  }
+  if (status === 'scheduled') return h('span', { class: 'pill pill--scheduled', text: match.status_label || 'Agendado' });
   if (status === 'live') {
     if (match.partial_info) return h('span', { class: 'pill pill--partial', text: 'Informações parciais' });
     if (INTERVALS.has(match.period)) return h('span', { class: 'pill pill--interval', text: 'Intervalo' });
@@ -258,7 +269,9 @@ function roundLabel(match) {
 }
 
 function renderMeta(meta, match, now, opts) {
-  const parts = [];
+  // dois blocos: "quando" (o selo do status, o minuto ao vivo, o dia e a hora do início e a
+  // rodada/competição, quando pedidas) e "onde" (local e cidade). No desktop, um à esquerda e o
+  // outro à direita; no celular, duas linhas centradas, como o placar.
   const status = h('span', { class: 'match__status' }, statusPill(match));
   if (match.status === 'live' && !match.partial_info && !INTERVALS.has(match.period) && match.period !== 'penalties') {
     status.append(h('span', { class: 'match__minute' },
@@ -269,24 +282,18 @@ function renderMeta(meta, match, now, opts) {
   } else if (match.status === 'suspended' && match.period_label) {
     status.append(h('span', { class: 'match__round', text: `parou no ${match.period_label}` }));
   }
-  parts.push(status);
-
   const kickoff = toDate(match.kickoff_at);
-  if (kickoff) {
-    const text = match.status === 'scheduled' ? formatDay(kickoff, now) : formatWhen(kickoff, now);
-    parts.push(h('time', { class: 'match__when', datetime: kickoff.toISOString() }, icon('calendar', { className: 'icon--sm' }), text));
-  }
-
-  const context = [opts.showCompetition && (match.competition?.short_name || match.competition?.name), opts.showRound && roundLabel(match)].filter(Boolean);
-  if (context.length) parts.push(h('span', { class: 'match__round', text: context.join(' · ') }));
-
-  if (match.venue || match.city) {
-    parts.push(h('span', { class: 'match__place' },
-      match.venue ? h('span', { class: 'match__place-item' }, icon('stadium'), h('span', { class: 'visually-hidden', text: 'Estádio: ' }), match.venue) : null,
-      match.city ? h('span', { class: 'match__place-item' }, icon('pin'), h('span', { class: 'visually-hidden', text: 'Cidade: ' }), match.city) : null,
-    ));
-  }
-  meta.replaceChildren(...parts);
+  const context = [opts.showCompetition && (match.competition?.short_name || match.competition?.name), opts.showRound && roundLabel(match)].filter(Boolean).join(' · ');
+  const when = h('div', { class: 'match__lead' }, status,
+    kickoff ? h('time', { class: 'match__when', datetime: kickoff.toISOString(), text: formatWhen(kickoff, now) }) : null,
+    context ? h('span', { class: 'match__round', text: context }) : null);
+  // "onde": o estádio com o ícone de estádio e a cidade com o pino
+  const place = [
+    match.venue ? h('span', { class: 'match__place-item' }, icon('stadium'), h('span', { class: 'visually-hidden', text: 'Estádio: ' }), match.venue) : null,
+    match.city ? h('span', { class: 'match__place-item' }, icon('pin'), h('span', { class: 'visually-hidden', text: 'Cidade: ' }), match.city) : null,
+  ].filter(Boolean);
+  // sem estádio nem cidade: só o "quando" (replaceChildren escreveria "null")
+  meta.replaceChildren(when, ...(place.length ? [h('p', { class: 'match__place' }, ...place)] : []));
 }
 
 /* ==========================================================================

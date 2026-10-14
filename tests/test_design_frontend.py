@@ -638,3 +638,176 @@ def test_componentes_no_navegador(browser_page):
     assert "Gol anulado aos 36' — Impedimento marcado pelo VAR" in out["annulStruck"]
     assert "Mão na bola" in out["annulTimeline"]
     assert "Oxe" not in out["annulTimeline"]
+
+
+SHARE_JS = """async () => {
+  const S = await import('/static/js/share.js');
+  const M = await import('/static/js/match-card.js');
+  const F = await import('/static/js/fixtures.js');
+  const fin = F.MATCHES.finished;
+  const out = {};
+  out.names = [fin.home.name, fin.away.name];
+  out.url = S.matchUrl(fin, 'https://x.test');
+  out.text = S.matchShareText(fin, Date.now(), out.url).split('\\n');
+  out.awayScorers = S.scorers(fin, 'away');
+  out.results = S.resultsShareText('PE · Rodada 5', [fin, F.MATCHES.scheduledToday], Date.now(), 'https://x.test/r').split('\\n');
+  out.later = [F.MATCHES.scheduledToday.home.name, F.MATCHES.scheduledToday.away.name];
+  const opened = [];
+  S.shareResultsOnWhatsApp('PE · Rodada 5', [fin], { url: 'https://x.test/r', win: { open: (...args) => opened.push(args) } });
+  out.opened = opened.map(([href, target]) => [decodeURIComponent(href.split('?text=')[1]), href.split('?')[0], target]);
+  // imagem: PNG 1200 × 800 (canvas limpo: o toBlob funciona); autores dos gols todos na mesma fonte
+  const drawn = [];
+  const fillText = CanvasRenderingContext2D.prototype.fillText;
+  CanvasRenderingContext2D.prototype.fillText = function (text, ...rest) { drawn.push([String(text), this.font]); return fillText.call(this, text, ...rest); };
+  let blob;
+  try { blob = await S.renderMatchImage(fin, { brand: 'Futebol de Raízes', host: 'x.test' }); }
+  finally { CanvasRenderingContext2D.prototype.fillText = fillText; }
+  const bitmap = await createImageBitmap(blob);
+  out.image = [blob.type, bitmap.width, bitmap.height, blob.size > 5000];
+  const fontsOf = (texts) => drawn.filter(([t]) => texts.includes(t));
+  const goalTexts = [...S.scorers(fin, 'home'), ...S.scorers(fin, 'away')];
+  out.scorerFonts = [fontsOf(goalTexts).length, new Set(fontsOf(goalTexts).map(([, f]) => f)).size];
+  out.nameFonts = new Set(fontsOf([fin.home.name.toUpperCase(), fin.away.name.toUpperCase()]).map(([, f]) => f)).size;
+  // card: botão no canto; sem acordeão (placar do operador), sem botão
+  const root = document.getElementById('root');
+  const card = M.createMatchCard(fin, {});
+  root.append(card);
+  out.buttons = [!!card.querySelector(':scope > .match__share'), !!M.createMatchCard(fin, { details: false }).querySelector('.match__share')];
+  const ready = (dialog) => new Promise((resolve) => {
+    const start = Date.now();
+    const timer = setInterval(() => {
+      const done = !dialog.querySelector('.share-sheet__img').hidden;
+      if (done || Date.now() - start > 8000) { clearInterval(timer); resolve(done); }
+    }, 50);
+  });
+  const foot = (dialog) => [...dialog.querySelectorAll('.dialog__foot > *')].map((b) => [b.tagName, b.textContent.trim()]);
+  // sem Web Share de arquivos (computador): o botão é o link do WhatsApp com a mensagem e copia a imagem
+  card.querySelector('.match__share').click();
+  let dialog = document.querySelector('dialog.share-sheet');
+  out.cardDialog = [dialog?.open, await ready(dialog), foot(dialog)];
+  dialog.close();
+  await new Promise((resolve) => setTimeout(resolve, 150)); // o evento close chega numa tarefa depois
+  out.removed = !document.querySelector('dialog.share-sheet');
+  const copied = [];
+  // ClipboardItem só existe em contexto seguro (o site é HTTPS; esta página de teste, não)
+  if (typeof ClipboardItem !== 'function') window.ClipboardItem = class { constructor(data) { this.types = Object.keys(data); } };
+  dialog = S.openMatchShare(fin, { nav: { clipboard: { write: async (items) => { copied.push(...items); } } } });
+  await ready(dialog);
+  const link = dialog.querySelector('[data-hook=share-whatsapp]');
+  link.addEventListener('click', (event) => event.preventDefault()); // sem abrir a aba no teste
+  link.click();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  out.desktop = [link.tagName, link.href.split('?')[0], link.target, decodeURIComponent(link.href.split('?text=')[1]) === S.matchShareText(fin, Date.now(), S.matchUrl(fin)),
+    copied.length === 1 && copied[0].types.includes('image/png'), dialog.textContent.includes('Baixar')];
+  dialog.close();
+  // com Web Share de arquivos (celular): a imagem vai como arquivo, com a mensagem (e o link) na legenda
+  const shared = [];
+  const nav = { share: async (data) => { shared.push(data); }, canShare: () => true };
+  dialog = S.openMatchShare(fin, { nav });
+  await ready(dialog);
+  out.mobileFoot = foot(dialog);
+  dialog.querySelector('[data-hook=share-whatsapp]').click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const [sent] = shared;
+  out.mobile = [shared.length, sent?.files?.[0]?.type, sent?.files?.[0]?.name, sent?.text === S.matchShareText(fin, Date.now(), S.matchUrl(fin)), 'url' in (sent || {})];
+  dialog.close();
+  return out;
+}"""
+
+
+def test_compartilhar_jogo_no_whatsapp_texto_imagem_e_janela(browser_page):
+    page, errors = browser_page
+    out = page.evaluate(SHARE_JS)
+    assert not errors, errors
+    home, away = out["names"]
+    assert out["url"] == "https://x.test/?jogo=15"
+    assert out["text"][0] == f"*{home} 1 × 2 {away}*" and out["text"][1].endswith("Encerrado")
+    assert out["awayScorers"][0].startswith("Netinho do Pajeú 9") and out["awayScorers"][1].endswith("(contra)")
+    assert out["text"][2:] == [
+        "", f"⚽ *{home}:* Mauro Shampoo Jr. 40'", f"⚽ *{away}:* " + ", ".join(out["awayScorers"]), "", "🔗 https://x.test/?jogo=15",
+    ]
+    assert out["results"][:3] == ["*PE · Rodada 5*", "", out["text"][0].strip("*")]
+    assert out["results"][3].startswith(f"{out['later'][0]} × {out['later'][1]} — ")  # ainda não começou: o horário
+    assert out["results"][-2:] == ["", "🔗 https://x.test/r"]
+    assert out["opened"] == [["*PE · Rodada 5*\n\n" + out["text"][0].strip("*") + "\n\n🔗 https://x.test/r", "https://api.whatsapp.com/send", "_blank"]]
+    assert out["image"] == ["image/png", 1200, 800, True]  # 3:2
+    assert out["scorerFonts"] == [3, 1] and out["nameFonts"] == 1  # mesmo tamanho para todos os autores (e os dois nomes)
+    assert out["buttons"] == [True, False]
+    assert out["cardDialog"] == [True, True, [["BUTTON", "Fechar"], ["A", "Compartilhar no WhatsApp"]]] and out["removed"]
+    assert out["desktop"] == ["A", "https://api.whatsapp.com/send", "_blank", True, True, False]  # sem "baixar"
+    assert out["mobileFoot"] == [["BUTTON", "Fechar"], ["BUTTON", "Compartilhar no WhatsApp"]]
+    assert out["mobile"] == [1, "image/png", "jogo-15.png", True, False]
+
+
+META_JS = """async () => {
+  const M = await import('/static/js/match-card.js');
+  const F = await import('/static/js/fixtures.js');
+  const S = await import('/static/js/share.js');
+  const St = await import('/static/js/standings.js');
+  const root = document.getElementById('root');
+  const read = (match) => {
+    const card = M.createMatchCard(match, {});
+    root.append(card);
+    const meta = card.querySelector('.match__meta');
+    return [meta.querySelector('.pill').textContent.trim(), meta.querySelector('.match__lead time')?.textContent ?? null,
+      [...meta.querySelectorAll('.match__place-item')].map((item) => [item.querySelector('use').getAttribute('href'), item.lastChild.textContent])];
+  };
+  const later = F.MATCHES.scheduledToday;
+  const standings = { stage_name: '1ª fase', kind: 'live', groups: [{ name: 'Grupo A', rows: [
+    { rank: 1, position: 1, team: { name: 'Sport' }, points: 13, played: 5, goals_for: 11, goal_difference: 8, playing: true },
+    { rank: 2, position: 2, team: { name: 'Náutico' }, points: 1, played: 5, goals_for: 3, goal_difference: -3 },
+  ] }] };
+  // jogo sem local nem cidade: só o "quando" (sem "null" na faixa)
+  const noPlace = M.createMatchCard({ ...later, id: 9301, venue: '', city: null }, {});
+  root.append(noPlace);
+  // imagem: "JOGANDO AGORA" (etiqueta vermelha) ao lado de quem está em jogo; fase · rodada no subtítulo
+  const drawn = [];
+  const fillText = CanvasRenderingContext2D.prototype.fillText;
+  CanvasRenderingContext2D.prototype.fillText = function (text, ...rest) { drawn.push(String(text)); return fillText.call(this, text, ...rest); };
+  let blob;
+  try { blob = await S.renderStandingsImage(F.STANDINGS, F.STANDINGS.groups[0], { competition: 'PE Raiz', stage: '1ª fase', round: 'Rodada 5', brand: 'Futebol de Raízes', host: 'x.test' }); }
+  finally { CanvasRenderingContext2D.prototype.fillText = fillText; }
+  const bitmap = await createImageBitmap(blob);
+  // depois da imagem (a janela também desenha a dela, com a espiã do canvas ligada)
+  // classificação geral (um "grupo" com o nome dela): não vira "Grupo ..."
+  const ranking = St.createStandings({ stage_id: null, stage_name: 'Classificação geral', kind: 'official',
+    groups: [{ id: null, name: 'Classificação geral', rows: F.STANDINGS.groups[0].rows }] }, { share: { title: 'PE Raiz' } });
+  root.append(ranking);
+  ranking.querySelector('.standings__share').click();
+  const dialog = document.querySelector('dialog.share-sheet[open]'); // a aberta agora (outra, fechada, pode ainda não ter saído)
+  const rankingTitle = dialog.querySelector('.share-sheet__title').textContent;
+  dialog.close();
+  return {
+    standingsImage: [blob.type, bitmap.width, bitmap.height > 236 + F.STANDINGS.groups[0].rows.length * 54 + 110],
+    playingBadges: [drawn.filter((t) => t === 'JOGANDO AGORA').length, F.STANDINGS.groups[0].rows.filter((r) => r.playing).length],
+    subtitle: drawn.includes('1ª FASE · RODADA 5'), noPartial: !drawn.some((t) => /parcial|em jogo agora/i.test(t)),
+    scheduled: read(later), finished: read(F.MATCHES.finished),
+    names: [later.venue, later.city, F.MATCHES.finished.venue, F.MATCHES.finished.city],
+    standings: S.standingsShareText({ competition: 'PE Raiz', stage: '1ª fase', round: 'Rodada 5', group: S.groupLabel('A') }, standings.groups[0], { url: 'https://x.test/c' }).split('\\n'),
+    labels: [S.groupLabel('Grupo B'), S.groupLabel(''), S.groupLabel('A'), S.groupLabel('Chave 1')],
+    headings: [S.standingsHeading('Grupo A'), S.standingsHeading('Chave 1'), S.standingsHeading('')],
+    noPlace: [noPlace.querySelector('.match__meta').textContent.includes('null'), !!noPlace.querySelector('.match__place')],
+    rankingTitle,
+  };
+}"""
+
+
+def test_faixa_do_card_quando_e_onde_e_classificacao_parcial(browser_page):
+    page, errors = browser_page
+    out = page.evaluate(META_JS)
+    assert not errors, errors
+    venue, city, fin_venue, fin_city = out["names"]
+    pill, when, place = out["scheduled"]  # "quando" (status, dia e hora) e "onde" (estádio e cidade, cada um com o seu ícone)
+    assert pill == "Agendado" and re.fullmatch(r"Hoje · \d\d:\d\d", when) and place == [["#i-stadium", venue], ["#i-pin", city]]
+    pill, when, place = out["finished"]
+    assert pill == "Encerrado" and re.fullmatch(r"Hoje · \d\d:\d\d", when) and place == [["#i-stadium", fin_venue], ["#i-pin", fin_city]]
+    assert out["standingsImage"] == ["image/png", 1080, True]  # 1080 de largura, altura pelo número de times
+    assert out["labels"] == ["Grupo B", "", "Grupo A", "Chave 1"]
+    assert out["headings"] == ["Classificação do Grupo A", "Classificação · Chave 1", "Classificação"]
+    assert out["noPlace"] == [False, False]  # sem local: nada de "null" na faixa
+    assert out["rankingTitle"] == "Classificação · PE Raiz"  # a classificação geral não é grupo
+    assert out["playingBadges"][0] == out["playingBadges"][1] > 0 and out["subtitle"] and out["noPartial"]
+    assert out["standings"] == [
+        "*Classificação do Grupo A*", "PE Raiz · 1ª fase · Rodada 5", "",
+        "1. Sport (jogando agora) — 13 pts · 5J · GP 11 · SG +8", "2. Náutico — 1 pt · 5J · GP 3 · SG -3", "", "🔗 https://x.test/c",
+    ]

@@ -182,13 +182,13 @@ existe: a home de sempre.
   (`renderStandingsImage`: PNG de 1080 de largura, altura pelo número de times; competição,
   "Classificação", "Classificação do Grupo A" ou "Classificação · Chave 1" (`groupLabel`,
   `standingsHeading`; só em fase de grupos — `opts.share.groups` ou mais de um grupo —: a
-  classificação geral/personalizada não vira grupo), a fase e, na tabela ao vivo com
-  jogo em andamento, "parcial: há jogos em andamento"; faixa da zona, posição, escudo, nome —
-  todos do mesmo tamanho; bolinha vermelha = em jogo agora —, P J V E D GP SG; legenda das zonas
-  e da bolinha, "Em jogo agora (parcial)" ou, na tabela oficial, "(ainda não conta)"; o site no
-  rodapé) e a mensagem `*Classificação do Grupo A*`, "competição · fase", "🔴 Parcial: há jogos
-  em andamento" (quando for), uma linha por time ("1. Sport 🔴 — 13 pts · 5J · GP 11 · SG +8") e
-  o link (`standingsShareText`).
+  classificação geral/personalizada não vira grupo), a fase e a rodada (`opts.share.round`: na
+  home, a dos jogos do dia; na competição, a atual da fase, senão a exibida; a classificação geral
+  não tem); faixa da zona, posição, escudo, nome — todos do mesmo tamanho — e, ao lado de quem
+  está em jogo, a etiqueta vermelha "JOGANDO AGORA"; P J V E D GP SG; legenda das zonas; o site
+  no rodapé) e a mensagem `*Classificação do Grupo A*`, "competição · fase · rodada", uma linha
+  por time ("1. Sport (jogando agora) — 13 pts · 5J · GP 11 · SG +8") e o link
+  (`standingsShareText`).
 
 Faixa de informações do card (`.match__meta`, grid): o bloco "quando" (`.match__lead`: o selo do
 status — "Agendado", "Ao vivo" com o minuto, "Encerrado"... —, o dia e a hora do início,

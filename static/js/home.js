@@ -194,6 +194,7 @@ function cardFor(match, next) {
 const standingsShare = (comp, stage) => ({
   title: comp.name,
   groups: stage.format === 'groups',
+  round: (stage.matches || []).find((m) => m.round?.name)?.round?.name || '', // a rodada dos jogos do dia
   url: `${window.location.origin}/competition.html?slug=${encodeURIComponent(comp.slug)}&stage=${stage.id}`,
 });
 

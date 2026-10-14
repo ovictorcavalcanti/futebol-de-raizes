@@ -760,6 +760,15 @@ META_JS = """async () => {
   // jogo sem local nem cidade: só o "quando" (sem "null" na faixa)
   const noPlace = M.createMatchCard({ ...later, id: 9301, venue: '', city: null }, {});
   root.append(noPlace);
+  // imagem: "JOGANDO AGORA" (etiqueta vermelha) ao lado de quem está em jogo; fase · rodada no subtítulo
+  const drawn = [];
+  const fillText = CanvasRenderingContext2D.prototype.fillText;
+  CanvasRenderingContext2D.prototype.fillText = function (text, ...rest) { drawn.push(String(text)); return fillText.call(this, text, ...rest); };
+  let blob;
+  try { blob = await S.renderStandingsImage(F.STANDINGS, F.STANDINGS.groups[0], { competition: 'PE Raiz', stage: '1ª fase', round: 'Rodada 5', brand: 'Futebol de Raízes', host: 'x.test' }); }
+  finally { CanvasRenderingContext2D.prototype.fillText = fillText; }
+  const bitmap = await createImageBitmap(blob);
+  // depois da imagem (a janela também desenha a dela, com a espiã do canvas ligada)
   // classificação geral (um "grupo" com o nome dela): não vira "Grupo ..."
   const ranking = St.createStandings({ stage_id: null, stage_name: 'Classificação geral', kind: 'official',
     groups: [{ id: null, name: 'Classificação geral', rows: F.STANDINGS.groups[0].rows }] }, { share: { title: 'PE Raiz' } });
@@ -768,13 +777,13 @@ META_JS = """async () => {
   const dialog = document.querySelector('dialog.share-sheet[open]'); // a aberta agora (outra, fechada, pode ainda não ter saído)
   const rankingTitle = dialog.querySelector('.share-sheet__title').textContent;
   dialog.close();
-  const blob = await S.renderStandingsImage(F.STANDINGS, F.STANDINGS.groups[0], { competition: 'PE Raiz', stage: '1ª fase', partial: true, brand: 'Futebol de Raízes', host: 'x.test' });
-  const bitmap = await createImageBitmap(blob);
   return {
     standingsImage: [blob.type, bitmap.width, bitmap.height > 236 + F.STANDINGS.groups[0].rows.length * 54 + 110],
+    playingBadges: [drawn.filter((t) => t === 'JOGANDO AGORA').length, F.STANDINGS.groups[0].rows.filter((r) => r.playing).length],
+    subtitle: drawn.includes('1ª FASE · RODADA 5'), noPartial: !drawn.some((t) => /parcial|em jogo agora/i.test(t)),
     scheduled: read(later), finished: read(F.MATCHES.finished),
     names: [later.venue, later.city, F.MATCHES.finished.venue, F.MATCHES.finished.city],
-    standings: S.standingsShareText({ competition: 'PE Raiz', stage: '1ª fase', group: S.groupLabel('A') }, standings.groups[0], { partial: true, url: 'https://x.test/c' }).split('\\n'),
+    standings: S.standingsShareText({ competition: 'PE Raiz', stage: '1ª fase', round: 'Rodada 5', group: S.groupLabel('A') }, standings.groups[0], { url: 'https://x.test/c' }).split('\\n'),
     labels: [S.groupLabel('Grupo B'), S.groupLabel(''), S.groupLabel('A'), S.groupLabel('Chave 1')],
     headings: [S.standingsHeading('Grupo A'), S.standingsHeading('Chave 1'), S.standingsHeading('')],
     noPlace: [noPlace.querySelector('.match__meta').textContent.includes('null'), !!noPlace.querySelector('.match__place')],
@@ -797,7 +806,8 @@ def test_faixa_do_card_quando_e_onde_e_classificacao_parcial(browser_page):
     assert out["headings"] == ["Classificação do Grupo A", "Classificação · Chave 1", "Classificação"]
     assert out["noPlace"] == [False, False]  # sem local: nada de "null" na faixa
     assert out["rankingTitle"] == "Classificação · PE Raiz"  # a classificação geral não é grupo
+    assert out["playingBadges"][0] == out["playingBadges"][1] > 0 and out["subtitle"] and out["noPartial"]
     assert out["standings"] == [
-        "*Classificação do Grupo A*", "PE Raiz · 1ª fase", "🔴 Parcial: há jogos em andamento", "",
-        "1. Sport 🔴 — 13 pts · 5J · GP 11 · SG +8", "2. Náutico — 1 pt · 5J · GP 3 · SG -3", "", "🔗 https://x.test/c",
+        "*Classificação do Grupo A*", "PE Raiz · 1ª fase · Rodada 5", "",
+        "1. Sport (jogando agora) — 13 pts · 5J · GP 11 · SG +8", "2. Náutico — 1 pt · 5J · GP 3 · SG -3", "", "🔗 https://x.test/c",
     ]

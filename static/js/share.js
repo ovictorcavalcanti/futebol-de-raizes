@@ -119,16 +119,17 @@ export const groupLabel = (groupName) => (!groupName ? '' : /^[a-z0-9]{1,3}$/i.t
 /** "Classificação", "Classificação do Grupo A" ou, noutro nome, "Classificação · Chave 1". */
 export const standingsHeading = (label) => (!label ? 'Classificação' : /^grupo\b/i.test(label) ? `Classificação do ${label}` : `Classificação · ${label}`);
 
+const PLAYING = 'Jogando agora';
+
 /**
  * Mensagem da classificação para o WhatsApp: `*Classificação*` (ou `*Classificação do Grupo A*`),
- * competição · fase, o aviso de parcial (com jogo em andamento, na tabela ao vivo), uma linha por
- * time na ordem da tabela ("1. Sport 🔴 — 13 pts · 5J · GP 11 · SG +8"; 🔴 = em jogo agora) e o link.
+ * competição · fase · rodada, uma linha por time na ordem da tabela ("1. Sport (jogando agora) —
+ * 13 pts · 5J · GP 11 · SG +8") e o link.
  */
-export function standingsShareText({ competition = '', stage = '', group: label = '' }, group, { partial = false, url = '' } = {}) {
+export function standingsShareText({ competition = '', stage = '', round = '', group: label = '' }, group, { url = '' } = {}) {
   const rows = (group?.rows || []).map((r) =>
-    `${r.rank ?? r.position}. ${name(r.team)}${partial && r.playing ? ' 🔴' : ''} — ${pts(r.points ?? 0)} · ${r.played ?? 0}J · GP ${r.goals_for ?? 0} · SG ${signed(r.goal_difference ?? 0)}`);
-  const head = [`*${standingsHeading(label)}*`, [competition, stage].filter(Boolean).join(' · ')];
-  if (partial) head.push('🔴 Parcial: há jogos em andamento');
+    `${r.rank ?? r.position}. ${name(r.team)}${r.playing ? ` (${PLAYING.toLowerCase()})` : ''} — ${pts(r.points ?? 0)} · ${r.played ?? 0}J · GP ${r.goals_for ?? 0} · SG ${signed(r.goal_difference ?? 0)}`);
+  const head = [`*${standingsHeading(label)}*`, [competition, stage, round].filter(Boolean).join(' · ')];
   return [...head.filter(Boolean), '', ...rows, ...(url ? ['', `🔗 ${url}`] : [])].join('\n');
 }
 
@@ -323,30 +324,42 @@ const HEX = /^#[0-9a-f]{6}$/i;
 const SW = 1080; // largura da imagem da classificação; a altura cresce com o número de times
 const ROW = 54;
 
+/** Etiqueta "JOGANDO AGORA" (fundo vermelho, texto branco) a partir de x, centrada em cy. */
+function playingBadge(ctx, x, cy, family) {
+  ctx.font = `700 15px ${family}`;
+  const text = PLAYING.toUpperCase();
+  const width = ctx.measureText(text).width + 20;
+  ctx.fillStyle = '#C8102E';
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x, cy - 13, width, 26, 13);
+  else ctx.rect(x, cy - 13, width, 26);
+  ctx.fill();
+  ctx.fillStyle = '#FFFFFF';
+  ctx.textAlign = 'left';
+  ctx.fillText(text, x + 10, cy + 5.5);
+  return width;
+}
+
 /**
  * Imagem da classificação de um grupo (PNG 1080 de largura): competição; "Classificação" ou
- * "Classificação do Grupo A"; a fase (e "parcial", na tabela ao vivo com jogo em andamento); uma
- * linha por time — faixa da zona, posição, escudo, nome (todos do mesmo tamanho; bolinha vermelha
- * = em jogo agora), P J V E D GP SG —; a legenda (zonas e a bolinha) e o site no rodapé.
+ * "Classificação do Grupo A"; a fase e a rodada; uma linha por time — faixa da zona, posição,
+ * escudo, nome (todos do mesmo tamanho) e, em jogo agora, a etiqueta "JOGANDO AGORA"; P J V E D GP
+ * SG —; a legenda das zonas e o site no rodapé.
  * @returns {Promise<Blob>}
  */
-export async function renderStandingsImage(standings, group, { competition = '', stage = '', group: label = '', partial = false, brand = '', host = globalThis.location?.host || '' } = {}) {
+export async function renderStandingsImage(standings, group, { competition = '', stage = '', round = '', group: label = '', brand = '', host = globalThis.location?.host || '' } = {}) {
   const font = await siteFonts();
   const rows = group?.rows || [];
   const crests = await Promise.all(rows.map((row) => crestImage(row.team)));
   const top = 236; // topo da 1ª linha
 
-  // legenda: as zonas (quadrado na cor) e, com time em jogo, a bolinha vermelha; em linhas
-  // centradas, quebrando quando não cabe
+  // legenda das zonas (quadrado na cor), em linhas centradas, quebrando quando não cabe
   const measure = document.createElement('canvas').getContext('2d');
   measure.font = `500 20px ${font.ui}`;
   const items = (standings?.legend || []).filter((zone) => zone?.name).map((zone) => {
     const range = zone.from == null ? '' : zone.to != null && zone.to !== zone.from ? ` ${zone.from}º–${zone.to}º` : ` ${zone.from}º`;
-    return { kind: 'zone', color: HEX.test(zone.color || '') ? zone.color : COLORS.ink3, text: `${zone.name}${range}` };
+    return { color: HEX.test(zone.color || '') ? zone.color : COLORS.ink3, text: `${zone.name}${range}` };
   });
-  if (rows.some((row) => row.playing)) {
-    items.push({ kind: 'dot', color: '#C8102E', text: partial ? 'Em jogo agora (parcial)' : 'Em jogo agora (ainda não conta)' });
-  }
   const gap = 34;
   const legendLines = [];
   for (const item of items) {
@@ -380,8 +393,8 @@ export async function renderStandingsImage(standings, group, { competition = '',
   const heading = standingsHeading(label).toUpperCase();
   groupFont(ctx, [heading], { weight: 700, size: 28, family: font.num, maxWidth: 960 });
   line(heading, SW / 2, 122, 960);
-  const sub = [stage, partial ? 'parcial: há jogos em andamento' : ''].filter(Boolean).join(' · ').toUpperCase();
-  ctx.fillStyle = partial ? '#A50D26' : COLORS.ink3;
+  const sub = [stage, round].filter(Boolean).join(' · ').toUpperCase();
+  ctx.fillStyle = COLORS.ink3;
   groupFont(ctx, [sub], { weight: 600, size: 20, family: font.num, maxWidth: 960 });
   line(sub, SW / 2, 156, 960);
 
@@ -395,10 +408,19 @@ export async function renderStandingsImage(standings, group, { competition = '',
   ctx.textAlign = 'left';
   ctx.fillText('TIME', X.name, 212);
 
-  // linhas: faixa da zona, posição, escudo, nome (um tamanho para todos) e os números
+  // linhas: faixa da zona, posição, escudo, nome (um tamanho para todos, com espaço para a
+  // etiqueta de quem está jogando) e os números
   const names = rows.map((row) => name(row.team));
   const nameMax = X.P - 40 - X.name;
-  const namePx = groupFont(ctx, names, { weight: 600, size: 25, family: font.ui, maxWidth: nameMax, min: 18 });
+  ctx.font = `700 15px ${font.num}`;
+  const badgeRoom = ctx.measureText(PLAYING.toUpperCase()).width + 20 + 12;
+  const room = rows.map((row) => nameMax - (row.playing ? badgeRoom : 0));
+  let namePx = 25;
+  for (;;) {
+    ctx.font = `600 ${namePx}px ${font.ui}`;
+    if (namePx <= 18 || names.every((text, i) => ctx.measureText(text).width <= room[i])) break;
+    namePx -= 1;
+  }
   rows.forEach((row, i) => {
     const y = top + i * ROW;
     const base = y + 35;
@@ -417,14 +439,9 @@ export async function renderStandingsImage(standings, group, { competition = '',
     drawCrest(ctx, crests[i], X.crest, y + ROW / 2, 34);
     ctx.textAlign = 'left';
     ctx.font = `600 ${namePx}px ${font.ui}`;
-    const shown = clip(ctx, names[i], nameMax);
+    const shown = clip(ctx, names[i], room[i]);
     ctx.fillText(shown, X.name, base);
-    if (row.playing) { // em jogo agora
-      ctx.fillStyle = '#C8102E';
-      ctx.beginPath();
-      ctx.arc(X.name + ctx.measureText(shown).width + 16, y + ROW / 2, 6, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    if (row.playing) playingBadge(ctx, X.name + ctx.measureText(shown).width + 12, y + ROW / 2, font.num);
     ctx.textAlign = 'center';
     for (const [col, key] of stats) {
       ctx.fillStyle = col === 'P' ? COLORS.ink : '#3D372F';
@@ -434,7 +451,7 @@ export async function renderStandingsImage(standings, group, { competition = '',
     }
   });
 
-  // legenda, centrada: "■ Semifinal 1º–4º   ■ Rebaixamento 7º–8º   ● Em jogo agora (parcial)"
+  // legenda, centrada: "■ Semifinal 1º–4º   ■ Rebaixamento 7º–8º"
   ctx.font = `500 20px ${font.ui}`;
   ctx.textAlign = 'left';
   legendLines.forEach((legendLine, i) => {
@@ -442,13 +459,7 @@ export async function renderStandingsImage(standings, group, { competition = '',
     const y = top + rows.length * ROW + 48 + i * 34;
     for (const item of legendLine.items) {
       ctx.fillStyle = item.color;
-      if (item.kind === 'dot') {
-        ctx.beginPath();
-        ctx.arc(x + 8, y - 7, 7, 0, Math.PI * 2);
-        ctx.fill();
-      } else {
-        ctx.fillRect(x, y - 15, 16, 16);
-      }
+      ctx.fillRect(x, y - 15, 16, 16);
       ctx.fillStyle = COLORS.ink3;
       ctx.fillText(item.text, x + 26, y);
       x += item.width + gap;
@@ -566,20 +577,18 @@ export function openMatchShare(match, { now = Date.now(), nav = globalThis.navig
 
 /**
  * Compartilhar a classificação de um grupo: imagem (renderStandingsImage) e mensagem
- * (standingsShareText: "competição · fase · grupo", uma linha por time, o link).
- * @param {object} standings StageStandingsOut (legenda, fase, ao vivo)
+ * (standingsShareText: o título, "competição · fase · rodada", uma linha por time, o link).
+ * @param {object} standings StageStandingsOut (legenda, fase)
  * @param {object} group o grupo da tabela
- * @param {{competition?: string, groupName?: string, url?: string, nav?: Navigator}} [opts]
+ * @param {{competition?: string, groupName?: string, round?: string, url?: string, nav?: Navigator}} [opts]
  */
-export function openStandingsShare(standings, group, { competition = '', groupName = '', url = '', nav = globalThis.navigator } = {}) {
-  const parts = { competition, stage: standings?.stage_name || '', group: groupLabel(groupName) };
+export function openStandingsShare(standings, group, { competition = '', groupName = '', round = '', url = '', nav = globalThis.navigator } = {}) {
+  const parts = { competition, stage: standings?.stage_name || '', round, group: groupLabel(groupName) };
   const title = [standingsHeading(parts.group), competition].filter(Boolean).join(' · ');
-  // parcial: tabela ao vivo com jogo em andamento (a oficial não conta o jogo que está rolando)
-  const partial = standings?.kind === 'live' && (group?.rows || []).some((row) => row.playing);
   return openShareSheet({
-    heading: 'Compartilhar classificação', title, text: standingsShareText(parts, group, { partial, url }),
+    heading: 'Compartilhar classificação', title, text: standingsShareText(parts, group, { url }),
     filename: `classificacao-${standings?.stage_id ?? ''}${group?.id ? `-${group.id}` : ''}.png`, alt: `Imagem da ${title}`,
     size: [600, 600], nav,
-    render: () => renderStandingsImage(standings, group, { ...parts, partial, brand: brandName() }),
+    render: () => renderStandingsImage(standings, group, { ...parts, brand: brandName() }),
   });
 }

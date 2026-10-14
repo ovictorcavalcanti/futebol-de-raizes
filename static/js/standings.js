@@ -94,12 +94,13 @@ function teamCell(row) {
   );
 }
 
-/** A tabela no WhatsApp (imagem e mensagem): "competição · fase" e, numa fase de grupos
+/** A tabela no WhatsApp (imagem e mensagem): "competição · fase · rodada" (`share.round`) e, numa fase de grupos
  *  (`share.groups` ou mais de um grupo na tabela), o grupo. A classificação geral ou personalizada
  *  (um "grupo" com o nome da classificação) não vira grupo. */
 function shareGroup(standings, group, share, multiple) {
   const groupName = (multiple || share.groups) && group.name !== 'Tabela' ? group.name || '' : '';
-  openStandingsShare(standings, group, { competition: share.title, groupName, url: typeof share.url === 'function' ? share.url() : share.url || '' });
+  const value = (option) => (typeof option === 'function' ? option() : option || '');
+  openStandingsShare(standings, group, { competition: share.title, groupName, round: value(share.round), url: value(share.url) });
 }
 
 function groupTable(standings, group, opts, multiple, last) {

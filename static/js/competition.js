@@ -123,9 +123,16 @@ function groupRowsMode() {
 }
 
 /** Linhas dos grupos (createGroupRows), com os botões das classificações em cima. */
+/** Rodada da tabela: a atual da competição, se é desta fase; senão a exibida. */
+function standingsRound() {
+  const round = state.rounds.find((r) => r.id === state.data?.current_round_id) || state.rounds[state.roundIndex];
+  return round ? round.name || `Rodada ${round.number}` : '';
+}
+
 /** Compartilhar as tabelas no WhatsApp, com o link da página como está (fase e rodada);
- *  `groups`: tabela de fase de grupos (a classificação geral/personalizada não é grupo). */
-const standingsShare = (groups = false) => ({ title: state.data?.competition?.name, url: () => window.location.href, groups });
+ *  `groups`: tabela de fase de grupos (a classificação geral/personalizada não é grupo, nem
+ *  tem rodada: junta fases). */
+const standingsShare = (groups = false, round = standingsRound) => ({ title: state.data?.competition?.name, url: () => window.location.href, groups, round });
 
 function groupRows(matches, card) {
   state.groupLayout = createGroupRows(state.standingsData, matches, card, { share: standingsShare(true) });
@@ -250,7 +257,7 @@ async function loadRanking(id) {
     const data = await getRanking(id);
     if (token !== state.rankingToken || state.view !== id) return; // trocou de botão no meio
     state.rankingStageIds = data.stage_ids || [];
-    els.rankingStandings.replaceChildren(createStandings(data, { share: standingsShare() }));
+    els.rankingStandings.replaceChildren(createStandings(data, { share: standingsShare(false, '') }));
   } catch {
     if (token === state.rankingToken) showToast('Não deu para carregar a classificação agora.', { kind: 'error' });
   } finally {

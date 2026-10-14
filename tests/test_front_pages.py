@@ -1510,10 +1510,10 @@ def test_resultados_no_whatsapp_da_rodada_e_do_dia(open_page, fixtures):
     lines = unquote(href.split("?text=", 1)[1]).split("\n")
     group = table.locator("caption").text_content().replace("Ao vivo", "").strip()
     assert lines[0].lower() == f"*classificação do {group.lower()}*"  # é de grupo: diz qual
-    assert lines[1] == f"{title} · Fase de grupos"
-    head = 4 if lines[2].startswith("🔴 Parcial") else 3  # aviso de parcial com jogo em andamento
-    assert len(lines) == table.locator("tbody tr").count() + head + 2 and lines[head - 1] == ""
-    lines = lines[head - 1:]  # a partir da linha em branco antes dos times
+    round_name = page.text_content("#round-label").strip()
+    assert lines[1] == f"{title} · Fase de grupos · {round_name}"  # competição · fase · rodada
+    assert len(lines) == table.locator("tbody tr").count() + 5 and lines[2] == ""
+    lines = lines[2:]  # a partir da linha em branco antes dos times
     assert re.fullmatch(r"1\. .+ — \d+ pts? · \d+J · GP \d+ · SG [+-]?\d+", lines[1]) and lines[-1] == "🔗 " + page.evaluate("location.href")
     errors += errors_groups
 

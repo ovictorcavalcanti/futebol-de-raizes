@@ -811,3 +811,37 @@ def test_faixa_do_card_quando_e_onde_e_classificacao_parcial(browser_page):
         "*Classificação do Grupo A*", "PE Raiz · 1ª fase · Rodada 5", "",
         "1. Sport (jogando agora) — 13 pts · 5J · GP 11 · SG +8", "2. Náutico — 1 pt · 5J · GP 3 · SG -3", "", "🔗 https://x.test/c",
     ]
+
+
+LONG_NAMES_JS = """async (width) => {
+  const M = await import('/static/js/match-card.js');
+  const F = await import('/static/js/fixtures.js');
+  await document.fonts.load('700 16px "Barlow Condensed"'); // como na página (base.html pré-carrega)
+  const root = document.getElementById('root');
+  root.replaceChildren();
+  root.style.cssText = `width:${width}px`;
+  const live = F.MATCHES.live;
+  const card = M.createMatchCard({ ...live, id: 9401, home: { ...live.home, name: 'Atlético Pernambucano' }, away: { ...live.away, name: 'Pernambucano' } }, {});
+  const short = M.createMatchCard({ ...live, id: 9402 }, {});
+  root.append(card, short);
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))); // ResizeObserver
+  const read = (el) => [...el.querySelectorAll('.team__full')].map((full) => ({
+    text: full.textContent, cut: full.scrollWidth - full.clientWidth, px: parseFloat(getComputedStyle(full).fontSize),
+    sigla: getComputedStyle(full.parentElement.querySelector('.team__short')).display !== 'none' && getComputedStyle(full).display === 'none',
+  }));
+  return { long: read(card), short: read(short) };
+}"""
+
+
+@pytest.mark.parametrize("width", [288, 328, 343, 358])  # cards de celulares de 320 a 390 px
+def test_nome_comprido_ao_lado_do_escudo_nao_e_cortado(browser_page, width):
+    """No placar estreito, a palavra que não cabe ao lado do escudo ganha fonte menor (até 11 px),
+    sem corte e sem quebrar no meio; se nem assim cabe (320 px), a sigla daquele time. O nome
+    curto fica no tamanho do CSS (16 px)."""
+    page, errors = browser_page
+    out = page.evaluate(LONG_NAMES_JS, width)
+    assert not errors, errors
+    assert all(n["sigla"] or (n["cut"] <= 1 and n["px"] >= 11) for n in out["long"]), out["long"]
+    if width >= 328:  # celular de 360 px para cima: o nome, menor, não a sigla
+        assert not any(n["sigla"] for n in out["long"]), out["long"]
+    assert all(not n["sigla"] and n["cut"] <= 1 and n["px"] == 16 for n in out["short"]), out["short"]

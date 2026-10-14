@@ -1379,7 +1379,9 @@ NAMES_JS = """() => [...document.querySelectorAll('.match .team__name')].map((na
   const shown = [...name.children].find((c) => getComputedStyle(c).display !== 'none');
   const lh = parseFloat(getComputedStyle(name).lineHeight);
   return { kind: shown.classList.contains('team__short') ? 'short' : 'full', text: shown.textContent,
-    lines: shown.getBoundingClientRect().height / lh, overflow: name.scrollWidth - name.clientWidth };
+    // corte do nome dentro dele (no placar estreito o .team__full corta o que não cabe) ou para fora
+    lines: shown.getBoundingClientRect().height / lh,
+    overflow: Math.max(name.scrollWidth - name.clientWidth, shown.scrollWidth - shown.clientWidth) };
 })"""
 
 
@@ -1553,8 +1555,10 @@ def test_home_no_celular_barra_do_dia_ao_vivo_nomes_e_gaveta(open_page, fixtures
     assert first[1] <= first[0] < first[1] + 40
     # a barra repete o dia; o › dela troca o dia (como o do seletor) e volta ao topo
     assert page.text_content("[data-hook=day-bar-date]").strip() == "Hoje"
-    page.click("[data-hook=day-bar-next]")
+    page.focus("[data-hook=day-bar-next]")
+    page.keyboard.press("Enter")
     page.wait_for_function("() => new URLSearchParams(location.search).has('date') && window.scrollY === 0")
+    page.wait_for_function("() => document.activeElement.id === 'day-next'")  # terminada a troca, o foco não se perde
     page.wait_for_function("() => document.querySelector('[data-hook=day-bar]').hidden")
     # placar estreito: o nome do time (não a sigla), ao lado do escudo
     card = page.locator("#competitions .match").first
@@ -1564,10 +1568,14 @@ def test_home_no_celular_barra_do_dia_ao_vivo_nomes_e_gaveta(open_page, fixtures
       const [crest, name] = [team.querySelector('.crest'), team.querySelector('.team__name')].map((el) => el.getBoundingClientRect());
       return name.left >= crest.right && Math.abs((name.top + name.bottom) / 2 - (crest.top + crest.bottom) / 2) < 12;
     }""")
-    # cabeçalho da competição: só os ícones (o texto fica para leitor de tela), alvos de 44 px
-    label = page.locator("[data-hook=competition] .section-head__label").first.bounding_box()
-    share = page.locator("[data-hook=competition] [data-hook=competition-share]").first.bounding_box()
-    assert label["width"] <= 1 and share["width"] >= 44 and share["height"] >= 44
+    # cabeçalho da competição: texto curto e visível ("Compartilhar", "Ver competição"), numa linha
+    # embaixo do título, em alvos de 44 px de altura
+    share = page.locator("[data-hook=competition] [data-hook=competition-share]").first
+    more = page.locator("[data-hook=competition] [data-hook=competition-more]").first
+    assert share.inner_text().strip() == "Compartilhar" and more.inner_text().strip() == "Ver competição"
+    title = page.locator("[data-hook=competition] .section-head__titles").first.bounding_box()
+    assert share.bounding_box()["y"] >= title["y"] + title["height"] and share.bounding_box()["height"] >= 44
+    assert share.get_attribute("aria-label") == "Compartilhar os resultados no WhatsApp"
     # botão de compartilhar do card: área de toque além do desenho de 32 px
     box = card.locator(".match__share").bounding_box()
     hit = page.evaluate(f"document.elementFromPoint({box['x'] - 4}, {box['y'] + box['height'] / 2})?.closest('.match__share') !== null")

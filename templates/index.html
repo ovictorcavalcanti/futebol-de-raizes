@@ -139,9 +139,9 @@
       </div>
       <div class="section-head__actions">
         {# resultados do dia desta competição no WhatsApp (mensagem com os jogos e o link do dia) #}
-        {# no celular, só os ícones (o texto fica para leitor de tela: .section-head__label) #}
-        <button type="button" class="btn btn--ghost btn--sm" data-hook="competition-share" title="Resultados no WhatsApp"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-share"/></svg><span class="section-head__label">Resultados no WhatsApp</span></button>
-        <a class="stage-block__more" data-hook="competition-more" href="#" title="Ver competição"><span class="section-head__label">Ver competição</span><svg class="icon icon--sm" aria-hidden="true"><use href="#i-chevron-right"/></svg></a>
+        {# no celular, numa linha própria embaixo do título, com o texto curto ("Compartilhar") #}
+        <button type="button" class="btn btn--ghost btn--sm" data-hook="competition-share" aria-label="Compartilhar os resultados no WhatsApp"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-share"/></svg><span class="label-wide">Resultados no WhatsApp</span><span class="label-narrow">Compartilhar</span></button>
+        <a class="stage-block__more" data-hook="competition-more" href="#">Ver competição<svg class="icon icon--sm" aria-hidden="true"><use href="#i-chevron-right"/></svg></a>
       </div>
     </header>
     <div class="comp-section__stages" data-hook="stages"></div>

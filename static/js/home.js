@@ -184,19 +184,22 @@ function paintDayBar() {
 }
 
 if (els.dayNav && els.dayBar && 'IntersectionObserver' in window) {
-  new IntersectionObserver(([entry]) => {
+  new IntersectionObserver((entries) => {
+    const entry = entries.at(-1); // num lote (página ocupada), vale a mudança mais recente
     pastDayNav = !entry.isIntersecting && entry.boundingClientRect.top < 0;
     paintDayBar();
   }).observe(els.dayNav);
 }
 narrow.addEventListener?.('change', paintDayBar);
 paintDayBar();
-// os botões da barra fazem o mesmo que os do seletor e voltam ao topo (o dia novo começa do início)
-for (const [button, target] of [[els.dayBarPrev, els.dayPrev], [els.dayBarNext, els.dayNext]]) {
+// os botões da barra fazem o mesmo que os do seletor e voltam ao topo (o dia novo começa do
+// início); terminada a troca (durante ela os botões ficam desativados e não recebem foco), o foco
+// vai para o botão do seletor: a barra some e o leitor de tela não se perde
+for (const [button, step, target] of [[els.dayBarPrev, -1, els.dayPrev], [els.dayBarNext, 1, els.dayNext]]) {
   button?.addEventListener('click', () => {
-    if (!target || target.disabled) return;
-    target.click();
+    if (!state.date || target?.disabled) return;
     window.scrollTo({ top: 0 });
+    goToDay(addDays(state.date, step)).finally(() => target?.focus({ preventScroll: true }));
   });
 }
 

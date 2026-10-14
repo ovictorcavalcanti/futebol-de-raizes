@@ -46,6 +46,35 @@ const TABS = [
 
 const nowOf = (opts) => (typeof opts.now === 'function' ? opts.now() : Date.now());
 
+/* Nome do time ao lado do escudo no placar estreito (celular): a palavra comprida que não cabe
+   ("Pernambucano" em 360 px) não é cortada nem quebrada no meio — só aquele nome ganha uma fonte
+   menor, até caber (mínimo 11 px); se nem assim cabe (celular de 320 px), aquele time mostra a
+   sigla. Fora do placar estreito o nome é inline e nada muda. */
+const MIN_NAME_PX = 11;
+function fitTeamNames(board) {
+  for (const full of board.querySelectorAll('.team__full')) {
+    const name = full.parentElement;
+    name.classList.remove('team__name--short');
+    full.style.fontSize = '';
+    const { scrollWidth, clientWidth } = full;
+    if (!clientWidth || scrollWidth <= clientWidth + 0.5) continue;
+    const px = parseFloat(getComputedStyle(full).fontSize);
+    full.style.fontSize = `${Math.max(MIN_NAME_PX, Math.floor((px * clientWidth) / scrollWidth * 2) / 2)}px`;
+    if (full.scrollWidth > full.clientWidth + 0.5) name.classList.add('team__name--short');
+  }
+}
+// a fonte do site chegou depois do card (a reserva é mais larga): mede de novo
+globalThis.document?.fonts?.addEventListener?.('loadingdone', () => { // sem DOM (testes no Node), nada
+  for (const board of document.querySelectorAll('.match__board')) fitTeamNames(board);
+});
+// card que entra na página ou muda de largura (girar o celular, abrir o painel); saiu da página, para de olhar
+const nameFit = typeof ResizeObserver === 'function' ? new ResizeObserver((entries) => {
+  for (const { target } of entries) {
+    if (target.isConnected) fitTeamNames(target);
+    else nameFit.unobserve(target);
+  }
+}) : null;
+
 /** Link externo vindo da API: só http(s) (barra javascript:, data: etc.); inválido → null. */
 export function safeHref(url) {
   if (!url) return null;
@@ -99,6 +128,7 @@ export function createMatchCard(match, opts = {}) {
   const el = h('article', { class: 'match', 'data-hook': 'match' });
   const meta = h('header', { class: 'match__meta' });
   const board = h('div', { class: 'match__board', role: 'group' });
+  nameFit?.observe(board);
   const summary = h('div', { class: 'match__summary' });
   const tie = h('p', { class: 'match__tie' });
   el.append(meta, board, summary, tie);
@@ -182,6 +212,7 @@ export function updateMatchCard(el, match, opts = {}) {
   const [meta, board, summary, tie] = el.children;
   renderMeta(meta, match, now, st.opts);
   renderBoard(board, match, now);
+  if (el.isConnected) fitTeamNames(board); // o placar foi redesenhado: os nomes voltam ao tamanho do CSS
   renderSummary(summary, match);
   renderTie(tie, match, now);
 

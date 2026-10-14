@@ -746,13 +746,13 @@
   }
   .match__status { display: inline-flex; align-items: center; gap: var(--s-2); }
   .section-head__actions { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); }
+  .section-head__actions .label-narrow { display: none; }
+  /* celular: os dois controles com texto (curto), numa linha própria embaixo do título, em alvos de 44 px */
   @media (max-width: 639px) {
-    .section-head__actions { gap: var(--s-1); }
-    .section-head__actions .section-head__label {
-      position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
-    }
-    .section-head__actions > * { display: inline-grid; place-items: center; min-width: 44px; min-height: 44px; padding: 0; }
-    .section-head__actions .icon { width: 20px; height: 20px; }
+    .section-head__actions { flex-basis: 100%; justify-content: space-between; gap: var(--s-2); }
+    .section-head__actions > * { min-height: 44px; }
+    .section-head__actions .label-wide { display: none; }
+    .section-head__actions .label-narrow { display: inline; }
   }
   /* compartilhar: no canto de cima, a faixa de meta deixa o espaço do botão */
   .match--shareable > .match__meta { padding-inline: 46px; } /* centrado, longe do botão */
@@ -907,6 +907,9 @@
     .team__name { font-size: 1rem; }
     .team__full { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
     .team__short { display: none; }
+    /* nem em 11 px o nome cabe (celular de 320 px): a sigla daquele time (fitTeamNames) */
+    .team__name--short .team__full { display: none; }
+    .team__name--short .team__short { display: inline; }
   }
 
   /* card estreito (celular até ~400 px): escudo, vão e coluna do placar menores */

@@ -348,7 +348,7 @@ Sem vencedor: `winner_team_id`, `decided_by` e `decided_by_label` são `null` e 
 
 ### StageStandingsOut
 ```json
-{"stage_id": 3, "stage_name": "1ª fase", "kind": "live",
+{"stage_id": 3, "stage_name": "1ª fase", "season_stages": 2, "kind": "live",
  "points": {"win": 3, "draw": 1, "loss": 0},
  "criteria": [{"key": "points", "label": "Pontos"}, ...],
  "legend": [{"name": "Classificados", "color": "#1B7F3B", "from": 1, "to": 4}],
@@ -370,6 +370,14 @@ contagem segue depois deles (1, 2, 2, 4). Jogo entre grupos conta para a tabela 
 sem ajuste). `adjustments` = cada punição/bonificação da fase, na ordem de cadastro (o front marca
 os pontos ajustados com "*" e lista `"Santa Cruz: −3 pts — escalação irregular"` sob a legenda).
 A API pública (`/public/v1/stages/{id}/standings`) expõe os mesmos dois campos.
+`season_stages` = quantas fases tem a temporada da fase (1 na fase única, e também na fase ainda
+sem grupo), calculado na mesma consulta dos grupos; com mais de uma, o front põe a fase no título
+da tabela ("Classificação · 1ª fase"). Sai em todo StageStandingsOut de
+`standings.services.stages_standings`: na home (HomeOut), na competição
+(`CompetitionOut.stage.standings`), na mensagem `standings` do stream e em
+`GET /api/stages/{id}/standings` (a rota devolve o dicionário como está; o `StandingsOut` de
+`api/schemas.py`, que só descreve o OpenAPI, não o lista). Não sai na API pública (o schema dela
+filtra os campos) nem no RankingStandingsOut (`GET /api/rankings/{id}`).
 
 ## 4. Rotas
 

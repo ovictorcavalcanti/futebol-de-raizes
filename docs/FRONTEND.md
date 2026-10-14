@@ -90,8 +90,9 @@ escondidas; quem liga os dados tira o `hidden`.
 
 | Gancho | Uso |
 | --- | --- |
-| `#competitions-nav` (`aria-busy="true"`) › `ul[data-hook="competition-links"]` | Menu de competições. Preencha com `renderCompetitionNav(list, competitions, {activeSlug, liveSlugs})` (tira o `aria-busy`). Só nas páginas com `page` público (home, competição, guia): não existe no operador nem nas páginas de erro (sem script para preenchê-lo). Esqueleto e links têm a mesma altura (`.comp-nav__list { min-height: 44px }`), sem layout shift. |
+| `#competitions-nav` (`aria-busy="true"`) › `ul[data-hook="competition-links"]` | Menu de competições. Preencha com `renderCompetitionNav(list, competitions, {activeSlug, liveSlugs})` (tira o `aria-busy`). Só nas páginas com `page` público (home, competição, guia): não existe no operador nem nas páginas de erro (sem script para preenchê-lo). Esqueleto e links têm a mesma altura (`.comp-nav__list { min-height: 44px }`), sem layout shift. As competições de `liveSlugs` (com jogo ao vivo agora; na home e na competição) ganham o ponto vermelho, com o texto oculto " (jogando agora)" — o mesmo termo, "Jogando agora", do ponto da tabela. |
 | `#brasilia-clock` (`<time>`) | Relógio de Brasília: `mountClock(el, serverClock)`. Fora de qualquer `aria-live`. |
+| `[data-minute-format-toggle]` (`.minute-toggle`; não existe no operador) | Formato do minuto (`minute-format.js`): botão com borda, o valor em cima ("45+2'"; pressionado, "47' 1T") e a legenda "Minuto" embaixo, no desenho da legenda "Brasília" do relógio; largura fixa (trocar não empurra o relógio). Sem `aria-label`: o nome acessível é o texto visível mais um trecho `visually-hidden` ("45+2' Minuto — ver por tempo (1T/2T)"); o `title` fica para o mouse. No celular, desenho de 40 px e toque de 44 px (`::after`); logo, relógio, minuto e tema cabem numa linha a 320 px. |
 | `#live-status` (`hidden`) › `[data-hook="live-status-text"]` | "Reconectando ao vivo…" quando o stream cai. |
 | `#toasts` | Região dos avisos passageiros: `showToast(texto, {kind})`. |
 | `[data-theme-toggle]` | Botão de tema (já ligado por `theme.js`). |
@@ -103,10 +104,10 @@ escondidas; quem liga os dados tira o `hidden`.
 | `#home-date` (`<time>`) | Data do dia: já vem no HTML (`{% now %}`, Brasília) e o JS reescreve com `formatDateLong` da data da resposta — a linha nunca aparece depois (sem layout shift). |
 | `#latest-goals` | Bloco "Últimos gols", **visível desde a 1ª pintura** com um chip esqueleto (altura de um `.goal-chip`), sem layout shift quando os dados chegam. `home.js` o esconde no dia sem jogo (o estado vazio toma o lugar) e no erro da carga inicial. |
 | `#goal-alert` (`aria-live="polite"`) | Avisos: `createGoalAlert(goal)` / `createGoalAlert(goal, {kind: 'correction', reason})`. Use `prepend`. |
-| `[data-hook="live-jump"]` (`hidden`; só na barra fixa do dia) | Celular: "Ao vivo N" (jogos com status `live` no dia); cada toque leva ao próximo, no topo da tela (os cards têm `scroll-margin-top` com a barra). Some sem jogo ao vivo. |
-| `[data-hook="day-bar"]` (`hidden`) › `day-bar-prev`, `day-bar-date`, `day-bar-next` | Celular: barra fixa no topo que só aparece depois que o seletor de dias (`[data-hook="date-nav"]`) sai da tela por cima (IntersectionObserver; nunca os dois juntos); escondida, fica `inert`. Repete o dia (`formatDay`: "Hoje", "sáb, 18/10") e o ‹ › (fazem o mesmo que os do seletor e voltam ao topo). Fora do `.container`. |
+| `[data-hook="live-jump"]` (`hidden`; só na barra fixa do dia) | Celular e tablet (< 960 px): "Ao vivo N", com texto e bolinha em `--on-vermelho`, como a pílula AO VIVO (jogos com status `live` no dia); cada toque leva ao próximo, no topo da tela (os cards têm `scroll-margin-top` com a barra). Some sem jogo ao vivo. |
+| `[data-hook="day-bar"]` (`hidden`) › `day-bar-prev`, `day-bar-date`, `day-bar-next` | Celular e tablet (coluna única, < 960 px: `matchMedia('(max-width: 959.98px)')`, o mesmo corte do CSS; `has-day-bar` no `body` dá aos cards o `scroll-margin-top` da barra): barra fixa no topo que só aparece depois que o seletor de dias (`[data-hook="date-nav"]`) sai da tela por cima (IntersectionObserver; nunca os dois juntos); escondida, fica `inert`. Repete o dia (`formatDay`: "Hoje", "sáb, 18/10") e o ‹ › (fazem o mesmo que os do seletor e voltam ao topo). Fora do `.container`. |
 | `[data-hook="competition-share"]` › `.label-wide` / `.label-narrow` | "Resultados no WhatsApp" no desktop; no celular, "Compartilhar" (com o ícone) e "Ver competição ›" numa linha própria embaixo do título, em alvos de 44 px. O nome acessível do botão é fixo ("Compartilhar os resultados no WhatsApp"). |
-| `#toggle-sound`, `#toggle-notifications` (`hidden`) | Botões liga/desliga (`aria-pressed`). Os rótulos trocam sozinhos via `.when-on`/`.when-off`. O de notificações só aparece onde `new Notification()` funciona: um script inline logo depois dele (antes da 1ª pintura) aplica a mesma regra de `isMobileDevice`/`notificationSupport` (sem o teste do construtor) e `alerts.js` confirma depois — o botão não surge com os módulos empurrando a página. |
+| `#toggle-sound`, `#toggle-notifications` (`hidden`) | Botões liga/desliga (`aria-pressed`). Os rótulos trocam sozinhos via `.when-on`/`.when-off`, e cada estado tem o rótulo longo (`.hide-sm`: "Ativar som"/"Som ligado", "Ativar notificações"/"Notificações ligadas") e o curto (`.only-sm`, abaixo de 640 px, na linha do título: "Som" e "Notificações", o mesmo nos dois estados — o estado fica no ícone, cortado ou não, e no destaque azul de `aria-pressed`). O rótulo que não vale fica em `display: none`, então o nome acessível é sempre o texto da tela; `alerts.js` só pinta `aria-pressed` (bloqueado pelo navegador = desligado, com o toast explicando). No celular, toque de 44 px pelo `::after`, sem a linha crescer. O de notificações só aparece onde `new Notification()` funciona: um script inline logo depois dele (antes da 1ª pintura) aplica a mesma regra de `isMobileDevice`/`notificationSupport` (sem o teste do construtor) e `alerts.js` confirma depois — o botão não surge com os módulos empurrando a página. |
 | `#notifications-hint` (`hidden`) | "As notificações do sistema só funcionam com HTTPS." — aparece quando a página não está em contexto seguro. |
 | `#latest-goals-list` (`<ol tabindex="0">`, `aria-busy="true"`) | `createLatestGoal(goal, {isNew})` por item, do mais novo ao mais antigo (substitui o chip esqueleto; `home.js` tira o `aria-busy`). Rola para o lado: `tabindex="0"` dá foco pelo teclado (os chips não são focáveis) e a borda direita esmaece como dica de rolagem. |
 | `#latest-goals-empty` (`hidden`) | "Nenhum gol hoje ainda. Paciência, que ele vem." |
@@ -142,10 +143,12 @@ for (const stage of comp.stages) {
 | `[data-hook="competition-name"]`, `[data-hook="season"]`, `[data-hook="competition-eyebrow"]` | Título (contém um esqueleto até ser preenchido), ano da temporada, rótulo acima. |
 | `#stage-select` (`disabled`) | `<option value=stage.id>` por fase; habilite ao preencher. |
 | `#round-prev`, `#round-next` (`disabled`), `#round-label` (`aria-live="polite"`) | Navegação ‹ Rodada 5 ›. |
-| `#round-matches` (`aria-busy="true"`) | Cards da rodada (`createMatchCard`); mata-mata: um bloco por confronto (`createTieGroup`); fase de grupos com tabela: uma linha por grupo (`.group-row`: jogos do grupo ou "Não há jogos deste grupo nesta rodada." e a tabela do grupo ao lado, topo alinhado, com a legenda das cores e as punições do grupo embaixo; a linha tem a altura do mais alto dos dois; critérios de desempate uma vez, dentro do card do último grupo; jogos entre grupos numa seção à parte, `createGroupRows`). |
+| `#round-matches` (`aria-busy="true"`) | Cards da rodada (`createMatchCard`); mata-mata: um bloco por confronto (`createTieGroup`); fase de grupos com tabela: uma linha por grupo (`.group-row`: jogos do grupo ou "Não há jogos deste grupo nesta rodada." e a tabela do grupo ao lado, topo alinhado, com a legenda das cores, as punições do grupo e, se ela tem empate, a nota do "=" embaixo; a linha tem a altura do mais alto dos dois; critérios de desempate uma vez, dentro do card do último grupo; jogos entre grupos numa seção à parte, `createGroupRows`). |
 | `#round-empty` (`hidden`) | "Nenhum jogo nesta rodada." |
-| `#round-share` (`hidden`) | "Resultados no WhatsApp": a mensagem da rodada exibida (um jogo por linha, na ordem da página) com o link dela, direto no WhatsApp; aparece com jogo na rodada. |
-| `#stage-standings` | `createStandings(stage.standings)` (liga; na fase de grupos as tabelas vão para as linhas de `#round-matches`). |
+| `#round-share` (`hidden`) › `.label-wide` / `.label-narrow` | "Resultados no WhatsApp": a mensagem da rodada exibida (um jogo por linha, na ordem da página) com o link dela, direto no WhatsApp; aparece com jogo na rodada. O mesmo botão do cabeçalho da competição na home (`btn--ghost btn--sm`, ícone `icon--sm`): "Compartilhar" abaixo de 640 px, em alvo de 44 px; nome acessível fixo ("Compartilhar os resultados no WhatsApp"). |
+| `#standings-switch` (`hidden`, `role="group"`) | Botões da classificação exibida (`aria-pressed`, `data-view`), pelo tipo de tabela: a da fase é "Por grupo" (fase de grupos) ou "Só esta fase"; as classificações, pelo nome sem o "Classificação" do começo ("Classificação geral" → "Geral"; "Melhores segundos" fica). Escondido com um botão só. |
+| `#stage-standings` | `createStandings(stage.standings, {stageTitle})` (liga; na fase de grupos as tabelas vão para as linhas de `#round-matches`). |
+| `#ranking-standings` (`hidden`, `aria-live="polite"`) | A classificação escolhida no `#standings-switch` (`GET /api/rankings/{id}`), com o próprio nome no título ("Classificação geral", "Melhores segundos"). |
 | `#stage-ties` (`hidden`) › `[data-hook="ties-list"]` | Sem uso (fica `hidden`): o agregado vem no card do jogo de volta. |
 | `#competition-missing` (`hidden`) | Slug inexistente. |
 | `#competition-error` (`hidden`) › `[data-hook="competition-retry"]` | Erro genérico. |
@@ -195,11 +198,18 @@ existe: a home de sempre.
 
 Faixa de informações do card (`.match__meta`, grid): o bloco "quando" (`.match__lead`: o selo do
 status — "Agendado", "Ao vivo" com o minuto, "Encerrado"... —, o dia e a hora do início,
-`.match__when`, e a rodada/competição, quando pedidas) e o bloco "onde" (`.match__place`: o
-estádio com o ícone de estádio e a cidade com o pino, `.match__place-item`). No celular, duas
+`.match__when`, e a rodada/competição, quando pedidas, `.match__context`, numa linha no máximo,
+com reticências) e o bloco "onde" (`.match__place`: o
+estádio com o ícone de estádio e a cidade com o pino, `.match__place-item`). Quando o jogo saiu
+do previsto, a data ganha um prefixo (`.match__when-tag`) que diz o que ela é: "Previsto"
+(atrasado), "Era" (adiado e cancelado sem placar: a data original), "Início" (cancelado com
+placar e suspenso) e "Retomada" (suspenso com `resumes_at`: o `kickoff_at` já é o da volta); o
+rótulo do placar diz o mesmo ao leitor de tela ("marcado para", "previsto para"). No celular, duas
 linhas centradas, como o placar (o espaço do botão
-de compartilhar fica dos dois lados); no contêiner largo (≥ 560 px), "quando" à esquerda e
-"onde" à direita. O botão de compartilhar tem borda (é botão, não ícone de informação) e área
+de compartilhar fica dos dois lados); abaixo de 560 px de card, "onde" fica numa linha só e usa a
+largura do card, sem o recuo do botão: o nome do estádio corta com reticências
+(`.match__place-text`; inteiro no `title` e para o leitor de tela) e a cidade fica inteira. No
+contêiner largo (≥ 560 px), "quando" à esquerda e "onde" à direita, com quebra normal. O botão de compartilhar tem borda (é botão, não ícone de informação) e área
 de toque de 44 px (o desenho segue de 32 px). No card estreito (< 520 px) vale uma escala só,
 compacta: 12 px de respiro nas laterais de todas as faixas (placar, resumo, desempate, botão de
 detalhes), placar de 30 px numa coluna estreita, escudo de 28 px e o nome do time (o popular,
@@ -217,18 +227,19 @@ gaveta (presa embaixo, na largura da tela, com o botão largo).
 | `#op-login` (`hidden`), `#login-form` (`username`, `password`), `#login-error` › `[data-hook="login-error-text"]`, `#login-submit` | Login (use `aria-busy="true"` no botão durante o envio). |
 | `#op-app` (`hidden`) | Painel. `[data-hook="user-name"]`, `[data-hook="user-roles"]`, `[data-hook="admin-link"]` (`hidden`; mostre com `permissions.admin_site`), `#logout-button`. |
 | `[data-hook="picker"]` (`<div role="region">`), `#picker-date`, `#picker-refresh`, `#picker-list` (`aria-busy`), `#picker-empty` | Escolha da partida (região nomeada, não `<aside>`: fica dentro da seção do painel). `#picker-list` é uma lista de listas: um `li.match-picker__group` por competição com `h3.match-picker__group-title` e `ul.match-picker__sublist` (`aria-labelledby` no título) com os itens `tpl-pick-item` (`aria-current="true"` no selecionado). |
+| `#picker-switch` (`hidden`) › `[data-hook="picker-current"]` | "Trocar partida" (só abaixo de 960 px; no desktop o CSS o esconde): escolhida a partida, a lista recolhe neste botão, que mostra a partida atual (escudos, placar e selo) logo acima do painel (`data-collapsed` no picker). `aria-expanded` e `aria-controls="picker-list"`; aberto, mostra a lista de novo. |
 | `#op-placeholder` | Estado vazio até escolher a partida. |
 | `#op-scoreboard` (`hidden`) | Placar: `createMatchCard(match, {details: false, showRound: true, showCompetition: true})`. |
 | `#op-work` (`hidden`) | Área de trabalho. |
 | `#action-grid` | Botões `tpl-action-button` dos **lances de jogo** de `available.events` (gol, cartões, substituição…; classe `action-btn--goal` no gol; `aria-pressed="true"` no que está com formulário aberto), na ordem da API. Sem nenhum: "Nenhum lance disponível neste momento." (ou "Nenhum lance de jogo neste momento." quando só há andamento). |
 | `#flow-block` (`hidden`) › `#flow-actions` | **Andamento do jogo**: os estruturais de `available.events` (início, fim do 1º tempo, 2º tempo, prorrogação, pênaltis, fim), depois dos lances e com outra cara (`.action-grid--flow`: botão baixo e largo, fundo rebaixado, faixa amarela, classe `action-btn--structural`). Some sem estrutural disponível. Todo envio daqui passa pelo `#confirm-dialog`. |
-| `#status-actions` | Botões `tpl-status-button` de `catalog.status_actions` (cancelar com `btn--danger`; `disabled` fora de `available.status`). |
+| `#status-actions` | Botões `tpl-status-button` de `catalog.status_actions` ("Cancelar partida" com `btn--danger`; `disabled` fora de `available.status`), sob o título "Status da partida" (ícone `clipboard`). |
 | `[data-hook="actions-card"]` › `actions-block` (lances + andamento) / `status-block` | Cartão das ações; cada bloco some sem a permissão (`post_event` / `change_status`), o cartão some sem as duas. |
-| `#event-form-card` (`hidden`), `#event-form` | Formulário. `[data-hook]`: `event-form-icon` (`<use>`), `event-form-title`, `event-warnings` (+ `event-warnings-list`, para `confirmation_required`), `event-error`, `event-type` (`#event-type`: `<select>` dos tipos em `available.events`, lances primeiro e os estruturais num `<optgroup label="Andamento do jogo">`), `event-fields`, `event-cancel`, `event-submit`, `event-submit-label`. |
+| `#event-form-card` (`hidden`), `#event-form` | Formulário. `[data-hook]`: `event-form-icon` (`<use>`), `event-form-title`, `event-warnings` (+ `event-warnings-list`, para `confirmation_required`), `event-error`, `event-type` (`#event-type`: `<select>` dos tipos em `available.events`, lances primeiro e os estruturais num `<optgroup label="Andamento do jogo">`), `event-fields`, `event-cancel` ("Fechar": só fecha o formulário, sem lançar; o gancho manteve o nome), `event-submit`, `event-submit-label`. |
 | `#op-timeline`, `#op-timeline-empty`, `[data-hook="timeline-count"]` | Lançamentos (mais recente primeiro) com `tpl-op-event`. |
 | `#confirm-dialog` | Confirmação genérica (andamento do jogo e avisos `confirmation_required`): `confirm-title`, `confirm-text`, `confirm-list` (`<ul>` dos avisos, `hidden` sem itens), `confirm-ok`; `returnValue` = `"confirm"` ou `"cancel"` ("Voltar"). |
 | `#status-dialog` | `status-title`, `status-text`, `status-kickoff-field` (`hidden`; mostre no reagendar) › `#status-kickoff`, `status-wo-team-field` › `#status-wo-team` e `status-wo-score` › `status-wo-home`/`status-wo-away` (`hidden`; mostre no W.O.: time beneficiado e placar, 3 × 0 para ele ao escolher), `#status-reason` (obrigatório no atraso e no W.O.), `status-ok`. |
-| `#void-dialog` | `void-text`, `#void-reason`, `void-ok` (botão de perigo). |
+| `#void-dialog` | "Desfazer este lançamento?": `void-text`, `#void-reason`, "Manter" e `void-ok` ("Desfazer lançamento", botão de perigo). |
 
 Templates do operador (`partials/operator-templates.html`, um por `kind` do catálogo):
 
@@ -239,14 +250,14 @@ Templates do operador (`partials/operator-templates.html`, um por `kind` do cat�
 | `tpl-status-button` | `status-action` (raiz), `status-icon`, `status-label` |
 | `tpl-field-minute` | `label`, `input` (minuto), `stoppage` (acréscimo), `hint` |
 | `tpl-field-team` | `label` (legend), `input-home`/`input-away` (rádios: dê o mesmo `name` e `value=team.id`), `crest-home`/`crest-away`, `name-home`/`name-away` |
-| `tpl-field-player` | `label`, `input`, `datalist` (dê ids e ligue `list=`; opções da escalação) |
+| `tpl-field-player` | `label`, `input`, `datalist` (dê ids e ligue `list=`; opções da escalação), `hint` (`hidden`; a dica do gol contra, ligada ao campo por `aria-describedby`) |
 | `tpl-field-text` | `label`, `input` (`<textarea>`) |
 | `tpl-field-choice` | `label`, `input` (`<select>`; `choices` do catálogo) |
 | `tpl-field-int` | `label`, `input` |
 | `tpl-field-bool` | `label`, `input` (checkbox em `.switch`) |
 | `tpl-field-event-ref` | `label`, `input` (`<select>` dos gols válidos; 1ª opção vazia = "gol ainda não lançado") |
 | `tpl-field-datetime` | `label`, `input` (`datetime-local`, horário de Brasília) |
-| `tpl-op-event` | `op-event` (raiz; classes `op-event--goal`, `--annulled`, `--structural`), `minute`, `icon` (`<use>`), `title`, `sub`; `edit` e `void` dentro de `.op-event__actions`, numa linha própria embaixo do texto (a linha some quando os dois botões saem). Derivado (vermelho automático) fica sem `void`: só cai junto com o amarelo. Lista com 560 px ou mais (container query): os botões voltam para a direita, na mesma linha |
+| `tpl-op-event` | `op-event` (raiz; classes `op-event--goal`, `--annulled`, `--structural`), `minute`, `icon` (`<use>`), `title`, `sub`; `edit` e `void` ("Editar" e "Desfazer", `aria-label` "Desfazer lançamento: …"; 32 px de desenho e 44 px de toque pelo `::after`, a 12 px um do outro) dentro de `.op-event__actions`, numa linha própria embaixo do texto (a linha some quando os dois botões saem). Derivado (vermelho automático) fica sem `void`: só cai junto com o amarelo. Lista com 560 px ou mais (container query): os botões voltam para a direita, na mesma linha |
 
 Ao clonar campos, gere `id` únicos e ligue `label.htmlFor`. Campos aparecem/somem com `hidden`.
 
@@ -294,7 +305,7 @@ Todos são módulos ES puros, sem dependências; texto entra só por
 ### `match-card.js`
 * `createMatchCard(match, opts) → <article class="match">`
 * `updateMatchCard(el, match, opts)` — substitui o estado (sem merge), **mantém o `<details>` aberto e a aba ativa** (e o foco na aba). Se a mensagem nova vier resumida com a mesma `version`, o detalhe já carregado continua; se vier resumida com `version` maior e o acordeão estiver aberto, o card chama `onExpand` de novo. **`version` menor que a desenhada é ignorada** (ex.: o `GET /api/matches/:id` pedido ao abrir chega depois de uma mensagem `match` mais nova do stream) — a página pode chamar sem se preocupar com a ordem das respostas.
-* `opts`: `now: () => ms` (relógio do servidor), `onExpand(matchId) → void|Promise` (chamado na 1ª abertura sem `match.events`; com Promise rejeitada aparece "Tentar de novo"), `flash: true` (só no update: pisca o placar que subiu e destaca lances novos por 5 s; respeita `prefers-reduced-motion`), `details: false` (sem acordeão), `showRound`, `showCompetition`.
+* `opts`: `now: () => ms` (relógio do servidor), `onExpand(matchId) → void|Promise` (chamado na 1ª abertura sem `match.events`; com Promise rejeitada aparece "Tentar de novo"), `flash: true` (só no update: pisca o placar que subiu e destaca lances novos por 5 s; respeita `prefers-reduced-motion`), `details: false` (sem acordeão), `showRound` (`true`: rodada ou, no mata-mata, "Semifinal · Ida"; `'leg'`: no mata-mata só "Ida", "Volta" ou "Jogo único", para a página cuja navegação já diz a fase — a competição), `showCompetition`.
 * `tickMatchCards(root, nowMs)` — atualiza só o minuto dos jogos ao vivo (chame no `onTick`).
 * `setMatchCardError(el)`, `getCardMatch(el)`, `renderTimeline(match, newIds?)`.
 * `safeHref(url) → string|null` — só `http(s)`; usado nos links de transmissão (barra `javascript:`/`data:`).
@@ -307,7 +318,7 @@ O card cobre todos os status: agendado (pílula com horário, dia relativo), ao 
 (minuto correndo, faixa vermelha no topo), intervalo (amarelo), encerrado
 (vencedor em destaque, perdedor esmaecido), pênaltis `(4) × (3) pên.`, suspenso,
 adiado e cancelado (hachura). Linha do confronto no mata-mata (no card da volta: agregado e quem
-avança, com o agregado na mesma ordem mandante × visitante do placar do card; nas outras rodadas, "avança" com o símbolo de avançar (⏩) no fim; na rodada "Final", "Campeão" com a estrela dourada no fim; "Jogo de ida" e "Agregado" com o ícone de informação na frente). Atrasado, adiado, suspenso e cancelado: linha "Início atrasado", "Jogo adiado", "Jogo suspenso" ou "Jogo cancelado" — motivo, com o alerta laranja, nas observações abaixo do placar (onde fica o "Jogo de ida"), com o `status_note`; some com a mudança de status. Suspenso reagendado: mais uma linha, "Retomada: amanhã às 16:00", com o calendário (`resumes_at`). Encerrado por W.O.: "W.O. em favor do {time} — motivo", com o alerta (`walkover`). Nenhum status tem fundo hachurado nem borda tracejada (atrapalham a leitura): suspenso e cancelado têm selo com borda cinza contínua. Topo do card quase reto (2px) com a faixa de status: agendado azul, ao vivo vermelho, intervalo amarelo, atrasado e adiado laranja, encerrado tinta, suspenso e cancelado cinza, todos sem hachura.
+avança, com o agregado na mesma ordem mandante × visitante do placar do card; nas outras rodadas, "avança" com o símbolo de avançar (⏩) no fim; na rodada "Final", "Campeão" com a estrela dourada no fim; "Jogo de ida" e "Agregado" com o ícone de informação na frente). Atrasado, adiado, suspenso e cancelado: linha "Início atrasado", "Jogo adiado", "Jogo suspenso" ou "Jogo cancelado" — motivo, com o alerta laranja, nas observações abaixo do placar (onde fica o "Jogo de ida"), com o `status_note`; some com a mudança de status. Suspenso reagendado: mais uma linha, "Retomada: amanhã às 16:00", com o calendário (`resumes_at`). Adiado: "Nova data a definir", também com o calendário (reagendar devolve o jogo a agendado; a data da faixa é a original, "Era …"). Encerrado por W.O.: "W.O. em favor do {time} — motivo", com o alerta (`walkover`). Nenhum status tem fundo hachurado nem borda tracejada (atrapalham a leitura): suspenso e cancelado têm selo com borda cinza contínua. Topo do card quase reto (2px) com a faixa de status: agendado azul, ao vivo vermelho, intervalo amarelo, atrasado e adiado laranja, encerrado discreto (`--line-strong`), suspenso e cancelado cinza, todos sem hachura. O selo "Encerrado" (`.pill--finished`, também no operador) é tonal: fundo `--surface-2`, texto `--ink-2` e contorno `--line-strong`; o preenchimento forte fica para o "Ao vivo".
 Nome do time: sigla no celular, nome completo a partir de 520 px de card; quebra só entre
 palavras (`overflow-wrap: normal`, `text-wrap: balance`; a sigla nunca quebra) e o ✓ do
 vencedor fica fora do fluxo (no canto, junto da faixa do time), sem apertar o nome; em card
@@ -318,17 +329,29 @@ período; gol anulado riscado com o motivo; lance sem time, como o VAR, vai ao
 centro com o minuto junto do texto; em cards estreitos o placar parcial
 desce para o trilho), **Escalações** e **Ficha** (arbitragem, público e renda,
 transmissões com link externo, estatísticas em barras com as cores dos times).
+No topo dos Lances, a faixa dos times (`.tl-sides`: escudo de 20 px e nome de cada time do seu
+lado do trilho, como no placar; nome longo com reticências e inteiro no `title`) fica presa ao
+rolar (`sticky`; com `.has-day-bar`, logo abaixo da barra do dia, a 53 px); as estatísticas têm a
+mesma faixa sob o título (`li.stats__teams`). As duas são `aria-hidden`: cada lance de um lado
+diz o time ao leitor de tela ("Náutico: Thiaguinho", texto oculto), e os neutros e de status
+não. No card de até 400 px, a linha do tempo ganha largura (painel com 8 px de margem lateral e
+coluna do minuto de 36 px). Na linha do tempo, o reagendamento traz a data de antes
+("Reagendado para sáb, 05/01 · 17:00 (era qua, 02/01 · 19:00) — motivo", com
+`previous_kickoff_at`). A Ficha, a partir de 640 px de card, usa duas colunas (3fr e 2fr): a
+arbitragem (`.fact--officials`) na larga, ocupando duas linhas, e público e renda e transmissões
+empilhados ao lado; um bloco sozinho ocupa a largura toda. Cada nome da arbitragem
+(`span.fact__person`) quebra inteiro para a linha de baixo.
 No aviso de correção (`kind: 'correction'`), o placar do gol que caiu aparece
 riscado (`<s>`), nunca como placar atual.
 
 ### `standings.js`
-* `createStandings(stageStandings, {compact?, legend = true, criteria = true, tied?, highlightTeamIds?: Set}) → <div class="standings">` (`tied`: força a nota "=" quando os grupos são desenhados um a um)
+* `createStandings(stageStandings, {compact?, legend = true, criteria = true, stageTitle?, highlightTeamIds?: Set, share?}) → <div class="standings">` (`stageTitle`: o título da tabela de grupo único diz a fase, "Classificação · 2º turno"; sem a opção, vale `season_stages > 1` — a home diz "Classificação · 1ª fase" quando a temporada tem outras fases; a competição passa `true` quando há outras fases ou outras classificações. Grupo com nome fica com o nome: "Grupo A", "Classificação geral", "Melhores segundos")
 * `updateStandings(el, stageStandings, opts?)` — redesenha no lugar; sem `opts`, valem as da criação (a mensagem `standings` do stream não precisa repassá-las).
-* Uma `<table>` por grupo com `<caption>`; faixa de zona (cor da API em `--zone`) + nome da zona em texto (visível no início de cada zona, e no texto acessível de toda linha); ponto pulsante em quem está `playing`; posição pelo `rank` (empatados em tudo repetem: 1, 2, 2, 4) e `=` em `tied`, com a nota "Empatados em todos os critérios de desempate" junto dos critérios; legenda com `<svg><rect fill="cor da API">`; critérios em `<ol>` na ordem configurada, num bloco à parte da legenda ("Critérios de desempate", numerados em colunas). Vários grupos: legenda das cores e punições dos times de cada grupo embaixo da tabela dele; critérios só no card do último (sem caixa à parte). Colunas somem por container query (GP/GC abaixo de 440 px; V/E/D abaixo de 330 px; sigla abaixo de 280 px); `compact` força a versão sem GP/GC.
+* Uma `<table>` por grupo com `<caption>`; faixa de zona (cor da API em `--zone`) + nome da zona em texto (visível no início de cada zona, e no texto acessível de toda linha); ponto pulsante em quem está `playing` ("Jogando agora" no `title` e no texto oculto); posição pelo `rank` (empatados em tudo repetem: 1, 2, 2, 4) e `=` em `tied`, com a nota "= Empatados em todos os critérios de desempate" (`.standings__note`) embaixo de cada tabela que tem empate; legenda (`aria-label` "Legenda da tabela") com `<svg><rect fill="cor da API">` e cada item como uma frase: nome e faixa sem quebrar no meio ("Classificados 1º–2º") e, na zona condicional, a condição em texto corrido ("Melhor 2º (só o 1º em “Melhores segundos”)"; a faixa que o nome já diz não se repete), mais "● Jogando agora" quando alguém da tabela está em campo; critérios em `<ol>` na ordem configurada, num bloco à parte da legenda ("Critérios de desempate", numerados em colunas). Vários grupos: legenda das cores, punições dos times e nota do "=" de cada grupo embaixo da tabela dele; critérios só no card do último (sem caixa à parte). As mesmas colunas em todas as larguras: # Time P J V E D GP SG (GC só na imagem compartilhada). Por container query, o nome do time vira a sigla com contêiner de até 340 px e, até 300 px, células, fonte e posição ficam mais justas (cabe a 320 px sem rolagem lateral); nenhuma coluna some. `compact` só acrescenta a classe `standings--compact`.
 * Punição/bonificação em pontos: linha com `points_adjustment ≠ 0` ganha `<abbr class="adj-mark">*</abbr>` nos pontos (título acessível "Punição: perdeu 3 pontos fora de campo", mais texto escondido para leitor de tela); `adjustments` vira a lista `.adjustments` embaixo da legenda ("Santa Cruz: −3 pts — escalação irregular", sempre visível, mesmo com `legend: false`). Funções puras exportadas: `adjustmentLabel(points)`, `adjustmentNote(item)`, `adjustmentTitle(points)` (tests/js/standings.test.mjs).
 
 ### `group-rows.js` (home e competição)
-* `createGroupRows(standings, matches, card, {only = 'all'|'playing', when = 'nesta rodada'}) → {rows, tables, key}` — fase de grupos em linhas (`.group-row`): jogos do grupo à esquerda e a tabela dele à direita, topo alinhado com o primeiro jogo; a linha tem a altura do mais alto dos dois. Grupo sem jogo: "Não há jogos deste grupo {when}.". `only: 'playing'` (home): só os grupos com jogo no recorte. Jogo entre times de grupos diferentes (pelos times da tabela, não pelo grupo da partida) vai para a seção "Jogos entre grupos" (`.group-row--cross`), depois dos grupos, com as tabelas de todos os grupos envolvidos uma abaixo da outra (o único lugar com mais de uma tabela ao lado dos jogos; grupo que só joga entre grupos não ganha linha própria). Critérios de desempate no card da última tabela exibida.
+* `createGroupRows(standings, matches, card, {only = 'all'|'playing', when = 'nesta rodada'}) → {rows, tables, key}` — fase de grupos em linhas (`.group-row`): jogos do grupo à esquerda e a tabela dele à direita, topo alinhado com o primeiro jogo; a linha tem a altura do mais alto dos dois. Grupo sem jogo: "Não há jogos deste grupo {when}.". `only: 'playing'` (home): só os grupos com jogo no recorte. Jogo entre times de grupos diferentes (pelos times da tabela, não pelo grupo da partida) vai para a seção "Jogos entre grupos" (`.group-row--cross`), depois dos grupos, com as tabelas de todos os grupos envolvidos uma abaixo da outra (o único lugar com mais de uma tabela ao lado dos jogos; grupo que só joga entre grupos não ganha linha própria). Critérios de desempate no card da última tabela exibida; a nota do "=" embaixo de cada tabela que tem empate.
 * `updateGroupRows(layout, standings, matches, {only}) → boolean` — mensagem `standings`: redesenha as tabelas no lugar; `false` se as linhas mudaram (quem chama refaz).
 * `createMatchGroupBlocks(matches, standings|null, card)` — os jogos por grupo sem as tabelas (competição com a classificação geral na lateral; home de fase de grupos sem tabela), com a seção "Jogos entre grupos".
 * `splitGroupMatches(matches, standings)` — separa os jogos de dentro de cada grupo e os entre grupos.
@@ -351,7 +374,7 @@ riscado (`<s>`), nunca como placar atual.
 * `notificationSupport(window)` — API presente, contexto seguro e computador (`userAgentData.mobile`, user agent, iPadOS com toque); sem permissão, testa `new Notification()` em `try/catch`.
 
 ### `operator.js` (partes puras exportadas)
-`effectiveMinuteMode(spec, period)` (espelha `domain.minute_mode`), `suggestMinute(match, spec, nowMs)`, `buildEventBody(type, entries, {minute, stoppage})`, `toBrasiliaInput(iso)`, `groupByCompetition`, `lineupPlayers(match, teamId, {opponent})`, `splitActions(types, specOf) → {game, flow}` (lances de jogo × estruturais, na ordem da API), `structuralConfirm(type, match, label?) → {title, text, ok}` (texto da confirmação de cada estrutural, com o placar), `editedToast(summary, voided) → texto` (aviso da correção; com `voided` da resposta, diz que o vermelho automático caiu junto). A tela só liga quando a página tem `#op-app`.
+`effectiveMinuteMode(spec, period)` (espelha `domain.minute_mode`), `suggestMinute(match, spec, nowMs)`, `buildEventBody(type, entries, {minute, stoppage})`, `toBrasiliaInput(iso)`, `groupByCompetition`, `lineupPlayers(match, teamId, {opponent})`, `splitActions(types, specOf) → {game, flow}` (lances de jogo × estruturais, na ordem da API), `structuralConfirm(type, match, label?) → {title, text, ok}` (texto da confirmação de cada estrutural, com o placar), `editedToast(summary, voided) → texto` (aviso da correção; com `voided` da resposta, diz que o vermelho automático caiu junto), `operatorCatalog(catalog)` (rótulos e ícones desta tela por cima do catálogo da API, sem mudar tipos, campos nem regras: "Origem" do gol → "Tipo do gol", "Cancelar" → "Cancelar partida"; ícones que não se repetem entre ações: `stopwatch` no Relógio do jogo, `calendar-arrow` no Reagendar, `trophy` no W.O., `ban` no Cancelar partida), `operatorEventIcon(event)` (o mesmo ícone do botão na linha do tempo), `STATUS_ICON` (ação de status → ícone), `minuteHint(mode, {filled, suggested})` e `ownGoalPlayerHint(match, teamId)` (as dicas do formulário). A tela só liga quando a página tem `#op-app`.
 
 ### `fixtures.js` (só para o guia de estilo)
 `SERVER_TIME`, `TIMEZONE`, `TEAMS`, `COMPETITIONS`, `MATCHES` (`live`, `halfTime`, `scheduledToday`, `scheduledTomorrow`, `finished`, `postponed`, `suspended`, `cancelled`, `knockoutLeg1`, `knockoutPenalties`, `knockoutSingle`), `TIES`, `STANDINGS`, `STANDINGS_GROUPS`, `LATEST_GOALS`, `HOME`, `COMPETITION`, `ME`, `CATALOG`, `AVAILABLE`, `summaryOf(match)`. Os horários são relativos ao carregamento do módulo.
@@ -376,12 +399,13 @@ document.addEventListener('visibilitychange', () => document.hidden || clock.che
 ```
 
 ### Home (`home.js`)
-* `GET /api/competitions` (menu, com o ponto de "ao vivo" recalculado a cada `match`) + `GET /api/home`.
+* `GET /api/competitions` (menu, com o ponto "Jogando agora" recalculado a cada `match`) + `GET /api/home`.
 * Uma seção por competição (`tpl-competition-section`, ordem de `position`), cards à
   esquerda e classificação ao vivo à direita; sem jogo no dia: menu, relógio e
   `#home-empty` (sem o bloco de últimos gols). Fase de grupos com tabela: um grupo por linha
   (`createGroupRows`, só os grupos com jogo no dia) e os jogos entre grupos numa seção à
-  parte; `standings` → `updateGroupRows` (grupos exibidos mudaram → busca a home de novo).
+  parte; `standings` → `updateGroupRows` (grupos exibidos mudaram → busca a home de novo). O título
+  da tabela diz a fase quando a temporada tem mais de uma (`season_stages`: "Classificação · 1ª fase").
 * `match` → `updateMatchCard(card, match, {flash: true})` (acordeão e aba continuam);
   status, início (`kickoff_at`), times ou grupo mudou → busca a home de novo (reordena a fase e tira o
   jogo remarcado para outro dia); jogo desconhecido com início no dia → busca a home de
@@ -407,31 +431,52 @@ document.addEventListener('visibilitychange', () => document.hidden || clock.che
   exibida): uma linha por grupo, jogos à esquerda e a tabela do grupo à direita, alinhada com o
   primeiro jogo e a legenda das cores embaixo (critérios de desempate uma vez, no card do
   último grupo); jogos entre grupos numa seção à parte, depois dos grupos; os
-  botões das classificações sobem para a primeira linha. Mata-mata: um bloco
-  por confronto com os cards (com "Semifinal · Ida" na faixa de meta, também na home); o card
+  botões das classificações sobem para a primeira linha. Escolhida outra classificação
+  ("Geral", "Melhores segundos"), abaixo de 960 px o aside, com os botões e a tabela escolhida,
+  sobe para esse lugar (`split--aside-first`): os botões não saem de baixo do dedo, a tabela
+  aparece logo abaixo deles, antes dos jogos, e o foco volta ao botão tocado; no desktop a troca
+  continua no alto da coluna da direita. Com outras fases ou outras classificações, o título da
+  tabela da fase diz o recorte ("Classificação · 2º turno", `stageTitle`). Mata-mata: um bloco
+  por confronto com os cards (a faixa de meta diz só "Ida", "Volta" ou "Jogo único",
+  `showRound: 'leg'`, porque a navegação já diz a fase; na home, "Semifinal · Ida"); o card
   da ida diz "Jogo de ida", o da volta traz o agregado (parcial até o fim) e, no fim, quem
   avança e como; a mensagem `match` atualiza o confronto nos dois cards (`syncTieCards`,
   agregado e vencedor vêm no `TieOut`). Sem alertas nesta página.
+* Menu: o ponto "Jogando agora", como na home, nas competições com jogo ao vivo agora (de
+  todas, não só a aberta): `GET /api/matches?status=live` no boot e em cada recarga, depois
+  as mensagens `match` do stream (que chegam de todas as competições); o menu só é redesenhado
+  quando muda o conjunto de competições ao vivo.
 
 ### Operador (`operator.js`)
 * `GET /api/auth/me` primeiro (seta o cookie CSRF e acerta o relógio com `server_time`) → login (`POST /api/auth/login`;
   falha de CSRF renova o cookie e tenta uma vez) ou painel; 401 em qualquer chamada
   volta ao login ("Sua sessão expirou").
 * Só aparece o que `me.permissions` permite: botões de lance (`post_event`), de status
-  (`change_status`), "Cancelar" na linha do tempo (`void_event`), link do admin (`admin_site`).
+  (`change_status`), "Desfazer" na linha do tempo (`void_event`), link do admin (`admin_site`).
 * Partidas da data (`GET /api/matches?date=`, padrão hoje em Brasília), agrupadas por
-  competição; ↑/↓ andam pela lista; `?date=&match=` na URL.
+  competição; ↑/↓ andam pela lista; `?date=&match=` na URL. Abaixo de 960 px (lista e painel
+  numa coluna), escolher uma partida recolhe a lista no "Trocar partida" (`#picker-switch`), passa
+  o foco a ele e rola o botão e o placar até o topo; abrir ou recarregar com `?match=` já traz a
+  lista recolhida e rola até o painel se ele não estiver na metade de cima da tela. No desktop, a
+  lista continua na coluna lateral.
 * Botões só de `available` (nada de regra de jogo no front): **lances de jogo primeiro**
   (`#action-grid`) e o **andamento do jogo** (estruturais) num grupo à parte, depois dos
   lances (`#flow-actions`), para ninguém mudar o período por engano. Formulário pelo catálogo:
   `<select>` de tipo limitado a `available.events`; campos por `EventSpec.fields`
-  (reaproveitados entre tipos — trocar o tipo mantém o que já foi digitado; "Cancelar", Esc
+  (reaproveitados entre tipos — trocar o tipo mantém o que já foi digitado; "Fechar", Esc
   ou outro clique no mesmo botão desistem do lance e limpam tudo —, os que não valem ficam
-  `hidden` + `disabled`); time em
+  `hidden` + `disabled`); rótulos e ícones de `operatorCatalog` (o "Origem" do gol aparece como
+  "Tipo do gol": Jogada, Pênalti ou Contra); time em
   rádios com os dois times (opcional ganha "Nenhum"); jogador com `<datalist>` da
-  escalação (gol contra → elenco adversário); gol anulado lista os gols válidos e, com o
+  escalação (gol contra → elenco adversário, com a dica "Gol contra: jogador do adversário
+  (Náutico).", ou "…do adversário do time beneficiado." sem time escolhido); gol anulado lista os gols válidos e, com o
   gol escolhido, esconde o time (herdado); minuto conforme `minute_mode`, pré-preenchido
-  com a sugestão do relógio (atualiza a cada segundo até o operador mexer). **Todo
+  com a sugestão do relógio (atualiza a cada segundo até o operador mexer), com a dica ligada ao
+  campo (`aria-describedby`; `minuteHint`): no obrigatório, "Sugerido pelo relógio do jogo.
+  Acréscimo só no fim de cada tempo."; no opcional, acompanhando o que está nele: "Sugerido pelo relógio; apague para
+  usar o minuto padrão do lance.", "Apague para…" quando o operador digitou e "Em branco, vale
+  o minuto padrão do lance." vazio. A chave "Informações parciais" diz o efeito antes de ligar
+  ("No site, o jogo aparece sem minuto.", também em `aria-describedby`). **Todo
   estrutural pede confirmação** no envio (`#confirm-dialog` com o placar: "Iniciar a
   partida?", "Encerrar o 1º tempo?", "Iniciar o 2º tempo?", "Iniciar a prorrogação?", "Ir
   para os pênaltis?", "Encerrar a partida?"); "Voltar" não envia nada.
@@ -443,9 +488,17 @@ document.addEventListener('visibilitychange', () => document.hidden || clock.che
   devolve o original se o primeiro tinha chegado); mudar qualquer campo gera chave nova.
 * Depois de cada envio: desenha a resposta e busca `GET /api/matches/:id` de novo (a
   tela não assina o stream; respostas com `version` menor são ignoradas).
-* Linha do tempo (mais recente primeiro) com "Cancelar lançamento" → `#void-dialog`
-  (motivo opcional) → `POST …/void`. Status → `#status-dialog` (reagendar com
-  `datetime-local` em Brasília, enviado sem fuso) → `POST …/status`. Avisos por toast.
+* Linha do tempo (mais recente primeiro, com os mesmos ícones dos botões) com "Desfazer" →
+  `#void-dialog` ("Desfazer este lançamento?", motivo opcional; "Manter" não envia) →
+  `POST …/void` (aviso "Lançamento desfeito"). "Desfazer", e não "Anular", porque "Gol anulado"
+  já é um lance (a arbitragem anulou o gol). Status → `#status-dialog` (reagendar com
+  `datetime-local` em Brasília, enviado sem fuso; "Cancelar partida" pergunta "Cancelar a
+  partida?", com "Voltar" e "Cancelar partida") → `POST …/status`. Avisos por toast. Os três
+  sentidos têm rótulos distintos: "Fechar" (o formulário), "Desfazer" (um lançamento) e
+  "Cancelar partida" (o status). As mensagens de erro que vêm do back mantêm o texto dele.
+* Toque no celular: Editar e Desfazer, Sair, Administração, Atualizar lista e os atalhos
+  Escalação e Público e renda têm área de 44 px (`::after`, sem crescer o desenho); a chave
+  "Informações parciais" tem `min-height: 44px`.
 
 ## 7. Desempenho e acessibilidade
 
@@ -477,7 +530,7 @@ document.addEventListener('visibilitychange', () => document.hidden || clock.che
 * `tests/e2e/test_e2e_browser.py` (só com `E2E=1`: `E2E=1 python -m pytest tests/e2e -o addopts=""`):
   ponta a ponta de verdade — banco próprio com o `seed`, uvicorn (um processo) e Chromium. O
   operador lança um jogo inteiro pela tela (reagendar, início, gols, cartão, aviso com
-  confirmação, gol anulado, "Cancelar lançamento", suspender/retomar, intervalo, 2º tempo,
+  confirmação, gol anulado, desfazer um lançamento, suspender/retomar, intervalo, 2º tempo,
   fim); home e competição abertas antes acompanham gol e anulação sem recarregar (aviso, som,
   `Notification`, últimos gols, classificação); a final vai aos pênaltis com a página aberta;
   rodadas, fases, tema, logo e nome da configuração (também no admin), console limpo, 390 px

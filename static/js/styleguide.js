@@ -10,6 +10,7 @@ import { ServerClock, mountClock } from './clock.js';
 import { formatTime } from './format.js';
 import { createMatchCard, updateMatchCard, tickMatchCards, createTieGroup, tiesFromMatches, createLatestGoal, createGoalAlert } from './match-card.js';
 import { createStandings } from './standings.js';
+import { STATUS_ICON, operatorCatalog } from './operator.js';
 import * as F from './fixtures.js';
 
 const clock = new ServerClock();
@@ -142,7 +143,8 @@ $('sg-home-competitions').replaceChildren(...F.HOME.competitions.map(renderCompe
 /* --- Classificação e mata-mata ------------------------------------------------------------- */
 $('sg-standings').append(createStandings(F.STANDINGS));
 $('sg-standings-groups').append(createStandings(F.STANDINGS_GROUPS, { compact: true }));
-$('sg-ties').replaceChildren(...F.TIES.map((t) => createTieGroup(t, (t.matches || []).map((m) => createMatchCard(m, { now, details: false, showRound: true })))));
+// como na competição: a navegação já diz a fase; a faixa do card, só "Ida", "Volta" ou "Jogo único"
+$('sg-ties').replaceChildren(...F.TIES.map((t) => createTieGroup(t, (t.matches || []).map((m) => createMatchCard(m, { now, details: false, showRound: 'leg' })))));
 
 /* --- Estados: avisos ------------------------------------------------------------------------ */
 $('sg-toast').addEventListener('click', () => showToast('Lance lançado: gol de Zé Roberto (72\').', { kind: 'ok' }));
@@ -177,9 +179,11 @@ for (const [i, m] of [F.MATCHES.live, F.MATCHES.halfTime, F.MATCHES.scheduledTod
 
 $('sg-op-scoreboard').append(createMatchCard(F.summaryOf(F.MATCHES.live), { now, details: false, showRound: true, showCompetition: true }));
 
-// como em operator.js: lances de jogo primeiro; estruturais no grupo "Andamento do jogo"
+// como em operator.js: rótulos e ícones da tela do operador (operatorCatalog); lances de jogo
+// primeiro; estruturais no grupo "Andamento do jogo"
+const CATALOG = operatorCatalog(F.CATALOG);
 const available = new Set(F.AVAILABLE.events);
-const actionSpecs = F.CATALOG.events.filter((spec) => available.has(spec.type));
+const actionSpecs = CATALOG.events.filter((spec) => available.has(spec.type));
 const actionButton = (spec) => {
   const btn = cloneTemplate('tpl-action-button');
   const p = hooks(btn);
@@ -195,8 +199,7 @@ const actionButton = (spec) => {
 };
 $('sg-actions').replaceChildren(...actionSpecs.filter((spec) => spec.kind !== 'structural').map(actionButton));
 $('sg-flow-actions').replaceChildren(...actionSpecs.filter((spec) => spec.kind === 'structural').map(actionButton));
-const STATUS_ICON = { postpone: 'calendar', suspend: 'pause', resume: 'play', reschedule: 'calendar', cancel: 'x-circle', walkover: 'flag' };
-$('sg-status').replaceChildren(...F.CATALOG.status_actions.map((a) => {
+$('sg-status').replaceChildren(...CATALOG.status_actions.map((a) => {
   const btn = cloneTemplate('tpl-status-button');
   const p = hooks(btn);
   p['status-icon'].setAttribute('href', `#i-${STATUS_ICON[a.action]}`);
@@ -235,7 +238,7 @@ for (const pl of live.lineups.home.starters) pf.datalist.append(h('option', { va
 fields.append(player);
 const origin = cloneTemplate('tpl-field-choice');
 const of = hooks(origin);
-of.label.textContent = 'Origem';
+of.label.textContent = 'Tipo do gol';
 of.input.id = 'sg-f-origin';
 of.label.htmlFor = 'sg-f-origin';
 for (const [v, l] of [['open_play', 'Jogada'], ['penalty', 'Pênalti'], ['own_goal', 'Contra']]) of.input.append(h('option', { value: v, text: l }));
@@ -244,7 +247,7 @@ const bool = cloneTemplate('tpl-field-bool');
 hook(bool, 'label').textContent = 'Confirmar mesmo com aviso';
 fields.append(bool);
 
-/* Lançamentos do operador (mais recente primeiro) com "cancelar lançamento" */
+/* Lançamentos do operador (mais recente primeiro) com "Desfazer" */
 const opList = $('sg-op-timeline');
 const events = [...live.events].reverse();
 $('sg-op-count').textContent = String(events.length);

@@ -61,12 +61,12 @@
       <button type="button" class="btn btn--secondary" disabled>Desabilitado</button>
       <button type="button" class="btn btn--secondary btn--icon" aria-label="Anterior"><svg class="icon" aria-hidden="true"><use href="#i-chevron-left"/></svg></button>
       <button type="button" class="btn btn--secondary btn--sm btn--toggle" aria-pressed="false" data-sg-toggle>
-        <span class="when-off cluster"><svg class="icon" aria-hidden="true"><use href="#i-speaker-off"/></svg>Ativar som</span>
-        <span class="when-on cluster"><svg class="icon" aria-hidden="true"><use href="#i-speaker"/></svg>Som ligado</span>
+        <span class="when-off cluster"><svg class="icon" aria-hidden="true"><use href="#i-speaker-off"/></svg><span class="hide-sm">Ativar som</span><span class="only-sm">Som</span></span>
+        <span class="when-on cluster"><svg class="icon" aria-hidden="true"><use href="#i-speaker"/></svg><span class="hide-sm">Som ligado</span><span class="only-sm">Som</span></span>
       </button>
       <button type="button" class="btn btn--secondary btn--sm btn--toggle" aria-pressed="true" data-sg-toggle>
-        <span class="when-off cluster"><svg class="icon" aria-hidden="true"><use href="#i-bell-off"/></svg>Ativar notificações</span>
-        <span class="when-on cluster"><svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg>Notificações ligadas</span>
+        <span class="when-off cluster"><svg class="icon" aria-hidden="true"><use href="#i-bell-off"/></svg><span class="hide-sm">Ativar notificações</span><span class="only-sm">Notificações</span></span>
+        <span class="when-on cluster"><svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg><span class="hide-sm">Notificações ligadas</span><span class="only-sm">Notificações</span></span>
       </button>
     </div>
     <div class="sg-row">
@@ -103,12 +103,12 @@
         <h3 id="sg-goals-t" class="goals__title"><svg class="icon" aria-hidden="true"><use href="#i-ball"/></svg>Últimos gols</h3>
         <div class="goals__toggles">
           <button type="button" class="btn btn--secondary btn--sm btn--toggle" aria-pressed="true" data-sg-toggle>
-            <span class="when-off cluster"><svg class="icon" aria-hidden="true"><use href="#i-speaker-off"/></svg>Ativar som</span>
-            <span class="when-on cluster"><svg class="icon" aria-hidden="true"><use href="#i-speaker"/></svg>Som ligado</span>
+            <span class="when-off cluster"><svg class="icon" aria-hidden="true"><use href="#i-speaker-off"/></svg><span class="hide-sm">Ativar som</span><span class="only-sm">Som</span></span>
+            <span class="when-on cluster"><svg class="icon" aria-hidden="true"><use href="#i-speaker"/></svg><span class="hide-sm">Som ligado</span><span class="only-sm">Som</span></span>
           </button>
           <button type="button" class="btn btn--secondary btn--sm btn--toggle" aria-pressed="false" data-sg-toggle>
-            <span class="when-off cluster"><svg class="icon" aria-hidden="true"><use href="#i-bell-off"/></svg>Ativar notificações</span>
-            <span class="when-on cluster"><svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg>Notificações ligadas</span>
+            <span class="when-off cluster"><svg class="icon" aria-hidden="true"><use href="#i-bell-off"/></svg><span class="hide-sm">Ativar notificações</span><span class="only-sm">Notificações</span></span>
+            <span class="when-on cluster"><svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg><span class="hide-sm">Notificações ligadas</span><span class="only-sm">Notificações</span></span>
           </button>
         </div>
       </div>
@@ -203,7 +203,7 @@
               </div>
               <div class="action-grid action-grid--flow" data-hook="sg-flow-actions"></div>
             </div>
-            <p class="op-section-title" style="margin-top:20px"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>Status da partida</p>
+            <p class="op-section-title" style="margin-top:20px"><svg class="icon" aria-hidden="true"><use href="#i-clipboard"/></svg>Status da partida</p>
             <div class="status-actions" data-hook="sg-status"></div>
           </section>
           <section class="card card__body">
@@ -211,7 +211,7 @@
               <p class="op-section-title"><svg class="icon" aria-hidden="true"><use href="#i-ball"/></svg>Gol</p>
               <div class="event-form__fields" data-hook="sg-fields"></div>
               <div class="event-form__actions">
-                <button type="button" class="btn btn--ghost">Cancelar</button>
+                <button type="button" class="btn btn--ghost">Fechar</button>
                 <button type="submit" class="btn btn--primary"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Lançar</button>
               </div>
             </form>

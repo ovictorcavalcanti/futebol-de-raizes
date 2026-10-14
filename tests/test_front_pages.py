@@ -577,11 +577,12 @@ def open_page(browser, client, fixtures):
     }
     contexts = []
 
-    def _open(url, *, width=1280, prepare=None):
+    def _open(url, *, width=1280, prepare=None, touch=False):
         api = FakeApi(pages, fixtures)
         if prepare:
             prepare(api)
-        context = browser.new_context(viewport={"width": width, "height": 900})
+        # touch=True: tela de toque (no Chromium, casa com @media (pointer: coarse))
+        context = browser.new_context(viewport={"width": width, "height": 900}, has_touch=touch)
         contexts.append(context)
         page = context.new_page()
         errors = []
@@ -2130,3 +2131,119 @@ def test_ultimos_gols_som_e_notificacoes_curtos_no_celular(open_page, width):
         assert page.evaluate(hit, [x, box["y"] - 5]) and page.evaluate(hit, [x, box["y"] + box["height"] + 5])
     assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
     assert not errors, errors
+
+
+# cor de texto e de fundo (rgb() ou o color(srgb 0..1) do color-mix) para o CONTRAST_JS
+_LABEL_COLORS_JS = """() => {
+  const b = document.querySelector('[data-minute-format-toggle]');
+  const rgb = (css) => {
+    const n = css.match(/[\\d.]+/g).slice(0, 3).map(Number);
+    return `rgb(${(css.startsWith('color(') ? n.map((v) => v * 255) : n).join(', ')})`;
+  };
+  return { fg: rgb(getComputedStyle(b.querySelector('.minute-toggle__label')).color),
+    bg: rgb(getComputedStyle(b).backgroundColor), pressed: b.getAttribute('aria-pressed') };
+}"""
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_cabecalho_legenda_do_minuto_com_contraste_aa_em_todos_os_estados(open_page, theme):
+    """A legenda "Minuto" (texto de 11 px) fica com 4,5:1 sobre o fundo do botão em repouso, no
+    hover (que no toque fica preso), no :active e pressionado, nos dois temas: nos estados de
+    fundo alterado ela ganha cor mais forte que a do relógio."""
+    page, _, errors = open_page("/", width=390, touch=True)
+    page.wait_for_selector("article.match")
+    page.add_style_tag(content="*, *::before, *::after { transition: none !important; }")
+    if theme == "dark":
+        page.evaluate("document.documentElement.dataset.theme = 'dark'")
+    box = page.locator("[data-minute-format-toggle]").bounding_box()
+    center = (box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    away = (5, 880)
+    seen = {}
+
+    def measure(state, pressed):
+        colors = page.evaluate(_LABEL_COLORS_JS)
+        assert colors["pressed"] == pressed, (state, colors)
+        ratio = page.evaluate(CONTRAST_JS, [colors["fg"], colors["bg"]])
+        assert ratio >= 4.5, (theme, state, ratio, colors)
+        seen[state] = colors
+
+    page.mouse.move(*away)
+    measure("repouso", "false")
+    page.mouse.move(*center)
+    measure("hover", "false")
+    page.mouse.down()
+    measure("active", "false")
+    page.mouse.up()  # o clique pressiona; o ponteiro continua em cima (hover preso do toque)
+    measure("pressionado + hover", "true")
+    page.mouse.move(*away)
+    measure("pressionado", "true")
+    page.mouse.move(*center)
+    page.mouse.down()
+    measure("pressionado + active", "true")
+    # o hover de fato escurece/clareia o fundo (a medição não ficou só no repouso)
+    assert seen["hover"]["bg"] != seen["repouso"]["bg"], seen
+    assert seen["pressionado + hover"]["bg"] != seen["pressionado"]["bg"], seen
+    assert not errors, errors
+
+
+_TOUCH_AREA_JS = """(sel) => {
+  const b = document.querySelector(sel);
+  const r = b.getBoundingClientRect();
+  const s = getComputedStyle(b);
+  const after = getComputedStyle(b, '::after');
+  // a área do ::after (inset relativo à caixa de preenchimento, por dentro da borda)
+  const area = after.content === 'none' ? null : {
+    left: r.left + parseFloat(s.borderLeftWidth) + parseFloat(after.left),
+    right: r.right - parseFloat(s.borderRightWidth) - parseFloat(after.right),
+    top: r.top + parseFloat(s.borderTopWidth) + parseFloat(after.top),
+    bottom: r.bottom - parseFloat(s.borderBottomWidth) - parseFloat(after.bottom),
+  };
+  return { box: { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height }, area };
+}"""
+
+
+@pytest.mark.parametrize("width", [768, 1280])
+def test_toque_de_44_px_no_minuto_e_no_som_em_tela_de_toque_sem_mudar_o_desenho(open_page, width):
+    """Tablet ou tela grande de toque (pointer: coarse): o botão do minuto e os de Som e
+    Notificações ganham a área de toque de 44 px pelo ::after, como no celular, sem cobrir os
+    vizinhos; com mouse, o desenho é o mesmo e não há ::after."""
+    buttons = ("[data-minute-format-toggle]", "#toggle-sound", "#toggle-notifications")
+    neighbors = {
+        "[data-minute-format-toggle]": [".brand", ".clock", "[data-theme-toggle]", ".comp-nav"],
+        "#toggle-sound": [".goals__title", "#toggle-notifications", "#notifications-hint", "#latest-goals-list"],
+        "#toggle-notifications": [".goals__title", "#toggle-sound", "#notifications-hint", "#latest-goals-list"],
+    }
+    boxes = {}
+    for touch in (True, False):
+        page, _, errors = open_page("/", width=width, touch=touch)
+        page.wait_for_selector("article.match")
+        assert page.evaluate("matchMedia('(pointer: coarse)').matches") is touch
+        page.evaluate("document.getElementById('toggle-notifications').hidden = false")
+        out = {sel: page.evaluate(_TOUCH_AREA_JS, sel) for sel in buttons}
+        boxes[touch] = {sel: out[sel]["box"] for sel in buttons}
+        if not touch:
+            assert all(out[sel]["area"] is None for sel in buttons), out
+            assert not errors, errors
+            continue
+        for sel in buttons:
+            area = out[sel]["area"]
+            assert area and area["bottom"] - area["top"] >= 44 and area["right"] - area["left"] >= 44, (sel, out[sel])
+            # a área extra é do botão: o toque logo acima e logo abaixo do desenho cai nele
+            hit = f"([x, y]) => document.elementFromPoint(x, y)?.closest('{sel}') !== null"
+            x = (area["left"] + area["right"]) / 2
+            assert page.evaluate(hit, [x, area["top"] + 1]) and page.evaluate(hit, [x, area["bottom"] - 1]), sel
+            # e não invade nenhum vizinho
+            for other in neighbors[sel]:
+                rect = page.evaluate(
+                    "(s) => { const el = document.querySelector(s); if (!el || !el.getClientRects().length) return null;"
+                    " const r = el.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom }; }",
+                    other,
+                )
+                if rect is None:
+                    continue
+                apart = (rect["right"] <= area["left"] or area["right"] <= rect["left"]
+                         or rect["bottom"] <= area["top"] or area["bottom"] <= rect["top"])
+                assert apart, (sel, other, area, rect)
+        assert not errors, errors
+    # com mouse, o desenho é o mesmo da tela de toque
+    assert boxes[True] == boxes[False], boxes

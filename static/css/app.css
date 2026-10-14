@@ -422,13 +422,17 @@
     /* 320 px: logo, relógio, minuto e tema numa linha só, sem rolagem lateral (o logo encolhe) */
     .header__tools { gap: 6px; }
     .clock { padding-inline: 0; }
-    /* área de toque de 44 px no botão do minuto (o desenho continua de 40 px) */
-    .minute-toggle::after { content: ""; position: absolute; inset: -4px 0; }
     .live-status { padding: 6px; }
     .live-status [data-hook="live-status-text"] {
       position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
       overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
     }
+  }
+  /* área de toque de 44 px no botão do minuto (o desenho continua de 40 px): no celular e em
+     qualquer tela de toque (tablet); com mouse, nada muda. Só cresce para cima e para baixo,
+     dentro da folga da barra: não alcança o relógio nem o botão do tema ao lado */
+  @media (max-width: 639px), (pointer: coarse) {
+    .minute-toggle::after { content: ""; position: absolute; inset: -4px 0; }
   }
 
   .comp-nav { border-top: 1px solid var(--line); }
@@ -617,6 +621,11 @@
     text-transform: uppercase;
     color: var(--ink-3);
   }
+  /* fundo alterado (hover, toque, pressionado): legenda em --ink-2. O hover mistura --ink no fundo
+     e no toque fica preso depois do toque; com --ink-3 a legenda cairia para ~3,7:1 */
+  .minute-toggle:hover .minute-toggle__label,
+  .minute-toggle:active .minute-toggle__label,
+  .minute-toggle[aria-pressed="true"] .minute-toggle__label { color: var(--ink-2); }
   .theme-toggle .theme-toggle__moon { display: none; }
   :root[data-theme="dark"] .theme-toggle .theme-toggle__sun { display: none; }
   :root[data-theme="dark"] .theme-toggle .theme-toggle__moon { display: block; }
@@ -1504,13 +1513,18 @@
   .goals__list > .skeleton { flex: none; width: 180px; height: 61px; border-radius: var(--radius); }
   .goals__empty { color: var(--ink-3); font-size: 0.9375rem; }
   .goals__hint { margin: calc(-1 * var(--s-1)) 0 var(--s-3); font-size: 0.8125rem; color: var(--ink-3); }
-  /* celular: "Som" e "Notificações" (rótulos curtos, index.html) na linha do título; o toque
-     vai a 44 px pelo ::after, sem a linha crescer */
+  /* celular: "Som" e "Notificações" (rótulos curtos, index.html) na linha do título */
   @media (max-width: 639px) {
     .goals { padding-bottom: var(--s-3); }
     .goals__head { gap: var(--s-2); margin-bottom: var(--s-2); }
     .goals__toggles { gap: 6px; }
-    .goals__toggles .btn { position: relative; padding-inline: 10px; --cluster-gap: 6px; }
+    .goals__toggles .btn { padding-inline: 10px; --cluster-gap: 6px; }
+  }
+  /* o toque vai a 44 px pelo ::after (o desenho segue com 32 px, sem a linha crescer): no celular
+     e em qualquer tela de toque (tablet); com mouse, nada muda. Só cresce para cima e para baixo:
+     não cobre o botão vizinho */
+  @media (max-width: 639px), (pointer: coarse) {
+    .goals__toggles .btn { position: relative; }
     .goals__toggles .btn::after { content: ""; position: absolute; inset: -8px 0; }
   }
   .goal-chip {

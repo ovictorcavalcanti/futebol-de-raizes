@@ -10,7 +10,6 @@ import { ServerClock, mountClock } from './clock.js';
 import { formatTime } from './format.js';
 import { createMatchCard, updateMatchCard, tickMatchCards, createTieGroup, tiesFromMatches, createLatestGoal, createGoalAlert } from './match-card.js';
 import { createStandings } from './standings.js';
-import { STATUS_ICON, operatorCatalog } from './operator.js';
 import * as F from './fixtures.js';
 
 const clock = new ServerClock();
@@ -179,9 +178,9 @@ for (const [i, m] of [F.MATCHES.live, F.MATCHES.halfTime, F.MATCHES.scheduledTod
 
 $('sg-op-scoreboard').append(createMatchCard(F.summaryOf(F.MATCHES.live), { now, details: false, showRound: true, showCompetition: true }));
 
-// como em operator.js: rótulos e ícones da tela do operador (operatorCatalog); lances de jogo
+// como em operator.js: rótulos e ícones do catálogo (os mesmos do site); lances de jogo
 // primeiro; estruturais no grupo "Andamento do jogo"
-const CATALOG = operatorCatalog(F.CATALOG);
+const CATALOG = F.CATALOG;
 const available = new Set(F.AVAILABLE.events);
 const actionSpecs = CATALOG.events.filter((spec) => available.has(spec.type));
 const actionButton = (spec) => {
@@ -202,7 +201,7 @@ $('sg-flow-actions').replaceChildren(...actionSpecs.filter((spec) => spec.kind =
 $('sg-status').replaceChildren(...CATALOG.status_actions.map((a) => {
   const btn = cloneTemplate('tpl-status-button');
   const p = hooks(btn);
-  p['status-icon'].setAttribute('href', `#i-${STATUS_ICON[a.action]}`);
+  p['status-icon'].setAttribute('href', `#i-${a.icon}`);
   p['status-label'].textContent = a.label;
   if (a.action === 'cancel') btn.classList.replace('btn--secondary', 'btn--danger');
   btn.disabled = !F.AVAILABLE.status.includes(a.action);
@@ -226,6 +225,13 @@ for (const side of ['home', 'away']) {
 }
 tf['input-home'].checked = true;
 fields.append(teamField);
+const origin = cloneTemplate('tpl-field-choice');
+const of = hooks(origin);
+of.label.textContent = 'Tipo do gol';
+of.input.id = 'sg-f-origin';
+of.label.htmlFor = 'sg-f-origin';
+for (const [v, l] of [['open_play', 'Jogada'], ['penalty', 'Pênalti'], ['own_goal', 'Contra']]) of.input.append(h('option', { value: v, text: l }));
+fields.append(origin);
 const player = cloneTemplate('tpl-field-player');
 const pf = hooks(player);
 pf.label.textContent = 'Jogador';
@@ -236,13 +242,6 @@ pf.input.setAttribute('list', 'sg-dl-players');
 pf.input.value = 'Romarinho';
 for (const pl of live.lineups.home.starters) pf.datalist.append(h('option', { value: pl.name }));
 fields.append(player);
-const origin = cloneTemplate('tpl-field-choice');
-const of = hooks(origin);
-of.label.textContent = 'Tipo do gol';
-of.input.id = 'sg-f-origin';
-of.label.htmlFor = 'sg-f-origin';
-for (const [v, l] of [['open_play', 'Jogada'], ['penalty', 'Pênalti'], ['own_goal', 'Contra']]) of.input.append(h('option', { value: v, text: l }));
-fields.append(origin);
 const bool = cloneTemplate('tpl-field-bool');
 hook(bool, 'label').textContent = 'Confirmar mesmo com aviso';
 fields.append(bool);

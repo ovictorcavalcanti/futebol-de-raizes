@@ -1001,7 +1001,10 @@ def catalog_payload() -> dict:
     """GET /api/ops/catalog: tipos de evento (EventSpecOut), ações de status, períodos e status."""
     return {
         "events": [_event_spec(spec) for spec in domain.CATALOG.values()],
-        "status_actions": [{"action": action.value, "label": label} for action, label in domain.STATUS_ACTION_LABELS.items()],
+        "status_actions": [
+            {"action": action.value, "label": label, "icon": domain.STATUS_ACTION_ICONS[action]}
+            for action, label in domain.STATUS_ACTION_LABELS.items()
+        ],
         "periods": [
             {"key": period.value, "label": domain.PERIOD_LABELS[period], "short": domain.PERIOD_SHORT[period]}
             for period in domain.Period

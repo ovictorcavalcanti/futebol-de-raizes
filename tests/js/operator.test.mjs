@@ -4,8 +4,9 @@ import assert from 'node:assert/strict';
 import {
   effectiveMinuteMode, suggestMinute, buildEventBody, toBrasiliaInput, groupByCompetition, lineupPlayers,
   splitActions, structuralConfirm, sortByStatus, clockSetRange, editedToast,
-  operatorCatalog, operatorEventIcon, STATUS_ICON, minuteHint, ownGoalPlayerHint,
+  naturalMinute, minuteHint, ownGoalPlayerHint,
 } from '../../static/js/operator.js';
+import { EVENT_ICONS, eventIconName } from '../../static/js/icons.js';
 import {
   ApiError, apiFetch, getCookie, listMatches, queryString, toApiError, newIdempotencyKey, setCsrfToken,
 } from '../../static/js/api.js';
@@ -257,42 +258,54 @@ test('effectiveMinuteMode: gol tem minuto opcional em qualquer tempo (gol a conf
   assert.equal(effectiveMinuteMode(card, 'half_time'), 'optional');
 });
 
-test('catálogo do operador: "Tipo do gol", "Cancelar partida" e cronômetro no Relógio do jogo', () => {
-  const field = (name, label) => ({ name, kind: 'choice', label, required: false, choices: [] });
-  const catalog = {
-    events: [
-      { type: 'goal', label: 'Gol', kind: 'game', icon: 'ball', fields: [field('team_id', 'Time beneficiado'), field('payload.origin', 'Origem')] },
-      { type: 'stoppage_time', label: 'Acréscimos', kind: 'game', icon: 'clock', fields: [] },
-      { type: 'clock_adjust', label: 'Relógio do jogo', kind: 'game', icon: 'clock', fields: [field('payload.origin', 'Origem')] },
-    ],
-    status_actions: [{ action: 'postpone', label: 'Adiar' }, { action: 'cancel', label: 'Cancelar' }],
-  };
-  const out = operatorCatalog(catalog);
-  assert.deepEqual(out.events[0].fields.map((f) => f.label), ['Time beneficiado', 'Tipo do gol']);
-  assert.equal(out.events[2].fields[0].label, 'Origem'); // só o campo do gol muda de nome
-  assert.deepEqual(out.events.map((s) => s.icon), ['ball', 'clock', 'stopwatch']);
-  assert.deepEqual(out.status_actions.map((s) => s.label), ['Adiar', 'Cancelar partida']);
-  assert.equal(catalog.events[0].fields[1].label, 'Origem'); // não mexe no original
-  assert.deepEqual(operatorCatalog(null), { events: [], status_actions: [] });
+test('ícones dos lances: uma ação, um desenho, o mesmo no operador e no site (catálogo)', () => {
+  // sem sobreposição no operador: botões e linha do tempo usam o ícone do catálogo (event.icon)
+  const pairs = [
+    ['clock_adjust', 'stoppage_time'], // Relógio do jogo × Acréscimos
+    ['rescheduled', 'postponed'], // Reagendado × Adiado
+    ['walkover', 'match_end'], // W.O. × Fim de jogo
+    ['cancelled', 'penalty_missed'], // Cancelado × Pênalti perdido
+  ];
+  for (const [a, b] of pairs) assert.notEqual(EVENT_ICONS[a], EVENT_ICONS[b], `${a} × ${b}`);
+  assert.deepEqual(
+    ['clock_adjust', 'rescheduled', 'walkover', 'cancelled'].map((type) => eventIconName({ type })),
+    ['stopwatch', 'calendar-arrow', 'trophy', 'ban'],
+  );
+  assert.equal(eventIconName({ type: 'cancelled', icon: 'ban' }), 'ban'); // o da API vale
+  assert.equal(eventIconName({ type: 'goal', payload: { origin: 'own_goal' } }), 'ball-own');
 });
 
-test('ícones do operador: uma ação, um desenho (status e linha do tempo combinam)', () => {
-  const icons = Object.values(STATUS_ICON);
-  assert.equal(new Set(icons).size, icons.length);
-  for (const name of ['flag', 'x-circle', 'clock']) assert.ok(!icons.includes(name), name); // Fim de jogo, Pênalti perdido, Acréscimos
-  assert.equal(operatorEventIcon({ type: 'clock_adjust', icon: 'clock' }), 'stopwatch');
-  assert.equal(operatorEventIcon({ type: 'walkover', icon: 'flag' }), STATUS_ICON.walkover);
-  assert.equal(operatorEventIcon({ type: 'rescheduled', icon: 'calendar' }), STATUS_ICON.reschedule);
-  assert.equal(operatorEventIcon({ type: 'cancelled', icon: 'x-circle' }), STATUS_ICON.cancel);
-  assert.equal(operatorEventIcon({ type: 'stoppage_time', icon: 'clock' }), 'clock'); // como no site
-  assert.equal(operatorEventIcon({ type: 'goal', payload: { origin: 'own_goal' } }), 'ball-own');
+test('minuto padrão: só nos lances do andamento; pênaltis e fim de jogo pelo tempo em curso', () => {
+  assert.equal(naturalMinute('match_start', { period: null }), 0);
+  assert.equal(naturalMinute('half_time', { period: 'first_half' }), 45);
+  assert.equal(naturalMinute('second_half_start', { period: 'half_time' }), 45);
+  assert.equal(naturalMinute('extra_time_start', { period: 'second_half' }), 90);
+  assert.equal(naturalMinute('extra_half_time', { period: 'extra_time' }), 105);
+  assert.equal(naturalMinute('extra_second_half_start', { period: 'extra_half_time' }), 105);
+  assert.equal(naturalMinute('match_end', { period: 'second_half' }), 90);
+  assert.equal(naturalMinute('match_end', { period: 'extra_second_half' }), 120);
+  assert.equal(naturalMinute('penalties_start', { period: 'second_half' }), 90);
+  assert.equal(naturalMinute('penalties_start', { period: 'extra_second_half' }), 120);
+  assert.equal(naturalMinute('match_end', { period: 'penalties', events: [] }), 90);
+  assert.equal(naturalMinute('match_end', { period: 'penalties', events: [{ type: 'extra_time_start' }] }), 120);
+  for (const type of ['goal', 'yellow_card', 'shootout_kick', undefined, 'toString']) assert.equal(naturalMinute(type, { period: 'second_half' }), null);
 });
 
-test('dica do minuto: coerente com o campo preenchido pelo relógio, digitado ou em branco', () => {
-  assert.equal(minuteHint('optional', { filled: true, suggested: true }), 'Sugerido pelo relógio; apague para usar o minuto padrão do lance.');
-  assert.equal(minuteHint('optional', { filled: true, suggested: false }), 'Apague para usar o minuto padrão do lance.');
-  assert.equal(minuteHint('optional'), 'Em branco, vale o minuto padrão do lance.');
-  assert.match(minuteHint('required', { filled: true, suggested: true }), /^Sugerido pelo relógio do jogo\./);
+test('dica do minuto: lance de jogo em branco fica sem minuto; andamento usa o minuto padrão', () => {
+  // gol (minuto opcional): não há minuto padrão; em branco, o gol sai sem minuto
+  assert.equal(minuteHint('optional', { kind: 'game', filled: true, suggested: true }), 'Sugerido pelo relógio; em branco, o lance fica sem minuto no site.');
+  assert.equal(minuteHint('optional', { kind: 'game', filled: true, suggested: false }), 'Em branco, o lance fica sem minuto.');
+  assert.equal(minuteHint('optional', { kind: 'game' }), 'Em branco, o lance fica sem minuto.');
+  assert.equal(minuteHint('optional'), 'Em branco, o lance fica sem minuto.'); // sem tipo: não promete padrão
+  for (const value of [{}, { filled: true }, { filled: true, suggested: true }]) {
+    assert.doesNotMatch(minuteHint('optional', { kind: 'game', ...value }), /padrão/);
+  }
+  // andamento: diz qual é o minuto padrão quando se sabe
+  assert.equal(minuteHint('optional', { kind: 'structural', natural: 45, filled: true, suggested: true }), "Sugerido pelo relógio; apague para usar o minuto padrão do lance (45').");
+  assert.equal(minuteHint('optional', { kind: 'structural', natural: 90, filled: true, suggested: false }), "Apague para usar o minuto padrão do lance (90').");
+  assert.equal(minuteHint('optional', { kind: 'structural', natural: 0 }), "Em branco, vale o minuto padrão do lance (0').");
+  assert.equal(minuteHint('optional', { kind: 'structural' }), 'Em branco, vale o minuto padrão do lance.');
+  assert.match(minuteHint('required', { kind: 'game', filled: true, suggested: true }), /^Sugerido pelo relógio do jogo\./);
 });
 
 test('gol contra: a dica diz que o jogador é do adversário do time beneficiado', () => {

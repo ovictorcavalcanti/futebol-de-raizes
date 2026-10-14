@@ -150,7 +150,7 @@ def test_competicao_e_operador_ganchos(client):
 def test_sprite_tem_todos_os_icones_do_dominio_e_do_front():
     sprite = SPRITE.read_text()
     symbols = set(re.findall(r'<symbol id="i-([a-z-]+)"', sprite))
-    domain_icons = {spec.icon for spec in domain.CATALOG.values()} | {
+    domain_icons = {spec.icon for spec in domain.CATALOG.values()} | set(domain.STATUS_ACTION_ICONS.values()) | {
         "ball-penalty",
         "ball-own",
         "card-second-yellow",
@@ -174,6 +174,16 @@ def test_sprite_tem_todos_os_icones_do_dominio_e_do_front():
         )
     )
     assert used <= symbols, used - symbols
+
+
+def test_icones_dos_eventos_no_front_espelham_o_catalogo():
+    """icons.js EVENT_ICONS (reserva quando o evento vem sem `icon`) = ícone do CATALOG:
+    o mesmo lance com o mesmo desenho no operador e no site."""
+    block = (STATIC / "js" / "icons.js").read_text().split("EVENT_ICONS = Object.freeze({")[1].split("})")[0]
+    front = dict(re.findall(r"(\w+): '([a-z-]+)'", block))
+    assert front, block
+    for event_type, name in front.items():
+        assert domain.CATALOG[event_type].icon == name, event_type
 
 
 def test_ativos_estaticos():

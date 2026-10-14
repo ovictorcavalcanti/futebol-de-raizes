@@ -464,7 +464,7 @@ export const CATALOG = {
     { type: 'half_time', label: 'Fim do 1º tempo', kind: 'structural', icon: 'whistle', minute: 'optional', periods: [], fields: [] },
     { type: 'second_half_start', label: 'Início do 2º tempo', kind: 'structural', icon: 'whistle', minute: 'optional', periods: [], fields: [] },
     { type: 'match_end', label: 'Fim de jogo', kind: 'structural', icon: 'flag', minute: 'optional', periods: [], fields: [] },
-    { type: 'goal', label: 'Gol', kind: 'game', icon: 'ball', minute: 'required', periods: ['first_half', 'second_half', 'extra_time'], fields: [field('team_id', 'team', 'Time beneficiado'), field('payload.player', 'player', 'Jogador'), field('payload.origin', 'choice', 'Origem', false, [['open_play', 'Jogada'], ['penalty', 'Pênalti'], ['own_goal', 'Contra']]), field('payload.assist', 'player', 'Assistência', false)] },
+    { type: 'goal', label: 'Gol', kind: 'game', icon: 'ball', minute: 'required', periods: ['first_half', 'second_half', 'extra_time'], fields: [field('team_id', 'team', 'Time beneficiado'), field('payload.origin', 'choice', 'Tipo do gol', false, [['open_play', 'Jogada'], ['penalty', 'Pênalti'], ['own_goal', 'Contra']]), field('payload.player', 'player', 'Jogador', false), field('payload.assist', 'player', 'Assistência', false)] },
     { type: 'goal_annulled', label: 'Gol anulado', kind: 'game', icon: 'ball-x', minute: 'required', periods: [], fields: [field('annuls_event_id', 'event_ref', 'Gol anulado', false), field('payload.reason', 'text', 'Motivo')] },
     { type: 'yellow_card', label: 'Cartão amarelo', kind: 'game', icon: 'card-yellow', minute: 'required', periods: [], fields: [field('team_id', 'team', 'Time'), field('payload.player', 'player', 'Jogador')] },
     { type: 'red_card', label: 'Cartão vermelho', kind: 'game', icon: 'card-red', minute: 'required', periods: [], fields: [field('team_id', 'team', 'Time'), field('payload.player', 'player', 'Jogador')] },
@@ -475,12 +475,12 @@ export const CATALOG = {
     { type: 'stoppage_time', label: 'Acréscimos', kind: 'game', icon: 'clock', minute: 'required', periods: [], fields: [field('payload.minutes', 'int', 'Minutos de acréscimo')] },
   ],
   status_actions: [
-    { action: 'postpone', label: 'Adiar' },
-    { action: 'suspend', label: 'Suspender' },
-    { action: 'resume', label: 'Retomar' },
-    { action: 'reschedule', label: 'Reagendar' },
-    { action: 'cancel', label: 'Cancelar' },
-    { action: 'walkover', label: 'W.O.' },
+    { action: 'postpone', label: 'Adiar', icon: 'calendar' },
+    { action: 'suspend', label: 'Suspender', icon: 'pause' },
+    { action: 'resume', label: 'Retomar', icon: 'play' },
+    { action: 'reschedule', label: 'Reagendar', icon: 'calendar-arrow' },
+    { action: 'cancel', label: 'Cancelar partida', icon: 'ban' },
+    { action: 'walkover', label: 'W.O.', icon: 'trophy' },
   ],
 };
 export const AVAILABLE = { events: ['goal', 'goal_annulled', 'yellow_card', 'red_card', 'substitution', 'penalty_awarded', 'penalty_missed', 'var_review', 'stoppage_time', 'match_end'], status: ['suspend'] };

@@ -1,6 +1,6 @@
 """Django Admin: o que cada perfil vê, regras da fase validadas e aplicadas pelo núcleo,
 partida editada pelo caminho de escrita, lances só leitura dentro da partida com
-"Cancelar lançamento", auditoria das ações do admin e a marca no cabeçalho.
+"Desfazer lançamento", auditoria das ações do admin e a marca no cabeçalho.
 (Navegação por competição, punições e o cancelamento pela página da partida: test_admin_navigation.py.)"""
 
 from __future__ import annotations

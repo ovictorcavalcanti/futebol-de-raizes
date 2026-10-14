@@ -1437,7 +1437,8 @@ def test_operador_lanca_gol_com_confirmacao(open_page):
     ) == ["suspend"]
     page.click('#action-grid [data-type="goal"]')
     visible = "() => [...document.querySelectorAll('#event-form [data-hook=event-fields] > *')].filter((e) => !e.hidden).map((e) => e.dataset.field)"
-    assert page.evaluate(visible) == ["minute", "team", "player", "choice", "player"]
+    # gol: o tipo do gol vem antes do jogador (no gol contra, o autor é do adversário)
+    assert page.evaluate(visible) == ["minute", "team", "choice", "player", "player"]
     minute = int(
         page.evaluate("document.querySelector('#event-form input[name=minute]').value")
     )
@@ -1677,7 +1678,8 @@ def test_operador_rotulos_distintos_e_um_icone_por_acao(open_page):
     partial = "() => { const i = document.getElementById('op-partial-info'); return document.getElementById(i.getAttribute('aria-describedby')).textContent; }"
     assert page.evaluate(partial) == "No site, o jogo aparece sem minuto."
 
-    # formulário do gol: "Tipo do gol", minuto sugerido com dica coerente, "Fechar"
+    # formulário do gol: "Tipo do gol" antes do jogador, minuto sugerido com dica coerente
+    # (o gol não tem minuto padrão: em branco, sai sem minuto), "Fechar"
     page.click('#action-grid [data-type="goal"]')
     described = "(sel) => { const i = document.querySelector(sel); const h = document.getElementById(i.getAttribute('aria-describedby') || ''); return h && !h.hidden ? h.textContent : null; }"
     minute = '#event-form input[name="minute"]'
@@ -1685,15 +1687,22 @@ def test_operador_rotulos_distintos_e_um_icone_por_acao(open_page):
     assert page.evaluate("() => { const s = document.querySelector('#event-form select[name=\"payload.origin\"]'); return document.querySelector(`label[for='${s.id}']`).textContent; }") == "Tipo do gol"
     assert page.text_content('[data-hook="event-cancel"]').strip() == "Fechar"
     assert page.input_value(minute) != ""
-    assert page.evaluate(described, minute) == "Sugerido pelo relógio; apague para usar o minuto padrão do lance."
+    assert page.evaluate(described, minute) == "Sugerido pelo relógio; em branco, o lance fica sem minuto no site."
     page.fill(minute, "")
-    assert page.evaluate(described, minute) == "Em branco, vale o minuto padrão do lance."
+    assert page.evaluate(described, minute) == "Em branco, o lance fica sem minuto."
+    page.fill(minute, "70")
+    assert page.evaluate(described, minute) == "Em branco, o lance fica sem minuto."
     # gol contra: a dica diz de que time é o jogador
     assert page.evaluate(described, player) is None
     page.select_option('#event-form select[name="payload.origin"]', "own_goal")
     assert page.evaluate(described, player) == "Gol contra: jogador do adversário do time beneficiado."
     page.check("#event-form [data-field=team] input[type=radio] >> nth=0", force=True)
     assert page.evaluate(described, player) == "Gol contra: jogador do adversário (Náutico)."
+    # andamento (fim de jogo no 2º tempo): tem minuto padrão, e a dica diz qual
+    page.click('#flow-actions [data-type="match_end"]')
+    assert page.evaluate(described, minute) == "Sugerido pelo relógio; apague para usar o minuto padrão do lance (90')."
+    page.fill(minute, "")
+    assert page.evaluate(described, minute) == "Em branco, vale o minuto padrão do lance (90')."
     page.click('[data-hook="event-cancel"]')
     page.wait_for_selector("#event-form-card[hidden]", state="attached")
 

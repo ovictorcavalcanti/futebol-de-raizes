@@ -288,12 +288,26 @@ def test_catalog_payload():
     assert goal["periods"] == [
         "first_half", "half_time", "second_half", "extra_time", "extra_half_time", "extra_second_half",
     ] and goal["minute"] == "optional"
+    # o tipo do gol vem antes do jogador (no gol contra, o autor é do adversário)
+    assert [item["name"] for item in goal["fields"]] == ["team_id", "payload.origin", "payload.player", "payload.assist"]
     origin = next(item for item in goal["fields"] if item["name"] == "payload.origin")
     assert origin == {
-        "name": "payload.origin", "kind": "choice", "label": "Origem", "required": False,
+        "name": "payload.origin", "kind": "choice", "label": "Tipo do gol", "required": False,
         "choices": [["open_play", "Jogada"], ["penalty", "Pênalti"], ["own_goal", "Contra"]],
     }
-    assert catalog["status_actions"][0] == {"action": "delay", "label": "Marcar atraso"}
+    # rótulos e ícones únicos para operador e site: o botão de status usa o ícone do evento que lança
+    assert catalog["status_actions"][0] == {"action": "delay", "label": "Marcar atraso", "icon": "alert"}
+    status = {item["action"]: (item["label"], item["icon"]) for item in catalog["status_actions"]}
+    assert status["cancel"] == ("Cancelar partida", "ban")
+    assert status["reschedule"] == ("Reagendar", "calendar-arrow")
+    assert status["walkover"] == ("W.O.", "trophy")
+    icons = {spec["type"]: spec["icon"] for spec in catalog["events"]}
+    assert icons["clock_adjust"] == "stopwatch" and icons["stoppage_time"] == "clock"
+    assert (icons["rescheduled"], icons["cancelled"], icons["walkover"]) == ("calendar-arrow", "ban", "trophy")
+    # um desenho por ação na tela do operador: botões de status × lances e andamento
+    status_icons = [item["icon"] for item in catalog["status_actions"]]
+    play_icons = {spec["icon"] for spec in catalog["events"] if spec["kind"] != "status"}
+    assert len(set(status_icons)) == len(status_icons) and not set(status_icons) & play_icons
     assert {"key": "half_time", "label": "Intervalo", "short": "INT"} in catalog["periods"]
     assert {"key": "suspended", "label": "Suspenso"} in catalog["statuses"]
     reschedule = next(spec for spec in catalog["events"] if spec["type"] == "rescheduled")

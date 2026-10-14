@@ -5,7 +5,7 @@ punições em pontos e o fim do cadastro de jogadores.
   auditoria para quem pode); o resto se abre descendo a hierarquia, com a trilha
   Início › Competição › Temporada › Fase › Rodada › Jogo.
 * Rodada: jogos (e confrontos, no mata-mata) cadastrados ali, pelo mesmo caminho de escrita.
-* Partida: "Cancelar lançamento" por linha chama `services.void_event`; link para a tela
+* Partida: "Desfazer lançamento" por linha chama `services.void_event`; link para a tela
   do operador.
 * Fase: punição/bonificação recalcula e publica a classificação (API e API pública mostram).
 """
@@ -242,7 +242,7 @@ def test_knockout_round_page_adds_tie_and_its_match(admin_client_fdr, league):
 
 
 def void_via_match_page(client, match, events, follow=True):
-    """Marca "Cancelar lançamento" nas linhas de `events` e salva a página da partida."""
+    """Marca "Desfazer lançamento" nas linhas de `events` e salva a página da partida."""
     response = client.get(change_url(match))
     prefix = inline_prefix(response, MatchEvent)
     data = post_data(response)
@@ -266,7 +266,7 @@ def test_match_page_lists_visible_events_and_links_to_operator(admin_client_fdr,
     response = admin_client_fdr.get(change_url(match))
     page = response.content.decode()
     assert "Zé Roberto · Pênalti" in page and "Lance Errado" not in page  # cancelado não aparece
-    assert "Cancelar lançamento" in page
+    assert "Desfazer lançamento" in page and "Cancelar lançamento" not in page
     operator = f"/operator.html?date=2026-10-03&amp;match={match.pk}"
     assert page.count(operator) == 1  # só no aviso do topo (nada ao lado de "Histórico")
     assert "Lançar lances na tela do operador" in page
@@ -288,7 +288,7 @@ def test_void_through_match_inline_uses_the_service(operator_client, league, ope
     assert start.voided_at is not None  # do mais novo ao mais antigo: o início cai depois do gol
     match.refresh_from_db()
     assert (match.home_score, match.status) == (0, "scheduled")
-    assert "2 lançamento(s) cancelado(s)" in messages_text(response)
+    assert "2 lançamento(s) desfeito(s)" in messages_text(response)
     assert AuditLog.objects.filter(action="event.void", match_id=match.id).count() == 2
     assert Outbox.objects.filter(id__gt=mark, topic="match").exists()
     assert MatchEvent.objects.filter(match=match).count() == 2  # nada apagado
@@ -304,7 +304,7 @@ def test_void_through_match_inline_reports_domain_error(operator_client, league,
     response = void_via_match_page(operator_client, match, [start])
     start.refresh_from_db()
     assert start.voided_at is None
-    assert "Cancelar este lançamento deixa a sequência inválida" in messages_text(response)
+    assert "Desfazer este lançamento deixa a sequência inválida" in messages_text(response)
 
 
 def test_void_yellow_and_its_automatic_red_together(operator_client, league, operator_user):
@@ -317,7 +317,7 @@ def test_void_yellow_and_its_automatic_red_together(operator_client, league, ope
     red = second.derived[0]
     response = void_via_match_page(operator_client, match, [second.event, red])
     text = messages_text(response)
-    assert "1 lançamento(s) cancelado(s)" in text and "Não deu" not in text
+    assert "1 lançamento(s) desfeito(s)" in text and "Não deu" not in text
     assert MatchEvent.objects.filter(pk__in=[second.event.pk, red.pk], voided_at__isnull=False).count() == 2
 
 

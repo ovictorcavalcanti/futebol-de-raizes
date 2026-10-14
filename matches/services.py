@@ -366,7 +366,7 @@ def edit_event(match_id: int, event_id: int, user, new: NewEvent, *, confirm: bo
 
     O lance continua no mesmo lugar da sequência e no mesmo período: o domínio refaz a
     partida com o lance corrigido e recusa a correção se ela quebrar o que veio depois.
-    O tipo não muda; andamento e status não se editam (cancele e lance de novo), nem
+    O tipo não muda; andamento e status não se editam (desfaça e lance de novo), nem
     lance ligado a vermelho automático. Cartões seguem a regra do cancelamento
     (`domain.check_edit`): o vermelho automático cujo amarelo deixou de ser o 2º cai junto
     (cancelado na mesma transação, ids em `PostResult.voided_ids` e nos `voided_ids` da
@@ -385,13 +385,13 @@ def _edit(match_id, event_id, user, new: NewEvent, *, confirm, request) -> PostR
         if target is None:
             raise DomainError("event_not_found", "Lançamento não encontrado nesta partida.", {"event_id": event_id})
         if target.voided_at is not None:
-            raise DomainError("already_voided", "Este lançamento foi cancelado.", {"event_id": event_id})
+            raise DomainError("already_voided", "Este lançamento já foi desfeito.", {"event_id": event_id})
         spec = domain.CATALOG.get(target.type)
         if spec is None or spec.kind != "game" or (new.type and new.type != target.type):
             raise DomainError(
                 "event_not_editable",
                 "Só lances (gol, cartão, substituição...) podem ser editados, sem mudar o tipo. "
-                "Para andamento e status, cancele e lance de novo.",
+                "Para andamento e status, desfaça e lance de novo.",
                 {"event_id": event_id, "type": target.type},
             )
         linked = domain.derived_from(context.to_domain_event(target)) is not None or any(
@@ -401,7 +401,7 @@ def _edit(match_id, event_id, user, new: NewEvent, *, confirm, request) -> PostR
         if linked:
             raise DomainError(
                 "event_not_editable",
-                "Este cartão está ligado a um vermelho automático: cancele e lance de novo.",
+                "Este cartão está ligado a um vermelho automático: desfaça e lance de novo.",
                 {"event_id": event_id},
             )
         events = work.domain_events()
@@ -414,7 +414,7 @@ def _edit(match_id, event_id, user, new: NewEvent, *, confirm, request) -> PostR
         if result.derived:
             raise DomainError(
                 "event_not_editable",
-                "A correção geraria um vermelho automático: cancele e lance de novo.",
+                "A correção geraria um vermelho automático: desfaça e lance de novo.",
                 {"event_id": event_id},
             )
         edited = replace(result.event, id=target.id, created_at=target.created_at)

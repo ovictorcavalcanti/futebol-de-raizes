@@ -176,7 +176,8 @@ def test_valid_goals_and_score_ignore_annulled_voided_and_shootout():
 
 ICONS = {
     "ball", "ball-penalty", "ball-own", "ball-x", "whistle", "var", "sub", "card-yellow", "card-red",
-    "card-second-yellow", "clock", "flag", "calendar", "pause", "play", "x-circle", "target",
+    "card-second-yellow", "clock", "stopwatch", "flag", "calendar", "calendar-arrow", "pause", "play", "x-circle",
+    "ban", "trophy", "target",
 }
 
 
@@ -1281,7 +1282,7 @@ def test_events_that_no_longer_replay_keep_the_void_and_edit_rules():
     with pytest.raises(DomainError) as info:
         check_void(broken, other.id, CTX)
     assert info.value.code == "void_breaks_sequence" and info.value.details["cause"] == "period_mismatch"
-    assert info.value.message.startswith("Cancelar este lançamento deixa a sequência inválida:")
+    assert info.value.message.startswith("Desfazer este lançamento deixa a sequência inválida:")
     # corrigir o lance culpado também
     assert check_edit(broken, replace(goal, minute=11), CTX).voided_ids == ()
 

@@ -30,15 +30,15 @@ export const EVENT_ICONS = Object.freeze({
   yellow_card: 'card-yellow',
   red_card: 'card-red',
   stoppage_time: 'clock',
-  clock_adjust: 'clock',
+  clock_adjust: 'stopwatch',
   shootout_kick: 'target',
   delayed: 'clock',
   postponed: 'calendar',
   suspended: 'pause',
   resumed: 'play',
-  rescheduled: 'calendar',
-  cancelled: 'x-circle',
-  walkover: 'flag',
+  rescheduled: 'calendar-arrow',
+  cancelled: 'ban',
+  walkover: 'trophy',
 });
 
 /**

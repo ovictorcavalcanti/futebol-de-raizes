@@ -211,7 +211,7 @@ STATUS_ACTION_LABELS = {
     StatusAction.SUSPEND: "Suspender",
     StatusAction.RESUME: "Retomar",
     StatusAction.RESCHEDULE: "Reagendar",
-    StatusAction.CANCEL: "Cancelar",
+    StatusAction.CANCEL: "Cancelar partida",
     StatusAction.WALKOVER: "W.O.",
 }
 
@@ -325,14 +325,15 @@ CATALOG: dict[str, EventSpec] = {
         _structural(EventType.MATCH_END, "Fim de jogo", "flag"),
         _game(
             # Minuto e autor opcionais: às vezes só se sabe o placar (gol "a confirmar"); no
-            # intervalo, o gol é do tempo que acabou (com minuto, ele decide qual).
+            # intervalo, o gol é do tempo que acabou (com minuto, ele decide qual). O tipo vem
+            # antes do jogador: no gol contra, o autor é do adversário do time beneficiado.
             EventType.GOAL, "Gol", "ball", _PLAY_AND_INTERVAL,
             FieldSpec("team_id", "team", "Time beneficiado"),
-            FieldSpec("payload.player", "player", "Jogador", required=False),
             FieldSpec(
-                "payload.origin", "choice", "Origem", required=False,
+                "payload.origin", "choice", "Tipo do gol", required=False,
                 choices=tuple((origin.value, label) for origin, label in GOAL_ORIGIN_LABELS.items()),
             ),
+            FieldSpec("payload.player", "player", "Jogador", required=False),
             FieldSpec("payload.assist", "player", "Assistência", required=False),
             minute="optional",
         ),
@@ -374,7 +375,7 @@ CATALOG: dict[str, EventSpec] = {
                 FieldSpec("payload.action", "choice", "Ação", choices=tuple(CLOCK_ACTION_LABELS.items())),
                 FieldSpec("payload.minute", "int", "Minuto que o relógio deve mostrar", required=False),
             ),
-            _CLOCK_PERIODS, minute="none", public=False, icon="clock",
+            _CLOCK_PERIODS, minute="none", public=False, icon="stopwatch",
         ),
         _game(
             EventType.SHOOTOUT_KICK, "Cobrança de pênalti", "target", frozenset({Period.PENALTIES}),
@@ -388,19 +389,26 @@ CATALOG: dict[str, EventSpec] = {
         _status(EventType.SUSPENDED, "Suspenso", "pause", _F_REASON_OPTIONAL),
         _status(EventType.RESUMED, "Retomado", "play"),
         _status(
-            EventType.RESCHEDULED, "Reagendado", "calendar",
+            EventType.RESCHEDULED, "Reagendado", "calendar-arrow",
             FieldSpec("payload.kickoff_at", "datetime", "Nova data e hora"),
             _F_REASON_OPTIONAL,
         ),
-        _status(EventType.CANCELLED, "Cancelado", "x-circle", _F_REASON_OPTIONAL),
+        _status(EventType.CANCELLED, "Cancelado", "ban", _F_REASON_OPTIONAL),
         _status(
-            EventType.WALKOVER, "W.O.", "flag",
+            EventType.WALKOVER, "W.O.", "trophy",
             FieldSpec("team_id", "team", "Time beneficiado"),
             FieldSpec("payload.home_score", "int", "Gols do mandante", required=False),
             FieldSpec("payload.away_score", "int", "Gols do visitante", required=False),
             FieldSpec("payload.reason", "text", "Motivo do W.O."),
         ),
     )
+}
+
+# Ícone dos botões de status (GET /api/ops/catalog → status_actions): o do evento que a ação
+# lança, menos "Marcar atraso", que fica com o do aviso "Início atrasado" do site (o relógio
+# já é de Acréscimos, na mesma tela do operador).
+STATUS_ACTION_ICONS = {action: CATALOG[event].icon for action, event in STATUS_ACTION_EVENT.items()} | {
+    StatusAction.DELAY: "alert",
 }
 
 
@@ -741,13 +749,13 @@ def check_void(events: Sequence[Event], event_id: int, ctx: MatchContext) -> Voi
     if target is None:
         raise DomainError("event_not_found", "Lançamento não encontrado nesta partida.", {"event_id": event_id})
     if target.voided:
-        raise DomainError("already_voided", "Este lançamento já foi cancelado.", {"event_id": event_id})
+        raise DomainError("already_voided", "Este lançamento já foi desfeito.", {"event_id": event_id})
     visible = visible_events(events)
     origin = derived_from(target)
     if origin is not None and any(event.sequence == origin for event in visible):
         raise DomainError(
             "void_derived_event",
-            "Este vermelho saiu do 2º amarelo: cancele o cartão amarelo de origem.",
+            "Este vermelho saiu do 2º amarelo: desfaça o cartão amarelo de origem.",
             {"event_id": event_id, "origin_sequence": origin},
         )
 
@@ -757,14 +765,14 @@ def check_void(events: Sequence[Event], event_id: int, ctx: MatchContext) -> Voi
     except DomainError as exc:
         raise DomainError(
             "void_breaks_sequence",
-            f"Cancelar este lançamento deixa a sequência inválida: {exc.message}",
+            f"Desfazer este lançamento deixa a sequência inválida: {exc.message}",
             {"event_id": event_id, "cause": exc.code, **exc.details},
         ) from exc
     if missing:
         raise DomainError(
             "void_breaks_sequence",
-            f"Cancelar este lançamento faz do amarelo #{missing[0]} o 2º do jogador, sem o vermelho "
-            "automático: cancele esse amarelo antes e lance-o de novo depois.",
+            f"Desfazer este lançamento faz do amarelo #{missing[0]} o 2º do jogador, sem o vermelho "
+            "automático: desfaça esse amarelo antes e lance-o de novo depois.",
             {"event_id": event_id, "cause": "second_yellow_without_red", "sequence": missing[0]},
         )
 
@@ -793,7 +801,7 @@ def check_edit(events: Sequence[Event], edited: Event, ctx: MatchContext) -> Voi
         raise DomainError(
             "event_not_editable",
             f"A correção faz do amarelo #{missing[0]} o 2º do jogador, sem o vermelho automático: "
-            "cancele esse amarelo antes e lance-o de novo depois.",
+            "desfaça esse amarelo antes e lance-o de novo depois.",
             {"event_id": edited.id, "cause": "second_yellow_without_red", "sequence": missing[0]},
         )
     return VoidResult(replay.state, tuple(event.id for event in visible if event.sequence in dropped and event.id is not None))
@@ -1689,7 +1697,7 @@ def _on_goal(i: _Input) -> _Outcome:
     team = _team(i)
     origin = i.payload.get("origin") or GoalOrigin.OPEN_PLAY
     if not isinstance(origin, str) or origin not in GOAL_ORIGIN_LABELS:
-        raise _error("invalid_payload", "Origem do gol inválida.", field="payload.origin")
+        raise _error("invalid_payload", "Tipo do gol inválido.", field="payload.origin")
     origin = GoalOrigin(origin)
     scorer_team = _opponent(i.ctx, team) if origin == GoalOrigin.OWN_GOAL else team
     unknown = _clean_name(i.payload.get("player"), "payload.player") is None and i.new.player_id is None

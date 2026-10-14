@@ -18,8 +18,9 @@ Toda escrita passa pelo mesmo núcleo dos lançamentos (matches/services.py):
   `services.on_match_edited` refaz o cache pelos eventos, recalcula
   classificação/confronto quando preciso e publica a partida.
   Partida com lançamentos não se apaga (eventos não são apagados).
-* Lances: ficam dentro da partida, somente leitura (os cancelados somem). Lance errado
-  se corrige marcando "Cancelar lançamento" na linha e salvando: chama
+* Lances: ficam dentro da partida, somente leitura (os desfeitos somem). Lance errado
+  se corrige marcando "Desfazer lançamento" na linha e salvando (o mesmo "Desfazer" da
+  tela do operador): chama
   `services.void_event` (exige `matches.void_event`); nenhuma linha de evento é gravada
   nem apagada pelo admin. Lançar lances novos é na tela do operador (link no topo da
   partida), que confere os campos de cada tipo.
@@ -305,9 +306,9 @@ class MatchStatInline(Inline):
 
 
 class VoidEventForm(forms.ModelForm):
-    """Linha de lance: nada se edita; só a caixa "Cancelar lançamento"."""
+    """Linha de lance: nada se edita; só a caixa "Desfazer lançamento"."""
 
-    void = forms.BooleanField(label="Cancelar lançamento", required=False)
+    void = forms.BooleanField(label="Desfazer lançamento", required=False)
 
     class Meta:
         model = MatchEvent
@@ -328,7 +329,7 @@ class MatchEventFormSet(BaseInlineFormSet):
 
 class MatchEventInline(admin.TabularInline):
     """Lances visíveis da partida (mais recentes primeiro), somente leitura. Corrigir um
-    erro = marcar "Cancelar lançamento" e salvar (precisa de `matches.void_event`)."""
+    erro = marcar "Desfazer lançamento" e salvar (precisa de `matches.void_event`)."""
 
     model = MatchEvent
     form = VoidEventForm
@@ -341,7 +342,7 @@ class MatchEventInline(admin.TabularInline):
     max_num = 0
     can_delete = False
     verbose_name = "lance"
-    verbose_name_plural = "lances (os cancelados não aparecem; para corrigir um erro, marque “Cancelar lançamento” e salve)"
+    verbose_name_plural = "lances (os desfeitos não aparecem; para corrigir um erro, marque “Desfazer lançamento” e salve)"
 
     def get_queryset(self, request):
         return super().get_queryset(request).filter(voided_at__isnull=True).select_related("team", "created_by")
@@ -560,7 +561,7 @@ class MatchAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, WriteLockedPostMixin
             return
         request._fdr_stay = True  # volta para a própria partida, com a lista de lances refeita
         if not request.user.has_perm("matches.void_event"):
-            self.message_user(request, "Seu perfil não pode cancelar lançamentos.", messages.ERROR)
+            self.message_user(request, "Seu perfil não pode desfazer lançamentos.", messages.ERROR)
             return
         selected = {event.sequence for event in events}
         fallen: set[int] = set()
@@ -573,7 +574,7 @@ class MatchAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, WriteLockedPostMixin
             try:
                 outcome = services.void_event(event.match_id, event.id, request.user, reason=VOID_REASON, request=request)
             except DomainError as exc:
-                self.message_user(request, f"Não deu para cancelar {label}: {exc.message}", messages.ERROR)
+                self.message_user(request, f"Não deu para desfazer {label}: {exc.message}", messages.ERROR)
                 continue
             if outcome.already:
                 already += 1
@@ -581,9 +582,9 @@ class MatchAdmin(HiddenFromIndexMixin, HierarchyAdminMixin, WriteLockedPostMixin
                 voided += 1
                 fallen.update(outcome.voided_ids)
         if voided:
-            self.message_user(request, f"{voided} lançamento(s) cancelado(s) (com o que caiu junto).", messages.SUCCESS)
+            self.message_user(request, f"{voided} lançamento(s) desfeito(s) (com o que caiu junto).", messages.SUCCESS)
         if already:
-            self.message_user(request, f"{already} lançamento(s) já estava(m) cancelado(s).", messages.INFO)
+            self.message_user(request, f"{already} lançamento(s) já estava(m) desfeito(s).", messages.INFO)
 
     def _redirect_up(self, request, obj, default):
         if getattr(request, "_fdr_stay", False):

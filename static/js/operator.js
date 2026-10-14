@@ -63,7 +63,7 @@ export function effectiveMinuteMode(spec, period) {
  * * fim do 1º tempo / fim de jogo com relógio correndo → minuto final do período,
  *   com o acréscimo já jogado;
  * * demais casos (intervalo, pênaltis, início de período, sem relógio) → null
- *   (em branco: o back usa o minuto padrão do lance, quando houver).
+ *   (em branco: o lance do andamento usa o minuto padrão dele; o de jogo fica sem minuto).
  * @returns {{minute: number, stoppage: number|null}|null}
  */
 export function suggestMinute(match, spec, nowMs) {
@@ -200,48 +200,46 @@ export function groupByCompetition(matches = []) {
   return [...groups.values()].map((group) => ({ ...group, matches: sortByStatus(group.matches) }));
 }
 
-/* Ajustes de apresentação sobre o catálogo (GET /api/ops/catalog), só nesta tela: rótulos que
-   dizem o que o campo é e ícones que não se repetem entre ações diferentes. */
-const OP_FIELD_LABELS = { 'goal|payload.origin': 'Tipo do gol' };
-const OP_STATUS_LABELS = { cancel: 'Cancelar partida' };
-/** Ícone por tipo de evento (botão e linha do tempo) quando o do catálogo repete o de outra ação:
- * Relógio do jogo × Acréscimos (relógio), Reagendado × Adiado (calendário), W.O. × Fim de jogo
- * (bandeira), Cancelado × Pênalti perdido (⊗). */
-const OP_EVENT_ICONS = { clock_adjust: 'stopwatch', rescheduled: 'calendar-arrow', walkover: 'trophy', cancelled: 'ban' };
-/** Ícone dos botões de "Status da partida" (ação → ícone), alinhado com OP_EVENT_ICONS. */
-export const STATUS_ICON = Object.freeze({
-  postpone: 'calendar', suspend: 'pause', resume: 'play', reschedule: 'calendar-arrow', cancel: 'ban', walkover: 'trophy',
-});
+/* Rótulos e ícones (lances e botões de status) vêm do catálogo (GET /api/ops/catalog,
+   matches.domain.CATALOG): os mesmos do site público. */
+
+/** Minuto padrão dos lances do andamento (igual a domain._plan_structural). */
+const NATURAL_MINUTE = { match_start: 0, half_time: 45, second_half_start: 45, extra_time_start: 90, extra_half_time: 105, extra_second_half_start: 105 };
 
 /**
- * Catálogo com os rótulos e ícones desta tela ("Origem" → "Tipo do gol", "Cancelar" →
- * "Cancelar partida", Relógio do jogo com cronômetro). Não muda tipos, campos nem regras.
+ * Minuto que o back grava num lance do andamento lançado sem minuto, ou null: lance de jogo
+ * (não tem padrão: fica sem minuto) ou caso que não dá para saber daqui. Início dos pênaltis
+ * e fim de jogo dependem do tempo em curso (90' no 2º tempo, 120' na prorrogação).
  */
-export function operatorCatalog(catalog) {
-  const events = (catalog?.events || []).map((spec) => ({
-    ...spec,
-    icon: OP_EVENT_ICONS[spec.type] || spec.icon,
-    fields: (spec.fields || []).map((field) => ({ ...field, label: OP_FIELD_LABELS[`${spec.type}|${field.name}`] || field.label })),
-  }));
-  const statusActions = (catalog?.status_actions || []).map((item) => ({ ...item, label: OP_STATUS_LABELS[item.action] || item.label }));
-  return { ...catalog, events, status_actions: statusActions };
-}
-
-/** Ícone de um lançamento na linha do tempo do operador (o mesmo do botão que o lança). */
-export function operatorEventIcon(event) {
-  return OP_EVENT_ICONS[event?.type] || eventIconName(event);
+export function naturalMinute(type, match) {
+  if (Object.hasOwn(NATURAL_MINUTE, type ?? '')) return NATURAL_MINUTE[type];
+  if (type !== 'penalties_start' && type !== 'match_end') return null;
+  const period = match?.period;
+  if (period === 'second_half') return 90;
+  if (period === 'extra_second_half') return 120;
+  if (type === 'match_end' && period === 'penalties') {
+    return (match.events || []).some((e) => e.type === 'extra_time_start') ? 120 : 90;
+  }
+  return null;
 }
 
 /**
  * Dica do minuto: diz o que vale quando o campo é opcional (vem preenchido pelo relógio
- * ou em branco) e quando é obrigatório.
+ * ou em branco) e quando é obrigatório. Só o lance do andamento (kind "structural") tem
+ * minuto padrão; o lance de jogo deixado em branco fica sem minuto no site.
  * @param {'required'|'optional'|'none'} mode
- * @param {{filled?: boolean, suggested?: boolean}} [value] filled: há minuto no campo; suggested: veio do relógio
+ * @param {{filled?: boolean, suggested?: boolean, kind?: string, natural?: number|null}} [value]
+ *   filled: há minuto no campo; suggested: veio do relógio; kind: do catálogo;
+ *   natural: minuto padrão do lance do andamento (naturalMinute), quando se sabe
  */
-export function minuteHint(mode, { filled = false, suggested = false } = {}) {
+export function minuteHint(mode, { filled = false, suggested = false, kind = 'game', natural = null } = {}) {
   if (mode === 'required') return 'Sugerido pelo relógio do jogo. Acréscimo só no fim de cada tempo.';
-  if (!filled) return 'Em branco, vale o minuto padrão do lance.';
-  return suggested ? 'Sugerido pelo relógio; apague para usar o minuto padrão do lance.' : 'Apague para usar o minuto padrão do lance.';
+  if (kind !== 'structural') {
+    return filled && suggested ? 'Sugerido pelo relógio; em branco, o lance fica sem minuto no site.' : 'Em branco, o lance fica sem minuto.';
+  }
+  const standard = natural == null ? 'o minuto padrão do lance' : `o minuto padrão do lance (${natural}')`;
+  if (!filled) return `Em branco, vale ${standard}.`;
+  return suggested ? `Sugerido pelo relógio; apague para usar ${standard}.` : `Apague para usar ${standard}.`;
 }
 
 /** Dica do jogador no gol contra: o autor é do time adversário do beneficiado. */
@@ -418,7 +416,7 @@ async function showApp(me) {
 
 async function loadCatalog() {
   try {
-    const catalog = operatorCatalog(await api.getCatalog());
+    const catalog = await api.getCatalog();
     state.catalog = catalog;
     state.specs = new Map((catalog?.events || []).map((spec) => [spec.type, spec]));
     if (state.match) paintActions();
@@ -739,7 +737,7 @@ function actionButton(type) {
   const spec = specFor(type);
   const btn = cloneTemplate('tpl-action-button');
   const p = hooks(btn);
-  p['action-icon'].setAttribute('href', `#i-${spec.icon || 'info'}`); // já com OP_EVENT_ICONS (operatorCatalog)
+  p['action-icon'].setAttribute('href', `#i-${spec.icon || 'info'}`);
   p['action-label'].textContent = spec.label;
   btn.dataset.type = type;
   btn.classList.toggle('action-btn--goal', type === 'goal');
@@ -763,7 +761,7 @@ function paintButtons() {
     els.statusActions.replaceChildren(...(state.catalog?.status_actions || []).map((item) => {
       const btn = cloneTemplate('tpl-status-button');
       const p = hooks(btn);
-      p['status-icon'].setAttribute('href', `#i-${STATUS_ICON[item.action] || 'info'}`);
+      p['status-icon'].setAttribute('href', `#i-${item.icon || 'info'}`); // o do evento que a ação lança
       p['status-label'].textContent = item.label;
       btn.dataset.action = item.action;
       if (item.action === 'cancel') btn.classList.replace('btn--secondary', 'btn--danger');
@@ -994,15 +992,22 @@ function minuteControl() {
   p.input.setAttribute('aria-describedby', p.hint.id);
   // a dica acompanha o campo: preenchido pelo relógio, digitado ou em branco
   const paintHint = () => {
-    p.hint.textContent = minuteHint(control.mode, { filled: p.input.value !== '', suggested: !control.dirty });
+    p.hint.textContent = minuteHint(control.mode, {
+      filled: p.input.value !== '', suggested: !control.dirty, kind: control.kind, natural: control.natural,
+    });
   };
   const control = {
     el,
     inputs: [p.input, p.stoppage],
     mode: 'none',
+    kind: 'game',
+    natural: null,
     dirty: false,
-    configure(mode) {
+    /** @param {{kind?: string, natural?: number|null}} [about] tipo do lance, para a dica */
+    configure(mode, { kind = 'game', natural = null } = {}) {
       control.mode = mode;
+      control.kind = kind;
+      control.natural = natural;
       p.input.required = mode === 'required';
       p.label.textContent = mode === 'required' ? 'Minuto' : 'Minuto (opcional)';
       paintHint();
@@ -1082,9 +1087,16 @@ function refreshDependencies() {
 function refreshFormOptions() {
   const spec = specFor(state.formType);
   for (const [field, control] of activeControls()) control.configure(field, state.match);
-  state.minute?.configure(effectiveMinuteMode(spec, state.match?.period));
+  if (state.minute) configureMinute(spec);
   refreshDependencies();
   refreshSuggestion();
+}
+
+/** Minuto do tipo aberto: exigência agora e, no lance do andamento, o minuto padrão (dica). */
+function configureMinute(spec) {
+  const mode = effectiveMinuteMode(spec, state.match?.period);
+  state.minute.configure(mode, { kind: spec?.kind, natural: naturalMinute(spec?.type, state.match) });
+  return mode;
 }
 
 function refreshSuggestion(nowMs = now()) {
@@ -1127,8 +1139,7 @@ function openForm(type, { focus = true } = {}) {
 
   // campos do tipo, na ordem do catálogo; os demais ficam escondidos (hidden) e desligados
   if (!state.minute) state.minute = minuteControl();
-  const mode = effectiveMinuteMode(spec, state.match.period);
-  state.minute.configure(mode);
+  const mode = configureMinute(spec);
   enableControl(state.minute, mode !== 'none');
   const order = [state.minute.el];
   const used = new Set();
@@ -1524,7 +1535,7 @@ function paintTimeline() {
     const title = eventTitle(event);
     li.dataset.eventId = String(event.id);
     p.minute.textContent = event.minute_label || event.period_short || '';
-    p.icon.setAttribute('href', `#i-${operatorEventIcon(event)}`);
+    p.icon.setAttribute('href', `#i-${eventIconName(event)}`);
     p.title.textContent = title;
     p.sub.textContent = eventSub(event, match);
     li.classList.toggle('op-event--goal', event.type === 'goal');

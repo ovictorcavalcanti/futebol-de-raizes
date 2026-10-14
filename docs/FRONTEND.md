@@ -141,10 +141,41 @@ for (const stage of comp.stages) {
 | `#round-prev`, `#round-next` (`disabled`), `#round-label` (`aria-live="polite"`) | Navegação ‹ Rodada 5 ›. |
 | `#round-matches` (`aria-busy="true"`) | Cards da rodada (`createMatchCard`); mata-mata: um bloco por confronto (`createTieGroup`); fase de grupos com tabela: uma linha por grupo (`.group-row`: jogos do grupo ou "Não há jogos deste grupo nesta rodada." e a tabela do grupo ao lado, topo alinhado, com a legenda das cores e as punições do grupo embaixo; a linha tem a altura do mais alto dos dois; critérios de desempate uma vez, dentro do card do último grupo; jogos entre grupos numa seção à parte, `createGroupRows`). |
 | `#round-empty` (`hidden`) | "Nenhum jogo nesta rodada." |
+| `#round-share` (`hidden`) | "Resultados no WhatsApp": a mensagem da rodada exibida (um jogo por linha, na ordem da página) com o link dela, direto no WhatsApp; aparece com jogo na rodada. |
 | `#stage-standings` | `createStandings(stage.standings)` (liga; na fase de grupos as tabelas vão para as linhas de `#round-matches`). |
 | `#stage-ties` (`hidden`) › `[data-hook="ties-list"]` | Sem uso (fica `hidden`): o agregado vem no card do jogo de volta. |
 | `#competition-missing` (`hidden`) | Slug inexistente. |
 | `#competition-error` (`hidden`) › `[data-hook="competition-retry"]` | Erro genérico. |
+
+Na home, cada seção de competição tem `[data-hook="competition-share"]` ("Resultados no
+WhatsApp"): os resultados do dia daquela competição, com o link do dia (`/?date=`).
+
+Link compartilhado de um jogo: `/?jogo=<id>`. O servidor (`core.views.home_page`) põe as tags
+`og:` (placar e autores dos gols, `core/share.py`; cache de 60 s) e o dia do jogo em
+`#competitions[data-focus-day]` (o de agora, mesmo reagendado); a home abre nesse dia, com o card
+do jogo aberto e na tela. Trocar de dia tira o `?jogo` da URL. Id inválido ou jogo que não
+existe: a home de sempre.
+
+### Compartilhar no WhatsApp (`share.js`)
+
+* Card: botão `.match__share` no canto de cima (todo card com acordeão; o placar do operador
+  não tem) abre a janela `dialog.share-sheet`: a prévia da imagem e um botão, "Compartilhar no
+  WhatsApp" (`[data-hook="share-whatsapp"]`). Nunca há "baixar".
+  * Com Web Share de arquivos (celular): a imagem vai como arquivo pela folha nativa, com a
+    mensagem (e o link) na legenda. A imagem é gerada quando a janela abre, para o clique chamar
+    o share direto (o Safari exige o gesto do usuário).
+  * Sem ela (computador): o botão é o link `api.whatsapp.com/send?text=` com a mensagem e copia
+    a imagem para colar na conversa (toast "Imagem copiada").
+* `matchShareText(match, now, url)`: mensagem com a formatação do WhatsApp — `*placar*`;
+  competição · rodada · situação; W.O. (com o motivo); "⚽ *Time:* autor minuto (pên./contra)"
+  por lado; "🔗 link". `resultsShareText(title, matches, now, url)`: `*título*` e uma linha por
+  jogo (placar; situação entre parênteses se não acabou; horário se não começou) e o link.
+  `shareResultsOnWhatsApp(title, matches, {now, url})` abre a conversa com ela.
+* `renderMatchImage(match, {now, brand, host})` → PNG 1080 × 1080 no canvas: competição, rodada e
+  situação, escudos (o `crest_url` com CORS ou o escudo desenhado), times, placar e só os autores
+  dos gols — todos os autores no mesmo tamanho de fonte (o maior em que o mais longo cabe), e os
+  dois nomes também —, com o nome do site no rodapé. Sem servidor e sem dependência nova.
+* `matchUrl(match)` → `/?jogo=<id>`.
 
 ### Operador (`operator.html`)
 

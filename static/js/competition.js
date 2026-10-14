@@ -15,6 +15,7 @@ import { createStandings, updateStandings } from './standings.js';
 import { createGroupRows, updateGroupRows, createMatchGroupBlocks } from './group-rows.js';
 import { getCompetitions, getCompetition, listMatches, getMatch, getRanking } from './api.js';
 import { createStream, liveStatusIndicator } from './stream.js';
+import { shareResultsOnWhatsApp } from './share.js';
 
 const $ = (id) => document.getElementById(id);
 const hook = (name) => document.querySelector(`[data-hook="${name}"]`);
@@ -30,6 +31,7 @@ const els = {
   prev: $('round-prev'),
   next: $('round-next'),
   roundLabel: $('round-label'),
+  share: $('round-share'),
   grid: $('competition-grid'),
   aside: document.querySelector('#competition-grid [data-hook="aside"]'),
   matches: $('round-matches'),
@@ -170,6 +172,7 @@ function renderMatches(matches, ties = null) {
   els.matches.removeAttribute('aria-busy');
   els.matches.hidden = blocks.length === 0;
   els.roundEmpty.hidden = blocks.length > 0;
+  if (els.share) els.share.hidden = next.size === 0;
   els.ties.hidden = true; // o agregado fica no card do jogo de volta
   els.tiesList.replaceChildren();
   updateAside();
@@ -268,6 +271,19 @@ function paintRoundNav() {
   els.roundLabel.textContent = round ? round.name || `Rodada ${round.number}` : 'Sem rodadas';
   els.prev.disabled = state.roundIndex <= 0;
   els.next.disabled = state.roundIndex < 0 || state.roundIndex >= state.rounds.length - 1;
+}
+
+/** Resultados da rodada exibida no WhatsApp, na ordem da página, com o link dela. */
+function shareRound() {
+  const round = state.rounds[state.roundIndex];
+  const stages = state.data?.stages || [];
+  const title = [
+    state.data?.competition?.name,
+    stages.length > 1 ? state.stage?.name : null,
+    round ? round.name || `Rodada ${round.number}` : null,
+  ].filter(Boolean).join(' · ');
+  const matches = [...els.matches.querySelectorAll('.match')].map(getCardMatch).filter(Boolean);
+  shareResultsOnWhatsApp(title, matches, { now: now(), url: window.location.href });
 }
 
 function writeUrl() {
@@ -544,6 +560,7 @@ async function boot() {
   });
 }
 
+els.share?.addEventListener('click', shareRound);
 els.prev.addEventListener('click', () => goToRound(state.roundIndex - 1));
 els.next.addEventListener('click', () => goToRound(state.roundIndex + 1));
 els.stageSelect.addEventListener('change', () => {

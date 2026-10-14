@@ -1419,3 +1419,92 @@ def test_logo_horizontal_largo_nao_empurra_o_cabecalho(open_page, width):
     assert out["scroll"] <= out["client"], out
     assert out["toggle"] <= width - 16 + 0.5 and out["clock"] < out["toggle"], out
     assert not errors, errors
+
+
+# --- Compartilhar e link do jogo -----------------------------------------------------------
+
+WHATSAPP_SPY = "() => { window.open = (href) => { window.__opened = decodeURIComponent(href.split('?text=')[1]); }; }"
+
+
+def test_previa_do_link_do_jogo():
+    from core.share import match_preview
+
+    base = {
+        "competition": {"name": "Pernambucano"}, "round": {"name": "Rodada 5"}, "status_label": "Encerrado",
+        "home": {"id": 1, "name": "Sport"}, "away": {"id": 2, "name": "Náutico"}, "home_penalties": None, "away_penalties": None,
+    }
+    finished = {
+        **base, "status": "finished", "home_score": 2, "away_score": 1, "walkover": None,
+        "goals": [
+            {"team_side": "home", "player": "Fulano", "minute_label": "12'", "origin": "open_play"},
+            {"team_side": "away", "player": "Beltrano", "minute_label": "45'", "origin": "penalty"},
+            {"team_side": "home", "player": None, "minute_label": "", "origin": "own_goal"},
+        ],
+    }
+    assert match_preview(finished) == (
+        "Sport 2 × 1 Náutico",
+        "Pernambucano · Rodada 5 · Encerrado. Gols: Sport: Fulano 12', a confirmar (contra); Náutico: Beltrano 45' (pên.)",
+    )
+    scheduled = {**base, "status": "scheduled", "home_score": None, "away_score": None, "goals": [], "kickoff_at": "2026-10-18T19:00:00Z"}
+    assert match_preview(scheduled) == ("Sport × Náutico", "Pernambucano · Rodada 5 · 18/10 às 16:00")
+    walkover = {**finished, "home_score": 0, "away_score": 3, "goals": [], "walkover": {"team_id": 2, "reason": "x"}}
+    assert match_preview(walkover) == ("Sport 0 × 3 Náutico", "Pernambucano · Rodada 5 · Encerrado · W.O. em favor do Náutico")
+
+
+def test_home_com_jogo_compartilhado_traz_a_previa_e_o_dia(client, db):
+    from tests.factories import make_league, make_match, utc
+
+    league = make_league()
+    sport, nautico = league["teams"][0], league["teams"][1]
+    match = make_match(league["stage"], sport, nautico, kickoff_at=utc(2026, 10, 18, 2, 30), round=league["rounds"][0])
+    response = client.get(f"/?jogo={match.id}")
+    assert response.status_code == 200 and response["Cache-Control"] == "public, max-age=60"
+    html = response.content.decode()
+    assert f'<meta property="og:title" content="{sport.name} × {nautico.name}">' in html
+    assert f"<title>{sport.name} × {nautico.name} · " in html
+    assert 'data-focus-day="2026-10-17"' in html  # 23h30 de Brasília: o dia é o de Brasília
+    for value in ("999999", "abc", "9" * 12):  # jogo que não existe ou id inválido: a home de sempre
+        html = _html(client, f"/?jogo={value}")
+        assert "og:title" not in html and "data-focus-day" not in html
+
+
+def test_home_abre_no_dia_do_jogo_compartilhado_com_o_card_aberto(open_page):
+    # o HTML que o servidor manda para /?jogo=12 com o jogo noutro dia (sem banco: o navegador
+    # roda num loop assíncrono); a API de exemplo devolve a home do dia pedido
+    request = RequestFactory().get("/?jogo=12")
+    context = {"page": "home", "share_title": "Sport 2 × 1 Náutico", "share_description": "Pernambucano", "share_url": "http://fdr.test/?jogo=12", "focus_day": "2030-01-05"}
+    html = render_to_string("index.html", context, request=request)
+    page, api, errors = open_page("/?jogo=12", prepare=lambda api: api.pages.__setitem__("/", html))
+    page.wait_for_selector('.match[data-match-id="12"] > .match__details[open] .tl-item')
+    assert any(path == "/api/home" and "date=2030-01-05" in query for _, path, query, _ in api.requests)
+    assert page.get_attribute("#home-date", "datetime") == "2030-01-05"
+    assert page.evaluate("""() => { const r = document.querySelector('.match[data-match-id="12"]').getBoundingClientRect(); return r.top >= 0 && r.top < innerHeight; }""")
+    assert page.locator(".match > .match__details[open]").count() == 1  # só o do link
+    page.click("#day-next")  # trocar de dia tira o ?jogo da URL
+    page.wait_for_function("() => !location.search.includes('jogo')")
+    assert not errors, errors
+
+
+def test_resultados_no_whatsapp_da_rodada_e_do_dia(open_page, fixtures):
+    page, api, errors = open_page("/competition.html?slug=x")
+    page.wait_for_selector("#round-share:not([hidden])")
+    page.evaluate(WHATSAPP_SPY)
+    page.click("#round-share")
+    page.wait_for_function("() => window.__opened")
+    lines = page.evaluate("window.__opened").split("\n")
+    title = page.text_content("[data-hook=competition-name]").strip()
+    cards = page.locator("#round-matches .match").count()
+    assert lines[0].startswith(f"*{title}") and lines[0].endswith("*") and lines[1] == ""
+    assert len(lines) == cards + 4 and lines[-2:] == ["", "🔗 " + page.evaluate("location.href")]
+
+    page, api, errors_home = open_page("/")
+    page.wait_for_selector("[data-hook=competition] [data-hook=competition-share]")
+    page.evaluate(WHATSAPP_SPY)
+    section = page.locator("[data-hook=competition]").first
+    section.locator("[data-hook=competition-share]").click()
+    page.wait_for_function("() => window.__opened")
+    lines = page.evaluate("window.__opened").split("\n")
+    name = section.locator("[data-hook=competition-name]").text_content().strip()
+    assert lines[0].startswith(f"*{name} · ") and len(lines) == section.locator(".match").count() + 4
+    assert re.fullmatch(r"🔗 http://fdr\.test/\?date=\d{4}-\d\d-\d\d", lines[-1])
+    assert not errors and not errors_home, errors + errors_home

@@ -743,6 +743,16 @@
     color: var(--ink-2);
   }
   .match__status { display: inline-flex; align-items: center; gap: var(--s-2); }
+  .section-head__actions { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); }
+  /* compartilhar: no canto de cima, a faixa de meta deixa o espaço do botão */
+  .match--shareable > .match__meta { padding-right: 52px; }
+  .match__share { position: absolute; top: 7px; right: 8px; color: var(--ink-2); }
+  .match__share .icon { width: 18px; height: 18px; }
+  /* janela de compartilhar o jogo: prévia da imagem e os botões */
+  .share-sheet__title { margin: 0; font-family: var(--font-num); font-weight: 700; font-size: 1.125rem; color: var(--ink); }
+  .share-sheet__preview { display: grid; place-items: center; margin: 0; min-height: 120px; border-radius: var(--radius); background: var(--surface-2); }
+  .share-sheet__img { display: block; width: 100%; height: auto; border-radius: var(--radius); }
+  .share-sheet__status { margin: 0; padding: var(--s-4); color: var(--ink-3); text-align: center; }
   .match__minute {
     font-family: var(--font-num);
     font-weight: 700;

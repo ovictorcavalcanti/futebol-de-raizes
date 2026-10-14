@@ -638,3 +638,102 @@ def test_componentes_no_navegador(browser_page):
     assert "Gol anulado aos 36' — Impedimento marcado pelo VAR" in out["annulStruck"]
     assert "Mão na bola" in out["annulTimeline"]
     assert "Oxe" not in out["annulTimeline"]
+
+
+SHARE_JS = """async () => {
+  const S = await import('/static/js/share.js');
+  const M = await import('/static/js/match-card.js');
+  const F = await import('/static/js/fixtures.js');
+  const fin = F.MATCHES.finished;
+  const out = {};
+  out.names = [fin.home.name, fin.away.name];
+  out.url = S.matchUrl(fin, 'https://x.test');
+  out.text = S.matchShareText(fin, Date.now(), out.url).split('\\n');
+  out.awayScorers = S.scorers(fin, 'away');
+  out.results = S.resultsShareText('PE · Rodada 5', [fin, F.MATCHES.scheduledToday], Date.now(), 'https://x.test/r').split('\\n');
+  out.later = [F.MATCHES.scheduledToday.home.name, F.MATCHES.scheduledToday.away.name];
+  const opened = [];
+  S.shareResultsOnWhatsApp('PE · Rodada 5', [fin], { url: 'https://x.test/r', win: { open: (...args) => opened.push(args) } });
+  out.opened = opened.map(([href, target]) => [decodeURIComponent(href.split('?text=')[1]), href.split('?')[0], target]);
+  // imagem: PNG 1080 × 1080 (canvas limpo: o toBlob funciona); autores dos gols todos na mesma fonte
+  const drawn = [];
+  const fillText = CanvasRenderingContext2D.prototype.fillText;
+  CanvasRenderingContext2D.prototype.fillText = function (text, ...rest) { drawn.push([String(text), this.font]); return fillText.call(this, text, ...rest); };
+  let blob;
+  try { blob = await S.renderMatchImage(fin, { brand: 'Futebol de Raízes', host: 'x.test' }); }
+  finally { CanvasRenderingContext2D.prototype.fillText = fillText; }
+  const bitmap = await createImageBitmap(blob);
+  out.image = [blob.type, bitmap.width, bitmap.height, blob.size > 5000];
+  const fontsOf = (texts) => drawn.filter(([t]) => texts.includes(t));
+  const goalTexts = [...S.scorers(fin, 'home'), ...S.scorers(fin, 'away')];
+  out.scorerFonts = [fontsOf(goalTexts).length, new Set(fontsOf(goalTexts).map(([, f]) => f)).size];
+  out.nameFonts = new Set(fontsOf([fin.home.name.toUpperCase(), fin.away.name.toUpperCase()]).map(([, f]) => f)).size;
+  // card: botão no canto; sem acordeão (placar do operador), sem botão
+  const root = document.getElementById('root');
+  const card = M.createMatchCard(fin, {});
+  root.append(card);
+  out.buttons = [!!card.querySelector(':scope > .match__share'), !!M.createMatchCard(fin, { details: false }).querySelector('.match__share')];
+  const ready = (dialog) => new Promise((resolve) => {
+    const start = Date.now();
+    const timer = setInterval(() => {
+      const done = !dialog.querySelector('.share-sheet__img').hidden;
+      if (done || Date.now() - start > 8000) { clearInterval(timer); resolve(done); }
+    }, 50);
+  });
+  const foot = (dialog) => [...dialog.querySelectorAll('.dialog__foot > *')].map((b) => [b.tagName, b.textContent.trim()]);
+  // sem Web Share de arquivos (computador): o botão é o link do WhatsApp com a mensagem e copia a imagem
+  card.querySelector('.match__share').click();
+  let dialog = document.querySelector('dialog.share-sheet');
+  out.cardDialog = [dialog?.open, await ready(dialog), foot(dialog)];
+  dialog.close();
+  await new Promise((resolve) => setTimeout(resolve, 150)); // o evento close chega numa tarefa depois
+  out.removed = !document.querySelector('dialog.share-sheet');
+  const copied = [];
+  // ClipboardItem só existe em contexto seguro (o site é HTTPS; esta página de teste, não)
+  if (typeof ClipboardItem !== 'function') window.ClipboardItem = class { constructor(data) { this.types = Object.keys(data); } };
+  dialog = S.openMatchShare(fin, { nav: { clipboard: { write: async (items) => { copied.push(...items); } } } });
+  await ready(dialog);
+  const link = dialog.querySelector('[data-hook=share-whatsapp]');
+  link.addEventListener('click', (event) => event.preventDefault()); // sem abrir a aba no teste
+  link.click();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  out.desktop = [link.tagName, link.href.split('?')[0], link.target, decodeURIComponent(link.href.split('?text=')[1]) === S.matchShareText(fin, Date.now(), S.matchUrl(fin)),
+    copied.length === 1 && copied[0].types.includes('image/png'), dialog.textContent.includes('Baixar')];
+  dialog.close();
+  // com Web Share de arquivos (celular): a imagem vai como arquivo, com a mensagem (e o link) na legenda
+  const shared = [];
+  const nav = { share: async (data) => { shared.push(data); }, canShare: () => true };
+  dialog = S.openMatchShare(fin, { nav });
+  await ready(dialog);
+  out.mobileFoot = foot(dialog);
+  dialog.querySelector('[data-hook=share-whatsapp]').click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const [sent] = shared;
+  out.mobile = [shared.length, sent?.files?.[0]?.type, sent?.files?.[0]?.name, sent?.text === S.matchShareText(fin, Date.now(), S.matchUrl(fin)), 'url' in (sent || {})];
+  dialog.close();
+  return out;
+}"""
+
+
+def test_compartilhar_jogo_no_whatsapp_texto_imagem_e_janela(browser_page):
+    page, errors = browser_page
+    out = page.evaluate(SHARE_JS)
+    assert not errors, errors
+    home, away = out["names"]
+    assert out["url"] == "https://x.test/?jogo=15"
+    assert out["text"][0] == f"*{home} 1 × 2 {away}*" and out["text"][1].endswith("Encerrado")
+    assert out["awayScorers"][0].startswith("Netinho do Pajeú 9") and out["awayScorers"][1].endswith("(contra)")
+    assert out["text"][2:] == [
+        "", f"⚽ *{home}:* Mauro Shampoo Jr. 40'", f"⚽ *{away}:* " + ", ".join(out["awayScorers"]), "", "🔗 https://x.test/?jogo=15",
+    ]
+    assert out["results"][:3] == ["*PE · Rodada 5*", "", out["text"][0].strip("*")]
+    assert out["results"][3].startswith(f"{out['later'][0]} × {out['later'][1]} — ")  # ainda não começou: o horário
+    assert out["results"][-2:] == ["", "🔗 https://x.test/r"]
+    assert out["opened"] == [["*PE · Rodada 5*\n\n" + out["text"][0].strip("*") + "\n\n🔗 https://x.test/r", "https://api.whatsapp.com/send", "_blank"]]
+    assert out["image"] == ["image/png", 1080, 1080, True]
+    assert out["scorerFonts"] == [3, 1] and out["nameFonts"] == 1  # mesmo tamanho para todos os autores (e os dois nomes)
+    assert out["buttons"] == [True, False]
+    assert out["cardDialog"] == [True, True, [["BUTTON", "Fechar"], ["A", "Compartilhar no WhatsApp"]]] and out["removed"]
+    assert out["desktop"] == ["A", "https://api.whatsapp.com/send", "_blank", True, True, False]  # sem "baixar"
+    assert out["mobileFoot"] == [["BUTTON", "Fechar"], ["BUTTON", "Compartilhar no WhatsApp"]]
+    assert out["mobile"] == [1, "image/png", "jogo-15.png", True, False]

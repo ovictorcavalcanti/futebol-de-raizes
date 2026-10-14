@@ -14,6 +14,7 @@ import { createCrest } from './crest.js';
 import { formatTime, formatWhen, formatDay, formatInt, formatMoney, formatScore, toDate } from './format.js';
 import { liveMinuteLabel } from './clock.js';
 import { getMinuteFormat, minuteLabel } from './minute-format.js';
+import { openMatchShare } from './share.js';
 
 /** Estado por card: {match, opts, eventIds, requested, activeTab, failed}. */
 const STATE = new WeakMap();
@@ -90,6 +91,8 @@ const displayName = (team) => team?.name || team?.short_name || '';
  * @property {boolean} [details=true] false = sem acordeão (ex.: placar do operador)
  * @property {boolean} [showRound] mostra rodada/fase na faixa de meta
  * @property {boolean} [showCompetition] mostra a competição na faixa de meta
+ * @property {boolean} [share=true] botão de compartilhar no canto (link, texto e imagem do jogo);
+ *   sem acordeão (operador), não há botão
  */
 export function createMatchCard(match, opts = {}) {
   const id = ++seq;
@@ -110,6 +113,17 @@ export function createMatchCard(match, opts = {}) {
     details.append(toggle, body);
     details.addEventListener('toggle', () => onToggle(el));
     el.append(details);
+  }
+  if (opts.details !== false && opts.share !== false) {
+    // no canto de cima, por cima da faixa de meta (que deixa o espaço); compartilha o jogo como está agora
+    el.classList.add('match--shareable');
+    el.append(h('button', {
+      type: 'button', class: 'btn btn--ghost btn--icon btn--sm match__share', 'aria-label': 'Compartilhar jogo', title: 'Compartilhar jogo',
+      onclick: () => {
+        const st = STATE.get(el);
+        if (st?.match) openMatchShare(st.match, { now: nowOf(st.opts) });
+      },
+    }, icon('share')));
   }
   STATE.set(el, { uid: id, match: null, opts: { ...opts, flash: false }, eventIds: null, requested: false, activeTab: null, failed: false });
   updateMatchCard(el, match, { flash: false });

@@ -16,6 +16,7 @@ import { createGroupRows, updateGroupRows, createMatchGroupBlocks } from './grou
 import { getHome, getCompetitions, getMatch } from './api.js';
 import { createStream, liveStatusIndicator } from './stream.js';
 import { createGoalAlerts, notificationSupport } from './alerts.js';
+import { shareResultsOnWhatsApp } from './share.js';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -57,8 +58,20 @@ function dayFromUrl() {
   return value && DAY_RE.test(value) ? value : null;
 }
 
+/**
+ * Jogo do link compartilhado (?jogo=<id>, share.js): a home abre no dia dele (o servidor manda
+ * o dia em data-focus-day, sempre o atual, mesmo com o jogo reagendado) e o card vem aberto,
+ * na tela. Vale só para a primeira carga; trocar de dia tira o ?jogo da URL.
+ */
+const focus = (() => {
+  const id = Number(new URLSearchParams(location.search).get('jogo'));
+  if (!Number.isInteger(id) || id <= 0) return null;
+  const day = els.competitions?.dataset.focusDay || '';
+  return { id, day: DAY_RE.test(day) && day !== dayKey(Date.now()) ? day : null };
+})();
+
 const state = {
-  selected: dayFromUrl(), // dia escolhido no seletor; null = hoje
+  selected: dayFromUrl() ?? focus?.day ?? null, // dia escolhido no seletor; null = hoje
   date: null, // dia da resposta exibida
   competitions: [], // menu
   liveKey: '',
@@ -154,6 +167,7 @@ function goToDay(key, { push = true } = {}) {
     const url = new URL(location.href);
     if (state.selected) url.searchParams.set('date', state.selected);
     else url.searchParams.delete('date');
+    url.searchParams.delete('jogo');
     history.pushState(null, '', url);
   }
   setDayBusy(true);
@@ -184,6 +198,24 @@ function standingsFor(stage, next) {
   return el;
 }
 
+/** Resultados do dia de uma competição no WhatsApp, na ordem da página, com o link do dia. */
+function shareDay(comp, section) {
+  const title = [comp.name, els.date?.textContent?.trim()].filter(Boolean).join(' · ');
+  const matches = [...section.querySelectorAll('.match')].map(getCardMatch).filter(Boolean);
+  shareResultsOnWhatsApp(title, matches, { now: now(), url: `${window.location.origin}/?date=${state.date || dayKey(now())}` });
+}
+
+/** Card do link compartilhado: aberto (busca os lances) e na tela, uma vez. */
+function openFocus() {
+  if (!focus || focus.done) return;
+  focus.done = true;
+  const card = state.cards.get(focus.id);
+  if (!card) return;
+  const details = card.querySelector(':scope > .match__details');
+  if (details) details.open = true;
+  requestAnimationFrame(() => card.scrollIntoView({ block: 'start' }));
+}
+
 function competitionSection(comp, nextCards, nextStandings) {
   const section = cloneTemplate('tpl-competition-section');
   const p = hooks(section);
@@ -191,6 +223,7 @@ function competitionSection(comp, nextCards, nextStandings) {
   p['competition-name'].textContent = comp.name;
   p['competition-link'].href = href;
   p['competition-more'].href = href;
+  p['competition-share']?.addEventListener('click', () => shareDay(comp, section));
   section.dataset.competitionId = String(comp.id);
   const stages = comp.stages || [];
   for (const stage of stages) {
@@ -365,6 +398,7 @@ async function boot() {
   const home = homeResult.value;
   sync(home);
   render(home);
+  openFocus(); // link compartilhado: o card do jogo aberto e na tela
 
   alerts = createGoalAlerts({
     region: els.alertRegion,

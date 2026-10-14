@@ -36,6 +36,7 @@ const els = {
   grid: $('competition-grid'),
   aside: document.querySelector('#competition-grid [data-hook="aside"]'),
   matches: $('round-matches'),
+  section: $('round-matches').closest('section'), // jogos da rodada (irmão do aside em .split)
   roundEmpty: $('round-empty'),
   standings: $('stage-standings'),
   standingsSwitch: $('standings-switch'),
@@ -72,9 +73,11 @@ const state = {
   competitions: [], // menu (GET /api/competitions)
   liveMatches: new Map(), // match id → slug da competição: jogos ao vivo agora, de todas (o ponto do menu)
   liveKey: null,
+  asideFirst: false, // empilhado, o aside vem antes dos jogos (updateAside)
 };
 let stream = null;
 let clockMounted = false;
+const stacked = window.matchMedia('(max-width: 959.98px)'); // .split empilhado (app.css)
 
 const toInt = (value) => (value != null && /^\d+$/.test(String(value)) ? Number(value) : null);
 
@@ -298,8 +301,21 @@ function updateAside() {
   // confrontos (quem avança); na fase de grupos com outra classificação, os botões e ela, no
   // lugar onde os botões ficam nas linhas de grupo (o toque não os tira de baixo do dedo)
   const rankingOnGroups = state.stage?.format === 'groups' && state.view !== 'stage' && !els.rankingStandings.hidden;
-  els.grid.classList.toggle('split--aside-first', !els.ties.hidden || rankingOnGroups);
+  state.asideFirst = !els.ties.hidden || rankingOnGroups;
+  placeAside();
   els.aside.hidden = !hasAside;
+}
+
+/** O aside antes dos jogos vai antes deles no DOM (não só na tela, com `order`): o foco do
+ *  teclado e a leitura seguem a ordem que se vê. Lado a lado (960 px ou mais), fica depois,
+ *  na coluna da direita. Quem está com o foco nele não o perde na mudança. */
+function placeAside() {
+  const first = state.asideFirst && stacked.matches;
+  if (first ? els.aside.nextElementSibling === els.section : els.section.nextElementSibling === els.aside) return;
+  const focused = els.aside.contains(document.activeElement) ? document.activeElement : null;
+  if (first) els.section.before(els.aside);
+  else els.section.after(els.aside);
+  focused?.focus({ preventScroll: true });
 }
 
 function paintRoundNav() {
@@ -394,7 +410,10 @@ function paintNav(force = false) {
 }
 
 /** Jogos ao vivo agora, de todas as competições (GET /api/matches?status=live): a home tira o
- *  ponto do menu dos jogos do dia; esta página não os tem. */
+ *  ponto do menu dos jogos do dia; esta página não os tem. Pedida só depois da resposta da
+ *  competição (boot, reload): a foto é posterior ao cursor de onde o stream recomeça. */
+const liveNow = () => listMatches({ status: 'live' });
+
 function setLiveMatches(data) {
   state.liveMatches = new Map((data?.matches || []).filter((m) => m.status === 'live' && m.competition?.slug).map((m) => [m.id, m.competition.slug]));
 }
@@ -500,10 +519,8 @@ async function reload() {
   state.rankingMatchKeys.clear(); // as mensagens perdidas não voltam: o último visto pode estar velho
   const round = state.rounds[state.roundIndex];
   const seq = ++state.seq;
-  const [data, live] = await Promise.all([
-    fetchCompetition({ stage: state.stage?.id ?? null, round: round?.id ?? null }),
-    listMatches({ status: 'live' }).catch(() => null), // o menu: sem ela, fica o que estava
-  ]);
+  const data = await fetchCompetition({ stage: state.stage?.id ?? null, round: round?.id ?? null });
+  const live = await liveNow().catch(() => null); // depois do cursor (boot); sem ela, o menu fica como estava
   if (live) {
     setLiveMatches(live);
     paintNav();
@@ -596,10 +613,13 @@ async function boot() {
     return;
   }
   const requestedRound = toInt(params.get('round'));
+  const competition = fetchCompetition({ stage: toInt(params.get('stage')), round: requestedRound });
   const [compsResult, dataResult, liveResult] = await Promise.allSettled([
     getCompetitions(),
-    fetchCompetition({ stage: toInt(params.get('stage')), round: requestedRound }),
-    listMatches({ status: 'live' }), // o ponto "Jogando agora" do menu
+    competition,
+    // o ponto "Jogando agora" do menu: depois da resposta da competição, para a foto ser
+    // posterior ao cursor do stream (o que mudar entre os dois chega de novo, em ordem)
+    competition.then(liveNow, liveNow),
   ]);
   state.competitions = compsResult.status === 'fulfilled' ? compsResult.value?.competitions || [] : [];
   if (liveResult.status === 'fulfilled') setLiveMatches(liveResult.value);
@@ -635,6 +655,7 @@ async function boot() {
   });
 }
 
+stacked.addEventListener('change', placeAside); // girou o tablet, mudou a janela
 els.share?.addEventListener('click', shareRound);
 els.prev.addEventListener('click', () => goToRound(state.roundIndex - 1));
 els.next.addEventListener('click', () => goToRound(state.roundIndex + 1));

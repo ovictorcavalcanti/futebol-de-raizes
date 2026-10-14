@@ -272,11 +272,9 @@
     gap: var(--s-5);
     align-items: start;
   }
-  /* empilhado (celular/tablet): o aside sobe quando é o resumo (confrontos do mata-mata) ou
-     quando traz os botões da classificação e a tabela escolhida (fase de grupos, competition.js) */
-  @media (max-width: 959.98px) {
-    .split--aside-first > .split__aside { order: -1; }
-  }
+  /* empilhado (celular/tablet), o aside que vem antes dos jogos (o resumo dos confrontos do
+     mata-mata; os botões da classificação e a tabela escolhida na fase de grupos) vai antes deles
+     no DOM (competition.js placeAside), sem `order`: o foco e a leitura seguem a tela */
 
   @media (min-width: 640px) {
     :root { --gutter: 20px; }
@@ -1456,15 +1454,16 @@
   }
 
   .legend { display: flex; flex-wrap: wrap; gap: 6px var(--s-4); margin: 0; padding: 0 var(--s-4); list-style: none; font-size: 0.8125rem; color: var(--ink-2); }
-  /* cada item é uma frase: a amostra e o texto, que quebra entre as palavras da condição, nunca
-     no meio do nome ou da faixa */
+  /* cada item é uma frase: a amostra e o texto, que quebra entre as palavras da condição; o nome
+     (até 60 caracteres, do admin) quebra só quando não cabe na largura do card, e a faixa nunca
+     quebra no meio. O par curto ("Classificados 1º–2º") começa a frase e fica numa linha */
   .legend__item { display: inline-flex; align-items: flex-start; gap: 6px; min-width: 0; }
   .legend__item > .legend__swatch { margin-top: calc((1lh - 12px) / 2); } /* no meio da 1ª linha */
   .legend__item > .live-dot { margin-top: calc((1lh - 8px) / 2); }
   .legend__swatch { width: 12px; height: 12px; flex: none; overflow: visible; }
   .legend__swatch rect { stroke: color-mix(in srgb, var(--ink) 40%, transparent); stroke-width: 1; }
   .legend__text { min-width: 0; }
-  .legend__name { white-space: nowrap; }
+  .legend__name { overflow-wrap: anywhere; }
   .legend__range { color: var(--ink-3); font-family: var(--font-num); font-weight: 600; white-space: nowrap; }
   .legend__cond { color: var(--ink-3); }
   /* nota do "=" embaixo da tabela que tem empate */
@@ -1758,6 +1757,10 @@
 
   /* --- Segmentado, interruptor ---------------------------------------------------- */
   .standings-switch { gap: var(--s-2); flex-wrap: wrap; }
+  /* no celular, o alternador é o controle principal da tabela: alvo de 44 px, como o compartilhar */
+  @media (max-width: 639px) {
+    .standings-switch .btn { min-height: 44px; }
+  }
   .team-cell__group { margin-left: var(--s-2); font-size: 0.75rem; font-weight: 600; color: var(--ink-3); white-space: nowrap; }
   .segmented { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: var(--s-2); }
   .segmented__option { position: relative; }
@@ -1874,6 +1877,11 @@
     .controls__share { min-height: 44px; }
     .controls__share .label-wide { display: none; }
     .controls__share .label-narrow { display: inline; }
+  }
+  /* daí para cima, a altura da navegação de rodada (40 px): os dois no pé da linha (.controls),
+     o texto no meio dela, na altura de "RODADA 3" */
+  @media (min-width: 640px) {
+    .controls__share { min-height: 40px; }
   }
 
   /* --- Operador ----------------------------------------------------------------------- */

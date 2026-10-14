@@ -993,6 +993,47 @@ def test_classificacao_legenda_nota_de_empate_e_titulo(browser_page):
     assert out["captions"] == ["Classificação · 2º turno", "Classificação", "Classificação", "Classificação · 1ª fase", "Classificação geral"]
 
 
+LEGEND_LONG_JS = """async (width) => {
+  const St = await import('/static/js/standings.js');
+  const F = await import('/static/js/fixtures.js');
+  await Promise.all(['600 16px "Barlow Condensed"', '400 13px Barlow', '600 13px "Barlow Condensed"'].map((f) => document.fonts.load(f)));
+  const root = document.getElementById('root');
+  root.replaceChildren();
+  root.style.cssText = `width:${width}px`;
+  const long = 'Classificados à Série D do Campeonato Brasileiro e Copa 2027'; // 60 caracteres (o limite do admin)
+  const table = St.createStandings({ ...F.STANDINGS, legend: [
+    { name: 'Classificados', color: '#12306B', from: 1, to: 2 },
+    { name: long, color: '#7ACB8F', from: 3, to: 4 },
+  ] });
+  root.append(table);
+  const group = table.querySelector('.standings__group').getBoundingClientRect();
+  const lines = (el) => new Set([...el.getClientRects()].map((r) => Math.round(r.top))).size;
+  return { length: long.length, items: [...table.querySelectorAll('.legend__item:not(.legend__item--playing)')].map((li) => {
+    const name = li.querySelector('.legend__name');
+    const range = li.querySelector('.legend__range');
+    const pair = document.createRange();
+    pair.setStartBefore(name);
+    pair.setEndAfter(range);
+    return { text: li.textContent, right: Math.round(li.getBoundingClientRect().right - group.right),
+      nameLines: lines(name), rangeLines: lines(range), pairLines: lines(pair) };
+  }) };
+}"""
+
+
+@pytest.mark.parametrize("width", [288, 328])  # card do celular de 320 e de 360 px
+def test_legenda_nome_comprido_quebra_sem_cortar(browser_page, width):
+    """O nome da zona vem do admin (até 60 caracteres): no card estreito ele quebra entre as
+    palavras em vez de passar da borda do card (que corta o que sobra). A faixa não quebra no meio
+    e o par curto ("Classificados 1º–2º") fica numa linha só."""
+    page, errors = browser_page
+    out = page.evaluate(LEGEND_LONG_JS, width)
+    assert not errors, errors
+    short, long = out["items"]
+    assert out["length"] == 60
+    assert short["text"] == "Classificados 1º–2º" and short["pairLines"] == 1 and short["right"] <= 0, short
+    assert long["right"] <= 0 and long["nameLines"] > 1 and long["rangeLines"] == 1, long
+
+
 CARD_LAYOUT_JS = """async () => {
   const M = await import('/static/js/match-card.js');
   const F = await import('/static/js/fixtures.js');

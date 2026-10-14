@@ -349,6 +349,8 @@ class FakeApi:
         self.round_matches = None  # MatchOut de GET /api/matches?roundId= (padrão: scheduledToday)
         self.competition = None  # CompetitionOut de GET /api/competitions/:slug (padrão: COMPETITION)
         self.home = None  # HomeOut de GET /api/home (padrão: HOME)
+        self.hold = None  # (path, query) → True: segura a resposta até release()
+        self.held = []
 
     def json(self, route, body, status=200):
         route.fulfill(
@@ -375,9 +377,18 @@ class FakeApi:
             available = {"events": [], "status": []}
         return match, available
 
+    def release(self):
+        """Responde os pedidos segurados por `hold` (e para de segurar)."""
+        held, self.held, self.hold = self.held, [], None
+        for route in held:
+            self(route)
+
     def __call__(self, route):
         request = route.request
         path, _, query = request.url.split("fdr.test", 1)[1].partition("?")
+        if self.hold and self.hold(path, query):
+            self.held.append(route)
+            return None
         self.requests.append((request.method, path, query, dict(request.headers)))
         stamp = {"server_time": _now_iso(), "timezone": "America/Sao_Paulo"}
         if path in self.pages:
@@ -1226,8 +1237,10 @@ def test_competicao_classificacao_geral_nao_perde_gol_anulado(open_page, fixture
 def test_competicao_melhores_segundos_troca_no_lugar_dos_botoes(open_page, fixtures):
     """Fase de grupos com outra classificação: os botões dizem o tipo de tabela ("Por grupo", não
     o nome da fase, que é o do seletor "Fase"). No celular, tocar não tira os botões do lugar: a
-    tabela escolhida aparece logo abaixo deles, antes dos jogos, e o foco fica no botão tocado. No
-    desktop, a troca é no alto da coluna da direita, como antes."""
+    tabela escolhida aparece logo abaixo deles, antes dos jogos, e o foco fica no botão tocado; os
+    botões têm alvo de 44 px. A ordem do DOM é a da tela (o aside vai antes dos jogos, não por
+    `order`): o Tab segue da tabela para os jogos. No desktop, a troca é no alto da coluna da
+    direita, como antes; mudar a largura da janela leva o aside para o lugar, sem perder o foco."""
 
     def prepare(api):
         api.rankings = [{"id": 9, "name": "Melhores segundos", "scope": "position"}]
@@ -1245,28 +1258,51 @@ def test_competicao_melhores_segundos_troca_no_lugar_dos_botoes(open_page, fixtu
       return { top: Math.round(sw.top + scrollY), left: Math.round(sw.left), right: sw.left > game.right,
         below: table ? [Math.round(table.top - sw.bottom), table.bottom <= game.top] : null,
         focus: [document.activeElement?.textContent, document.activeElement?.getAttribute('aria-pressed')],
-        caption: table ? ranking.querySelector('caption').firstChild.textContent : null };
+        caption: table ? ranking.querySelector('caption').firstChild.textContent : null,
+        asideFirst: document.getElementById('competition-grid').firstElementChild.matches('aside'),
+        heights: [...document.querySelectorAll('#standings-switch button')].map((b) => Math.round(b.getBoundingClientRect().height)) };
     }"""
     before = page.evaluate(where)
+    assert before["heights"] == [44, 44] and not before["asideFirst"]  # alvo de toque no celular
     switch.get_by_role("button", name="Melhores segundos").click()
     page.wait_for_selector("#ranking-standings:not([hidden]) .standings")
     after = page.evaluate(where)
     assert (after["top"], after["left"]) == (before["top"], before["left"])  # os botões não saem do lugar
     assert 0 <= after["below"][0] <= 24 and after["below"][1]  # a tabela logo abaixo, antes dos jogos
     assert after["focus"] == ["Melhores segundos", "true"] and after["caption"] == "Melhores segundos"
+    assert after["asideFirst"] and after["heights"] == [44, 44]  # no DOM, antes dos jogos
+    # teclado e leitor de tela na ordem da tela: do botão, o Tab passa pela tabela e chega ao 1º
+    # jogo (não pula para o rodapé)
+    in_aside = "() => document.querySelector('#competition-grid > aside').contains(document.activeElement)"
+    for _ in range(10):
+        page.keyboard.press("Tab")
+        if not page.evaluate(in_aside):
+            break
+    assert page.evaluate("() => document.activeElement.closest('#round-matches .match') !== null")
     switch.get_by_role("button", name="Por grupo").click()
     page.wait_for_selector("#round-matches .group-row--head #standings-switch")
     back = page.evaluate(where)
     assert (back["top"], back["left"]) == (before["top"], before["left"]) and back["focus"] == ["Por grupo", "true"]
-    # desktop: no alto da coluna da direita, nas duas tabelas
+    assert not back["asideFirst"]
+    # desktop: no alto da coluna da direita, nas duas tabelas (o aside depois dos jogos no DOM)
     page.set_viewport_size({"width": 1280, "height": 900})
     wide = page.evaluate(where)
     switch.get_by_role("button", name="Melhores segundos").click()
     page.wait_for_selector("#ranking-standings:not([hidden]) .standings")
     ranking = page.evaluate(where)
     assert wide["right"] and ranking["right"] and abs(ranking["top"] - wide["top"]) <= 1 and ranking["below"][0] <= 24
-    assert ranking["focus"] == ["Melhores segundos", "true"]
+    assert ranking["focus"] == ["Melhores segundos", "true"] and not ranking["asideFirst"]
+    assert wide["heights"] == [32, 32]  # o desktop fica como era
     assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
+    # a janela estreita de novo, com a classificação na tela: o aside volta para antes dos jogos
+    # e o botão continua com o foco
+    page.set_viewport_size({"width": 390, "height": 900})
+    page.wait_for_function("() => document.getElementById('competition-grid').firstElementChild.matches('aside')")
+    narrow = page.evaluate(where)
+    assert narrow["focus"] == ["Melhores segundos", "true"] and narrow["below"][1] and not narrow["right"]
+    page.set_viewport_size({"width": 1280, "height": 900})
+    page.wait_for_function("() => document.getElementById('competition-grid').lastElementChild.matches('aside')")
+    assert page.evaluate(where)["focus"] == ["Melhores segundos", "true"]
     assert not errors, errors
 
 
@@ -1316,6 +1352,67 @@ def test_competicao_turno_com_classificacao_geral_e_menu_ao_vivo(open_page, fixt
     api.streams = [_sse([("match", {"stage_id": 3, "competition_id": 1, "match": m}, 5001 + i) for i, m in enumerate(done)]), ping]
     page.wait_for_function(f"() => ({live})().length === 0", timeout=10_000)
     assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
+    assert not errors, errors
+
+
+def test_competicao_lista_ao_vivo_depois_da_resposta_da_competicao(open_page, fixtures):
+    """O ponto "Jogando agora" do menu da competição vem de GET /api/matches?status=live, pedido só
+    depois da resposta da competição: a foto é posterior ao cursor de onde o stream recomeça, e o
+    que mudar entre as duas leituras chega de novo pelo stream, em ordem."""
+
+    def prepare(api):
+        api.hold = lambda path, query: path.startswith("/api/competitions/")
+
+    page, api, errors = open_page("/competition.html?slug=copa-pernambuco", prepare=prepare)
+    for _ in range(50):
+        if api.held:
+            break
+        page.wait_for_timeout(100)
+    assert api.held  # a competição está a caminho
+    page.wait_for_timeout(500)
+    live = [r for r in api.requests if r[1] == "/api/matches" and "status=live" in r[2]]
+    assert live == []  # sem a resposta da competição, a lista ao vivo não foi pedida
+    api.release()
+    page.wait_for_selector("#competitions-nav .comp-nav__live")
+    order = [r[1] for r in api.requests if r[1].startswith("/api/competitions/") or (r[1] == "/api/matches" and "status=live" in r[2])]
+    assert order == ["/api/competitions/copa-pernambuco", "/api/matches"]
+    assert not errors, errors
+
+
+@pytest.mark.parametrize("url", ["/", "/competition.html?slug=serie-a2"])
+def test_menu_foco_no_link_sobrevive_a_mudanca_do_ao_vivo(open_page, fixtures, url):
+    """O menu atualiza no lugar quando muda o conjunto de competições ao vivo (o ponto e o texto
+    oculto " (jogando agora)" entram ou saem): quem está com o foco num link não o perde (home e
+    competição)."""
+    page, api, errors = open_page(url)
+    link = '#competitions-nav a[href="/competition.html?slug=pernambucano"]'
+    page.wait_for_selector(f"{link} .comp-nav__live")
+    page.focus(link)
+    page.evaluate(f"() => {{ window.__link = document.querySelector('{link}'); }}")
+    done = [{**_summary(fixtures["MATCHES"][key]), "status": "finished", "version": 999} for key in ("live", "halfTime")]
+    ping = _sse([("ping", {"server_time": _now_iso()}, None)])
+    api.streams = [_sse([("match", {"stage_id": 3, "competition_id": 1, "match": m}, 5001 + i) for i, m in enumerate(done)]), ping]
+    page.wait_for_function("() => !document.querySelector('#competitions-nav .comp-nav__live')", timeout=10_000)
+    out = page.evaluate("() => ({ same: document.activeElement === window.__link, text: window.__link.textContent, connected: window.__link.isConnected })")
+    assert out == {"same": True, "text": "Pernambucano Raiz", "connected": True}
+    assert page.evaluate("document.querySelectorAll('#competitions-nav a').length") == len(fixtures["COMPETITIONS"])
+    assert not errors, errors
+
+
+def test_competicao_compartilhar_no_meio_da_navegacao(open_page):
+    """A partir de 640 px, "Resultados no WhatsApp" fica no meio da navegação de rodada (mesma
+    altura, 40 px, no pé da linha), não 4 px abaixo."""
+    page, api, errors = open_page("/competition.html?slug=copa-pernambuco")
+    page.wait_for_selector("#round-share:not([hidden])")
+    center = """() => {
+      const box = (el) => el.getBoundingClientRect();
+      const nav = box(document.querySelector('.round-nav')), share = box(document.getElementById('round-share'));
+      return { nav: (nav.top + nav.bottom) / 2, share: (share.top + share.bottom) / 2, height: share.height };
+    }"""
+    for width in (1280, 960, 768):
+        page.set_viewport_size({"width": width, "height": 900})
+        out = page.evaluate(center)
+        assert abs(out["nav"] - out["share"]) <= 0.5 and out["height"] == 40, (width, out)
     assert not errors, errors
 
 

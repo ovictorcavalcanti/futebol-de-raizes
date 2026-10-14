@@ -153,26 +153,44 @@ export function showToast(text, { kind = 'info', timeout = 4500, action } = {}) 
   return { close };
 }
 
+/** Põe o atributo, ou tira quando o valor é null. */
+function toggleAttr(el, name, value) {
+  if (value == null) el.removeAttribute(name);
+  else if (el.getAttribute(name) !== value) el.setAttribute(name, value);
+}
+
 /**
- * Preenche o menu de competições do cabeçalho (#competitions-nav).
+ * Preenche o menu de competições do cabeçalho (#competitions-nav). Chamado de novo (o conjunto
+ * ao vivo mudou), atualiza no lugar: o link de cada competição continua o mesmo elemento, só o
+ * ponto "Jogando agora" e o texto oculto " (jogando agora)" entram ou saem; quem está com o foco
+ * num link não o perde.
  * @param {HTMLElement} list o <ul data-hook="competition-links">
  * @param {Array<{slug: string, name: string, short_name?: string}>} competitions
  * @param {{activeSlug?: string, liveSlugs?: Set<string>, href?: (c) => string}} [opts]
  */
 export function renderCompetitionNav(list, competitions, { activeSlug = null, liveSlugs = null, href = null } = {}) {
+  const current = new Map([...list.children].filter((li) => li.dataset.slug != null).map((li) => [li.dataset.slug, li]));
   const items = competitions.map((c) => {
-    const link = h('a', {
-      class: 'comp-nav__link',
-      href: href ? href(c) : `/competition.html?slug=${encodeURIComponent(c.slug)}`,
-      'aria-current': c.slug === activeSlug ? 'page' : null,
-      title: c.short_name && c.short_name !== c.name ? c.name : null,
-    }, c.name);
-    if (liveSlugs?.has(c.slug)) {
-      link.append(h('span', { class: 'comp-nav__live', 'aria-hidden': 'true' }), h('span', { class: 'visually-hidden', text: ' (jogando agora)' }));
+    const li = current.get(c.slug) || h('li', { class: 'comp-nav__item', dataset: { slug: c.slug } }, h('a', { class: 'comp-nav__link' }));
+    current.delete(c.slug); // slug repetido: um <li> para cada
+    const link = li.firstElementChild;
+    toggleAttr(link, 'href', href ? href(c) : `/competition.html?slug=${encodeURIComponent(c.slug)}`);
+    toggleAttr(link, 'aria-current', c.slug === activeSlug ? 'page' : null);
+    toggleAttr(link, 'title', c.short_name && c.short_name !== c.name ? c.name : null);
+    const name = String(c.name ?? '');
+    const live = !!liveSlugs?.has(c.slug);
+    if (link.firstChild?.nodeValue !== name || live !== !!link.querySelector('.comp-nav__live')) {
+      link.replaceChildren(name, ...(live ? [h('span', { class: 'comp-nav__live', 'aria-hidden': 'true' }), h('span', { class: 'visually-hidden', text: ' (jogando agora)' })] : []));
     }
-    return h('li', { class: 'comp-nav__item' }, link);
+    return li;
   });
-  list.replaceChildren(...items);
+  // a lista só é refeita quando mudam as competições ou a ordem (tirar e pôr de volta o link
+  // com o foco o perderia: devolve)
+  if (items.length !== list.children.length || items.some((li, i) => list.children[i] !== li)) {
+    const focused = list.contains(document.activeElement) ? document.activeElement : null;
+    list.replaceChildren(...items);
+    if (focused?.isConnected) focused.focus({ preventScroll: true });
+  }
   list.closest('nav')?.removeAttribute('aria-busy');
   return list;
 }

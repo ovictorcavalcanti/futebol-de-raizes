@@ -324,16 +324,13 @@ const HEX = /^#[0-9a-f]{6}$/i;
 const SW = 1080; // largura da imagem da classificação; a altura cresce com o número de times
 const ROW = 54;
 
-/** Etiqueta "JOGANDO AGORA" (fundo vermelho, texto branco) a partir de x, centrada em cy. */
+/** Etiqueta "JOGANDO AGORA" (fundo vermelho reto, texto branco) a partir de x, centrada em cy. */
 function playingBadge(ctx, x, cy, family) {
   ctx.font = `700 15px ${family}`;
   const text = PLAYING.toUpperCase();
   const width = ctx.measureText(text).width + 20;
   ctx.fillStyle = '#C8102E';
-  ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(x, cy - 13, width, 26, 13);
-  else ctx.rect(x, cy - 13, width, 26);
-  ctx.fill();
+  ctx.fillRect(x, cy - 13, width, 26);
   ctx.fillStyle = '#FFFFFF';
   ctx.textAlign = 'left';
   ctx.fillText(text, x + 10, cy + 5.5);

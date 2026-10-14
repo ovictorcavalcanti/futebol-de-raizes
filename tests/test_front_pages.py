@@ -1386,7 +1386,8 @@ NAMES_JS = """() => [...document.querySelectorAll('.match .team__name')].map((na
 @pytest.mark.parametrize("width", [320, 360, 375, 1024])
 @pytest.mark.parametrize("url", ["/", "/competition.html?slug=pernambucano-raiz"])
 def test_nome_do_time_nao_quebra_letra_a_letra(open_page, url, width):
-    """Sigla em 1 linha; nome completo em no máximo 2 linhas (quebra só entre palavras)."""
+    """Nome completo em no máximo 2 linhas (quebra só entre palavras), também no celular, onde
+    fica embaixo do escudo (a sigla não aparece mais no placar)."""
     page, _, errors = open_page(url, width=width)
     page.wait_for_selector("article.match .team__name")
     page.wait_for_timeout(200)
@@ -1395,7 +1396,7 @@ def test_nome_do_time_nao_quebra_letra_a_letra(open_page, url, width):
     bad = [n for n in names if n["lines"] > (1.5 if n["kind"] == "short" else 2.5) or n["overflow"] > 1]
     assert not bad, bad
     if width <= 375:
-        assert {n["kind"] for n in names} == {"short"}
+        assert {n["kind"] for n in names} == {"full"}
     assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
     assert not errors, errors
 
@@ -1528,3 +1529,46 @@ def test_resultados_no_whatsapp_da_rodada_e_do_dia(open_page, fixtures):
     assert lines[0].startswith(f"*{name} · ") and len(lines) == section.locator(".match").count() + 4
     assert re.fullmatch(r"🔗 http://fdr\.test/\?date=\d{4}-\d\d-\d\d", lines[-1])
     assert not errors and not errors_home, errors + errors_home
+
+
+def test_home_no_celular_barra_do_dia_ao_vivo_nomes_e_gaveta(open_page, fixtures):
+    page, api, errors = open_page("/", width=390)
+    page.wait_for_selector("[data-hook=competition] .match")
+    # no topo, o seletor de dias está na tela: a barra fixa não aparece (nunca os dois juntos)
+    assert page.is_hidden("[data-hook=day-bar]")
+    # atalho "Ao vivo N" (no topo da página), com o número de jogos ao vivo
+    live = page.evaluate("[...document.querySelectorAll('#competitions .match')].filter((c) => c.dataset.status === 'live').length")
+    chip = page.locator(".page-intro [data-hook=live-jump]")
+    assert live > 0 and chip.is_visible() and chip.locator("[data-hook=live-count]").text_content() == str(live)
+    # cada toque leva ao próximo jogo ao vivo, no topo da tela, sem ficar atrás da barra
+    chip.click()
+    page.wait_for_function("() => document.querySelector('[data-hook=day-bar]') && !document.querySelector('[data-hook=day-bar]').hidden")
+    page.wait_for_timeout(600)  # rolagem suave
+    first = page.evaluate("""() => {
+      const card = [...document.querySelectorAll('#competitions .match')].find((c) => c.dataset.status === 'live');
+      return [card.getBoundingClientRect().top, document.querySelector('[data-hook=day-bar]').getBoundingClientRect().bottom];
+    }""")
+    assert first[1] <= first[0] < first[1] + 40
+    # a barra repete o dia; o › dela troca o dia (como o do seletor) e volta ao topo
+    assert page.text_content("[data-hook=day-bar-date]").strip() == "Hoje"
+    page.click("[data-hook=day-bar-next]")
+    page.wait_for_function("() => new URLSearchParams(location.search).has('date') && window.scrollY === 0")
+    page.wait_for_function("() => document.querySelector('[data-hook=day-bar]').hidden")
+    # placar estreito: o nome do time (não a sigla) embaixo do escudo
+    card = page.locator("#competitions .match").first
+    assert card.locator(".team__full").first.is_visible() and not card.locator(".team__short").first.is_visible()
+    # cabeçalho da competição: só os ícones (o texto fica para leitor de tela), alvos de 44 px
+    label = page.locator("[data-hook=competition] .section-head__label").first.bounding_box()
+    share = page.locator("[data-hook=competition] [data-hook=competition-share]").first.bounding_box()
+    assert label["width"] <= 1 and share["width"] >= 44 and share["height"] >= 44
+    # botão de compartilhar do card: área de toque além do desenho de 32 px
+    box = card.locator(".match__share").bounding_box()
+    hit = page.evaluate(f"document.elementFromPoint({box['x'] - 4}, {box['y'] + box['height'] / 2})?.closest('.match__share') !== null")
+    assert box["width"] == 32 and hit
+    # a janela de compartilhar abre como gaveta, presa embaixo e na largura da tela
+    card.locator(".match__share").click()
+    page.wait_for_selector("dialog.share-sheet[open]")
+    page.wait_for_timeout(300)  # animação
+    sheet = page.locator("dialog.share-sheet").bounding_box()
+    assert abs(sheet["y"] + sheet["height"] - 900) <= 1 and sheet["width"] == 390
+    assert not errors, errors

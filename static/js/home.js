@@ -9,7 +9,7 @@
  */
 import { hooks, cloneTemplate, renderCompetitionNav, showToast } from './render.js';
 import { ServerClock, mountClock } from './clock.js';
-import { formatDateLong, dayKey } from './format.js';
+import { formatDateLong, formatDay, dayKey } from './format.js';
 import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createLatestGoal, createTieGroup, tiesFromMatches, syncTieCards, refreshMatchCards } from './match-card.js';
 import { createStandings, updateStandings } from './standings.js';
 import { createGroupRows, updateGroupRows, createMatchGroupBlocks } from './group-rows.js';
@@ -38,6 +38,12 @@ const els = {
   notifyHint: $('notifications-hint'),
   audio: $('goal-sound'),
   competitions: $('competitions'),
+  dayNav: document.querySelector('[data-hook="date-nav"]'),
+  dayBar: document.querySelector('[data-hook="day-bar"]'),
+  dayBarDate: document.querySelector('[data-hook="day-bar-date"]'),
+  dayBarPrev: document.querySelector('[data-hook="day-bar-prev"]'),
+  dayBarNext: document.querySelector('[data-hook="day-bar-next"]'),
+  liveJumps: [...document.querySelectorAll('[data-hook="live-jump"]')],
   empty: $('home-empty'),
   error: $('home-error'),
 };
@@ -157,8 +163,65 @@ function paintDayLabels(key) {
 }
 
 function setDayBusy(busy) {
-  for (const button of [els.dayPrev, els.dayNext, els.dayToday]) if (button) button.disabled = busy;
+  for (const button of [els.dayPrev, els.dayNext, els.dayToday, els.dayBarPrev, els.dayBarNext]) if (button) button.disabled = busy;
 }
+
+/* --- Celular: barra fixa do dia e atalho dos jogos ao vivo -------------------------------- */
+
+// A barra só aparece no celular e depois que o seletor de dias sai da tela por cima (nunca os
+// dois ao mesmo tempo); escondida, fica inerte (fora do Tab). Os cards guardam o espaço dela
+// (scroll-margin) quando o atalho ou o link de um jogo os leva para o topo.
+const narrow = window.matchMedia('(max-width: 639px)');
+let pastDayNav = false;
+
+function paintDayBar() {
+  const show = narrow.matches && pastDayNav;
+  if (els.dayBar) {
+    els.dayBar.hidden = !show;
+    els.dayBar.inert = !show;
+  }
+  document.body.classList.toggle('has-day-bar', narrow.matches);
+}
+
+if (els.dayNav && els.dayBar && 'IntersectionObserver' in window) {
+  new IntersectionObserver(([entry]) => {
+    pastDayNav = !entry.isIntersecting && entry.boundingClientRect.top < 0;
+    paintDayBar();
+  }).observe(els.dayNav);
+}
+narrow.addEventListener?.('change', paintDayBar);
+paintDayBar();
+// os botões da barra fazem o mesmo que os do seletor e voltam ao topo (o dia novo começa do início)
+for (const [button, target] of [[els.dayBarPrev, els.dayPrev], [els.dayBarNext, els.dayNext]]) {
+  button?.addEventListener('click', () => {
+    if (!target || target.disabled) return;
+    target.click();
+    window.scrollTo({ top: 0 });
+  });
+}
+
+const liveCards = () => [...els.competitions.querySelectorAll('.match')].filter((card) => getCardMatch(card)?.status === 'live');
+let liveIndex = -1;
+
+/** "Ao vivo N": some sem jogo ao vivo no dia. */
+function paintLiveJump() {
+  const count = liveCards().length;
+  for (const chip of els.liveJumps) {
+    chip.hidden = count === 0;
+    const counter = chip.querySelector('[data-hook="live-count"]');
+    if (counter) counter.textContent = String(count);
+  }
+}
+
+/** Cada toque leva ao próximo jogo ao vivo (na ordem da página), de volta ao primeiro no fim. */
+function jumpToLive() {
+  const cards = liveCards();
+  if (!cards.length) return;
+  liveIndex = (liveIndex + 1) % cards.length;
+  const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  cards[liveIndex].scrollIntoView({ block: 'start', behavior: smooth ? 'smooth' : 'auto' });
+}
+for (const chip of els.liveJumps) chip.addEventListener('click', jumpToLive);
 
 /** Troca o dia exibido: hoje sai da URL (e volta a acompanhar a virada do dia). */
 function goToDay(key, { push = true } = {}) {
@@ -290,6 +353,7 @@ function render(home) {
     els.date.dateTime = home.date;
   }
   paintDayLabels(home.date);
+  if (els.dayBarDate) els.dayBarDate.textContent = formatDay(`${home.date}T12:00:00Z`, now()); // "Hoje", "sáb, 18/10"
   els.error.hidden = true;
   const competitions = home.competitions || [];
   const nextCards = new Map();
@@ -309,6 +373,8 @@ function render(home) {
   els.latest.hidden = !hasGames; // sem jogo no dia, o bloco de últimos gols não aparece
   renderLatestGoals(home.latest_goals || []);
   paintNav(true);
+  liveIndex = -1;
+  paintLiveJump();
 }
 
 function showError() {
@@ -328,6 +394,7 @@ function onMatch(message) {
     const before = getCardMatch(card);
     updateMatchCard(card, match, { flash: true }); // pisca no gol; acordeão e aba continuam
     paintNav();
+    paintLiveJump(); // jogo que começou ou acabou
     syncTieCards(state.cards.values(), match); // agregado no card da volta
     // a ordem da fase depende do status e do início; início em outro dia tira o card da página;
     // time ou grupo trocado no admin muda o bloco do card e as tabelas de grupo exibidas

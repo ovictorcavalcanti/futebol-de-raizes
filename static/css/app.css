@@ -749,7 +749,8 @@
   /* compartilhar: no canto de cima, a faixa de meta deixa o espaço do botão */
   .match--shareable > .match__meta { padding-inline: 46px; } /* centrado, longe do botão */
   .match__lead { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px var(--s-3); min-width: 0; }
-  .match__place { display: inline-flex; align-items: center; gap: 5px; min-width: 0; margin: 0; color: var(--ink-3); font-size: 0.875rem; }
+  .match__place { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 2px var(--s-3); min-width: 0; margin: 0; color: var(--ink-3); font-size: 0.875rem; }
+  .match__place-item { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
   .match__place .icon { flex: none; width: 15px; height: 15px; color: var(--ink-3); }
   .match__share { position: absolute; top: 7px; right: 8px; }
   .match__share .icon { width: 18px; height: 18px; }
@@ -788,7 +789,7 @@
     .match__meta { grid-template-columns: auto auto; justify-content: space-between; align-items: center; gap: var(--s-3); text-align: left; }
     .match--shareable > .match__meta { padding-inline: var(--s-4) 56px; }
     .match__lead { justify-content: flex-start; }
-    .match__place { justify-self: end; text-align: right; }
+    .match__place { justify-self: end; justify-content: flex-end; text-align: right; }
   }
 
   /* placar */

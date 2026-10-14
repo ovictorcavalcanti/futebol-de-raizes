@@ -750,12 +750,12 @@ META_JS = """async () => {
     root.append(card);
     const meta = card.querySelector('.match__meta');
     return [meta.querySelector('.pill').textContent.trim(), meta.querySelector('.match__lead time')?.textContent ?? null,
-      meta.querySelector('.match__place')?.textContent.replace('Local: ', '') ?? null];
+      [...meta.querySelectorAll('.match__place-item')].map((item) => [item.querySelector('use').getAttribute('href'), item.lastChild.textContent])];
   };
   const later = F.MATCHES.scheduledToday;
   const standings = { stage_name: '1ª fase', kind: 'live', groups: [{ name: 'Grupo A', rows: [
-    { rank: 1, position: 1, team: { name: 'Sport' }, points: 13, played: 5, goal_difference: 8, playing: true },
-    { rank: 2, position: 2, team: { name: 'Náutico' }, points: 1, played: 5, goal_difference: -3 },
+    { rank: 1, position: 1, team: { name: 'Sport' }, points: 13, played: 5, goals_for: 11, goal_difference: 8, playing: true },
+    { rank: 2, position: 2, team: { name: 'Náutico' }, points: 1, played: 5, goals_for: 3, goal_difference: -3 },
   ] }] };
   // jogo sem local nem cidade: só o "quando" (sem "null" na faixa)
   const noPlace = M.createMatchCard({ ...later, id: 9301, venue: '', city: null }, {});
@@ -765,7 +765,7 @@ META_JS = """async () => {
     groups: [{ id: null, name: 'Classificação geral', rows: F.STANDINGS.groups[0].rows }] }, { share: { title: 'PE Raiz' } });
   root.append(ranking);
   ranking.querySelector('.standings__share').click();
-  const dialog = document.querySelector('dialog.share-sheet');
+  const dialog = document.querySelector('dialog.share-sheet[open]'); // a aberta agora (outra, fechada, pode ainda não ter saído)
   const rankingTitle = dialog.querySelector('.share-sheet__title').textContent;
   dialog.close();
   const blob = await S.renderStandingsImage(F.STANDINGS, F.STANDINGS.groups[0], { competition: 'PE Raiz', stage: '1ª fase', partial: true, brand: 'Futebol de Raízes', host: 'x.test' });
@@ -788,10 +788,10 @@ def test_faixa_do_card_quando_e_onde_e_classificacao_parcial(browser_page):
     out = page.evaluate(META_JS)
     assert not errors, errors
     venue, city, fin_venue, fin_city = out["names"]
-    pill, when, place = out["scheduled"]  # "quando" (status, dia e hora) e "onde" (local e cidade)
-    assert pill == "Agendado" and re.fullmatch(r"Hoje · \d\d:\d\d", when) and place == f"{venue}, {city}"
+    pill, when, place = out["scheduled"]  # "quando" (status, dia e hora) e "onde" (estádio e cidade, cada um com o seu ícone)
+    assert pill == "Agendado" and re.fullmatch(r"Hoje · \d\d:\d\d", when) and place == [["#i-stadium", venue], ["#i-pin", city]]
     pill, when, place = out["finished"]
-    assert pill == "Encerrado" and re.fullmatch(r"Hoje · \d\d:\d\d", when) and place == f"{fin_venue}, {fin_city}"
+    assert pill == "Encerrado" and re.fullmatch(r"Hoje · \d\d:\d\d", when) and place == [["#i-stadium", fin_venue], ["#i-pin", fin_city]]
     assert out["standingsImage"] == ["image/png", 1080, True]  # 1080 de largura, altura pelo número de times
     assert out["labels"] == ["Grupo B", "", "Grupo A", "Chave 1"]
     assert out["headings"] == ["Classificação do Grupo A", "Classificação · Chave 1", "Classificação"]
@@ -799,5 +799,5 @@ def test_faixa_do_card_quando_e_onde_e_classificacao_parcial(browser_page):
     assert out["rankingTitle"] == "Classificação · PE Raiz"  # a classificação geral não é grupo
     assert out["standings"] == [
         "*Classificação do Grupo A*", "PE Raiz · 1ª fase", "🔴 Parcial: há jogos em andamento", "",
-        "1. Sport 🔴 — 13 pts · 5J · SG +8", "2. Náutico — 1 pt · 5J · SG -3", "", "🔗 https://x.test/c",
+        "1. Sport 🔴 — 13 pts · 5J · GP 11 · SG +8", "2. Náutico — 1 pt · 5J · GP 3 · SG -3", "", "🔗 https://x.test/c",
     ]

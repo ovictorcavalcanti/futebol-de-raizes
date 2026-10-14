@@ -287,10 +287,13 @@ function renderMeta(meta, match, now, opts) {
   const when = h('div', { class: 'match__lead' }, status,
     kickoff ? h('time', { class: 'match__when', datetime: kickoff.toISOString(), text: formatWhen(kickoff, now) }) : null,
     context ? h('span', { class: 'match__round', text: context }) : null);
-  const place = [match.venue, match.city].filter(Boolean).join(', ');
-  meta.replaceChildren(when, ...(place
-    ? [h('p', { class: 'match__place' }, icon('pin'), h('span', { class: 'visually-hidden', text: 'Local: ' }), h('span', { text: place }))]
-    : [])); // sem local nem cidade: só o "quando" (replaceChildren escreveria "null")
+  // "onde": o estádio com o ícone de estádio e a cidade com o pino
+  const place = [
+    match.venue ? h('span', { class: 'match__place-item' }, icon('stadium'), h('span', { class: 'visually-hidden', text: 'Estádio: ' }), match.venue) : null,
+    match.city ? h('span', { class: 'match__place-item' }, icon('pin'), h('span', { class: 'visually-hidden', text: 'Cidade: ' }), match.city) : null,
+  ].filter(Boolean);
+  // sem estádio nem cidade: só o "quando" (replaceChildren escreveria "null")
+  meta.replaceChildren(when, ...(place.length ? [h('p', { class: 'match__place' }, ...place)] : []));
 }
 
 /* ==========================================================================

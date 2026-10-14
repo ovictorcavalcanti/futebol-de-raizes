@@ -122,11 +122,11 @@ export const standingsHeading = (label) => (!label ? 'Classificação' : /^grupo
 /**
  * Mensagem da classificação para o WhatsApp: `*Classificação*` (ou `*Classificação do Grupo A*`),
  * competição · fase, o aviso de parcial (com jogo em andamento, na tabela ao vivo), uma linha por
- * time na ordem da tabela ("1. Sport 🔴 — 13 pts · 5J · SG +8"; 🔴 = em jogo agora) e o link.
+ * time na ordem da tabela ("1. Sport 🔴 — 13 pts · 5J · GP 11 · SG +8"; 🔴 = em jogo agora) e o link.
  */
 export function standingsShareText({ competition = '', stage = '', group: label = '' }, group, { partial = false, url = '' } = {}) {
   const rows = (group?.rows || []).map((r) =>
-    `${r.rank ?? r.position}. ${name(r.team)}${partial && r.playing ? ' 🔴' : ''} — ${pts(r.points ?? 0)} · ${r.played ?? 0}J · SG ${signed(r.goal_difference ?? 0)}`);
+    `${r.rank ?? r.position}. ${name(r.team)}${partial && r.playing ? ' 🔴' : ''} — ${pts(r.points ?? 0)} · ${r.played ?? 0}J · GP ${r.goals_for ?? 0} · SG ${signed(r.goal_difference ?? 0)}`);
   const head = [`*${standingsHeading(label)}*`, [competition, stage].filter(Boolean).join(' · ')];
   if (partial) head.push('🔴 Parcial: há jogos em andamento');
   return [...head.filter(Boolean), '', ...rows, ...(url ? ['', `🔗 ${url}`] : [])].join('\n');
@@ -327,7 +327,7 @@ const ROW = 54;
  * Imagem da classificação de um grupo (PNG 1080 de largura): competição; "Classificação" ou
  * "Classificação do Grupo A"; a fase (e "parcial", na tabela ao vivo com jogo em andamento); uma
  * linha por time — faixa da zona, posição, escudo, nome (todos do mesmo tamanho; bolinha vermelha
- * = em jogo agora), P J V E D SG —; a legenda (zonas e a bolinha) e o site no rodapé.
+ * = em jogo agora), P J V E D GP SG —; a legenda (zonas e a bolinha) e o site no rodapé.
  * @returns {Promise<Blob>}
  */
 export async function renderStandingsImage(standings, group, { competition = '', stage = '', group: label = '', partial = false, brand = '', host = globalThis.location?.host || '' } = {}) {
@@ -345,7 +345,7 @@ export async function renderStandingsImage(standings, group, { competition = '',
     return { kind: 'zone', color: HEX.test(zone.color || '') ? zone.color : COLORS.ink3, text: `${zone.name}${range}` };
   });
   if (rows.some((row) => row.playing)) {
-    items.push({ kind: 'dot', color: '#C8102E', text: partial ? 'Em jogo agora: classificação parcial' : 'Em jogo agora: o jogo ainda não conta' });
+    items.push({ kind: 'dot', color: '#C8102E', text: partial ? 'Em jogo agora (parcial)' : 'Em jogo agora (ainda não conta)' });
   }
   const gap = 34;
   const legendLines = [];
@@ -386,8 +386,8 @@ export async function renderStandingsImage(standings, group, { competition = '',
   line(sub, SW / 2, 156, 960);
 
   // cabeçalho das colunas
-  const X = { pos: 96, crest: 142, name: 172, P: 724, J: 784, V: 838, E: 892, D: 946, SG: 1006 };
-  const stats = [['P', 'points'], ['J', 'played'], ['V', 'won'], ['E', 'drawn'], ['D', 'lost'], ['SG', 'goal_difference']];
+  const X = { pos: 96, crest: 142, name: 172, P: 680, J: 736, V: 788, E: 840, D: 892, GP: 948, SG: 1008 };
+  const stats = [['P', 'points'], ['J', 'played'], ['V', 'won'], ['E', 'drawn'], ['D', 'lost'], ['GP', 'goals_for'], ['SG', 'goal_difference']];
   ctx.fillStyle = COLORS.ink3;
   ctx.font = `700 20px ${font.num}`;
   ctx.fillText('#', X.pos, 212);
@@ -434,7 +434,7 @@ export async function renderStandingsImage(standings, group, { competition = '',
     }
   });
 
-  // legenda, centrada: "■ Semifinal 1º–4º   ■ Rebaixamento 7º–8º   ● Em jogo agora: classificação parcial"
+  // legenda, centrada: "■ Semifinal 1º–4º   ■ Rebaixamento 7º–8º   ● Em jogo agora (parcial)"
   ctx.font = `500 20px ${font.ui}`;
   ctx.textAlign = 'left';
   legendLines.forEach((legendLine, i) => {

@@ -184,15 +184,17 @@ existe: a home de sempre.
   `standingsHeading`; só em fase de grupos — `opts.share.groups` ou mais de um grupo —: a
   classificação geral/personalizada não vira grupo), a fase e, na tabela ao vivo com
   jogo em andamento, "parcial: há jogos em andamento"; faixa da zona, posição, escudo, nome —
-  todos do mesmo tamanho; bolinha vermelha = em jogo agora —, P J V E D SG; legenda das zonas e
-  da bolinha; o site no rodapé) e a mensagem `*Classificação do Grupo A*`, "competição · fase",
-  "🔴 Parcial: há jogos em andamento" (quando for), uma linha por time ("1. Sport 🔴 — 13 pts ·
-  5J · SG +8") e o link (`standingsShareText`).
+  todos do mesmo tamanho; bolinha vermelha = em jogo agora —, P J V E D GP SG; legenda das zonas
+  e da bolinha, "Em jogo agora (parcial)" ou, na tabela oficial, "(ainda não conta)"; o site no
+  rodapé) e a mensagem `*Classificação do Grupo A*`, "competição · fase", "🔴 Parcial: há jogos
+  em andamento" (quando for), uma linha por time ("1. Sport 🔴 — 13 pts · 5J · GP 11 · SG +8") e
+  o link (`standingsShareText`).
 
 Faixa de informações do card (`.match__meta`, grid): o bloco "quando" (`.match__lead`: o selo do
 status — "Agendado", "Ao vivo" com o minuto, "Encerrado"... —, o dia e a hora do início,
-`.match__when`, e a rodada/competição, quando pedidas) e o bloco "onde" (`.match__place`: 📍
-"Lacerdão, Caruaru, PE"). No celular, duas linhas centradas, como o placar (o espaço do botão
+`.match__when`, e a rodada/competição, quando pedidas) e o bloco "onde" (`.match__place`: o
+estádio com o ícone de estádio e a cidade com o pino, `.match__place-item`). No celular, duas
+linhas centradas, como o placar (o espaço do botão
 de compartilhar fica dos dois lados); no contêiner largo (≥ 560 px), "quando" à esquerda e
 "onde" à direita. O botão de compartilhar tem borda (é botão, não ícone de informação).
 

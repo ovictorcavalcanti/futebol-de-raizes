@@ -1514,7 +1514,7 @@ def test_resultados_no_whatsapp_da_rodada_e_do_dia(open_page, fixtures):
     head = 4 if lines[2].startswith("🔴 Parcial") else 3  # aviso de parcial com jogo em andamento
     assert len(lines) == table.locator("tbody tr").count() + head + 2 and lines[head - 1] == ""
     lines = lines[head - 1:]  # a partir da linha em branco antes dos times
-    assert re.fullmatch(r"1\. .+ — \d+ pts? · \d+J · SG [+-]?\d+", lines[1]) and lines[-1] == "🔗 " + page.evaluate("location.href")
+    assert re.fullmatch(r"1\. .+ — \d+ pts? · \d+J · GP \d+ · SG [+-]?\d+", lines[1]) and lines[-1] == "🔗 " + page.evaluate("location.href")
     errors += errors_groups
 
     page, api, errors_home = open_page("/")

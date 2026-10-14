@@ -1,8 +1,12 @@
 /**
  * Classificação: uma <table> por grupo com <caption>, faixa de zona com o nome
  * em texto, destaque de quem está em jogo, marca de empate, legenda (amostra SVG
- * com fill vindo da API), critérios de desempate na ordem configurada e punições em
- * pontos (marca "*" nos pontos ajustados e a lista com o motivo embaixo da legenda).
+ * com fill vindo da API e "Jogando agora" quando alguém da tabela está em campo),
+ * critérios de desempate na ordem configurada e punições em pontos (marca "*" nos
+ * pontos ajustados e a lista com o motivo embaixo da legenda).
+ *
+ * As mesmas colunas em todas as larguras: # Time P J V E D GP SG (GC fica só na imagem
+ * compartilhada). No contêiner estreito, o nome do time vira a sigla (CSS).
  *
  * Nada de regra aqui: ordem, zonas, cores e critérios chegam prontos do back.
  */
@@ -19,9 +23,11 @@ const COLUMNS = [
   { key: 'drawn', label: 'E', title: 'Empates', cls: 'col-d' },
   { key: 'lost', label: 'D', title: 'Derrotas', cls: 'col-l' },
   { key: 'goals_for', label: 'GP', title: 'Gols pró', cls: 'col-gp' },
-  { key: 'goals_against', label: 'GC', title: 'Gols contra', cls: 'col-gc' },
   { key: 'goal_difference', label: 'SG', title: 'Saldo de gols', cls: 'col-sg' },
 ];
+/** O ponto vermelho de quem está em campo: o mesmo nome no título, no leitor de tela e na legenda. */
+const PLAYING = 'Jogando agora';
+const TIED = 'Empatados em todos os critérios de desempate';
 
 function signed(n) {
   return n > 0 ? `+${n}` : String(n);
@@ -67,9 +73,33 @@ function rangeLabel(item) {
   return item.to != null && item.to !== item.from ? `${item.from}º–${item.to}º` : `${item.from}º`;
 }
 
-function groupCaption(standings, group, multiple, anyPlaying) {
-  const name = !multiple && (group.name === 'Tabela' || !group.name) ? 'Classificação' : group.name;
-  return h('caption', null, name,
+/** Item da legenda como uma frase: nome e faixa sem quebrar no meio ("Classificados 1º–2º") e,
+ *  na zona condicional, a condição em texto corrido ("Melhor 2º (só o 1º em “Melhores
+ *  segundos”)"). A faixa que o nome já diz ("Melhor 2º" + "2º") não se repete. */
+function legendItem(item) {
+  const range = rangeLabel(item);
+  const named = range && String(item.name || '').split(/\s+/).includes(range);
+  return h('li', { class: 'legend__item' }, swatch(item.color),
+    h('span', { class: 'legend__text' },
+      h('span', { class: 'legend__name', text: item.name }),
+      // espaços de verdade entre as partes: a frase quebra entre elas e dentro da condição
+      ...(range && !named ? [' ', h('span', { class: 'legend__range', text: range })] : []),
+      ...(item.condition ? [' ', h('span', { class: 'legend__cond', text: `(${item.condition})` })] : []),
+    ));
+}
+
+/** Título da tabela de grupo único: "Classificação" ou, quando há outras fases ou outras
+ *  classificações, "Classificação · 2º turno" (opts.stageTitle; sem ela, quando a temporada
+ *  tem mais de uma fase: `season_stages`). Grupo com nome ("Grupo A", "Classificação geral",
+ *  "Melhores segundos") fica com o nome. */
+function captionText(standings, group, multiple, opts) {
+  if (multiple || (group.name && group.name !== 'Tabela')) return group.name;
+  const withStage = opts.stageTitle ?? (standings.season_stages > 1);
+  return withStage && standings.stage_name ? `Classificação · ${standings.stage_name}` : 'Classificação';
+}
+
+function groupCaption(standings, group, multiple, anyPlaying, opts) {
+  return h('caption', null, captionText(standings, group, multiple, opts),
     standings.kind === 'live' && anyPlaying ? h('span', { class: 'badge badge--live', text: 'Ao vivo' }) : null,
   );
 }
@@ -88,8 +118,8 @@ function teamCell(row) {
         // classificação "posição nos grupos": de que grupo é cada time
         row.group ? h('span', { class: 'team-cell__group', text: row.group }) : null,
       ),
-      row.playing ? h('span', { class: 'live-dot', title: 'Em jogo agora' }) : null,
-      row.playing ? h('span', { class: 'visually-hidden', text: ', em jogo agora' }) : null,
+      row.playing ? h('span', { class: 'live-dot', title: PLAYING }) : null,
+      row.playing ? h('span', { class: 'visually-hidden', text: `, ${PLAYING.toLowerCase()}` }) : null,
     ),
   );
 }
@@ -130,7 +160,7 @@ function groupTable(standings, group, opts, multiple, last) {
     );
     return tr;
   }));
-  const table = h('table', { class: 'table' }, groupCaption(standings, group, multiple, anyPlaying), thead, tbody);
+  const table = h('table', { class: 'table' }, groupCaption(standings, group, multiple, anyPlaying, opts), thead, tbody);
   // compartilhar a tabela no WhatsApp (opts.share = {title, url}): no canto, na altura do título
   const share = opts.share && rows.length ? h('button', {
     type: 'button', class: 'btn btn--secondary btn--icon btn--sm standings__share',
@@ -143,8 +173,9 @@ function groupTable(standings, group, opts, multiple, last) {
 
 const teamIdsOf = (groups) => new Set(groups.flatMap((g) => (g.rows || []).map((r) => r.team?.id)).filter((id) => id != null));
 
-/** Embaixo de cada grupo: a legenda das cores e as punições dos times dele; os critérios de
- *  desempate só no último grupo (uma vez, dentro do card, sem caixa à parte). */
+/** Embaixo de cada grupo: a legenda das cores, as punições dos times dele e a nota do "=" se
+ *  a tabela dele tem empate; os critérios de desempate só no último grupo (uma vez, dentro do
+ *  card, sem caixa à parte). */
 function groupFoot(standings, group, multiple, last) {
   const groups = standings.groups || [];
   let adjustments = standings.adjustments || [];
@@ -154,21 +185,19 @@ function groupFoot(standings, group, multiple, last) {
     // punição de time fora de todos os grupos fica no último, para não sumir
     adjustments = adjustments.filter((a) => mine.has(a.team?.id) || (last && !anywhere.has(a.team?.id)));
   }
-  return { adjustments, criteria: last, rows: groups.flatMap((g) => g.rows || []) };
+  return { adjustments, criteria: last, rows: group.rows || [] };
 }
 
-/**
- * Rodapé de uma tabela. `opts.tied` (opcional) diz se há empate não desfeito em alguma
- * tabela da fase, para a nota "=" quando os grupos são desenhados um a um.
- */
+/** Rodapé de uma tabela; `rows`: as linhas dela (quem está em campo, quem está empatado). */
 function footer(standings, opts, { adjustments = [], criteria = true, rows = [] } = {}) {
   const parts = [];
-  if (opts.legend !== false && standings.legend?.length) {
-    parts.push(h('ul', { class: 'legend', 'aria-label': 'Legenda das zonas' }, ...standings.legend.map((item) => h('li', { class: 'legend__item' },
-      swatch(item.color), h('span', { text: item.name }), rangeLabel(item) ? h('span', { class: 'legend__range', text: rangeLabel(item) }) : null,
-      // zona condicional: "só quem estiver do 1º ao 4º em “Melhores terceiros”"
-      item.condition ? h('span', { class: 'legend__range', text: `(${item.condition})` }) : null,
-    ))));
+  const playing = rows.some((r) => r.playing);
+  if (opts.legend !== false && (standings.legend?.length || playing)) {
+    parts.push(h('ul', { class: 'legend', 'aria-label': 'Legenda da tabela' },
+      ...(standings.legend || []).map(legendItem),
+      // o ponto vermelho das linhas (o mesmo nome da imagem compartilhada)
+      playing ? h('li', { class: 'legend__item legend__item--playing' }, h('span', { class: 'live-dot', 'aria-hidden': 'true' }), h('span', { text: PLAYING })) : null,
+    ));
   }
   if (adjustments.length) {
     // Punição muda a tabela: aparece sempre (mesmo sem legenda), com o motivo.
@@ -178,12 +207,14 @@ function footer(standings, opts, { adjustments = [], criteria = true, rows = [] 
         h('span', { text: adjustmentNote(item) }),
       ))));
   }
+  // o "=" explicado embaixo de cada tabela que o tem (não só na última, a dos critérios)
+  if (rows.some((r) => r.tied)) {
+    parts.push(h('p', { class: 'standings__note' }, h('span', { class: 'tied-mark', 'aria-hidden': 'true', text: '=' }), ` ${TIED}`));
+  }
   if (criteria && opts.criteria !== false && standings.criteria?.length) {
-    const tied = opts.tied ?? rows.some((r) => r.tied);
     parts.push(h('div', { class: 'criteria' },
       h('p', { class: 'criteria__title', text: 'Critérios de desempate' }),
       h('ol', { class: 'criteria__list' }, ...standings.criteria.map((c) => h('li', { text: c.label }))),
-      tied ? h('p', { class: 'criteria__note' }, h('span', { class: 'tied-mark', 'aria-hidden': 'true', text: '=' }), ' Empatados em todos os critérios de desempate') : null,
     ));
   }
   return parts.length ? h('div', { class: 'standings__foot' }, ...parts) : null;
@@ -192,8 +223,9 @@ function footer(standings, opts, { adjustments = [], criteria = true, rows = [] 
 /**
  * Classificação de uma fase (StageStandingsOut, CONTRACT §3).
  * @param {object} standings StageStandingsOut
- * @param {{compact?: boolean, legend?: boolean, criteria?: boolean, tied?: boolean, highlightTeamIds?: Set<number>}} [opts]
- *   compact força a versão enxuta (sem GC; GP fica, é critério de desempate); sem ela, colunas somem por container query.
+ * @param {{compact?: boolean, legend?: boolean, criteria?: boolean, stageTitle?: boolean, highlightTeamIds?: Set<number>, share?: object}} [opts]
+ *   compact: classe standings--compact (as colunas são as mesmas: # Time P J V E D GP SG);
+ *   stageTitle: o título diz a fase ("Classificação · 2º turno"; padrão: temporada com mais de uma fase).
  * @returns {HTMLElement} <div class="standings">
  */
 export function createStandings(standings, opts = {}) {

@@ -84,9 +84,10 @@ def test_stage_standings_shape_criteria_legend_zones_and_playing(league, operato
     Op(playing, operator_user).post("match_start")
 
     table = services.stage_standings(league["stage"])
-    assert set(table) == {"stage_id", "stage_name", "kind", "points", "criteria", "legend", "groups", "adjustments"}
+    assert set(table) == {"stage_id", "stage_name", "season_stages", "kind", "points", "criteria", "legend", "groups", "adjustments"}
     assert table["adjustments"] == []
     assert table["kind"] == "live" and table["stage_name"] == "1ª fase"
+    assert table["season_stages"] == 1  # fase única: o título da tabela não precisa dizer a fase
     assert table["points"] == {"win": 3, "draw": 1, "loss": 0}
     assert table["criteria"] == [
         {"key": "points", "label": "Pontos"},
@@ -111,6 +112,9 @@ def test_stage_standings_shape_criteria_legend_zones_and_playing(league, operato
 
     official = services.stage_standings(league["stage"], live=False)
     assert official["kind"] == "official"
+    # outra fase na temporada: o título da tabela diz a fase ("Classificação · 1ª fase")
+    make_knockout(league["season"])
+    assert services.stage_standings(league["stage"], live=False)["season_stages"] == 2
     # oficial: só os encerrados contam; o jogo em andamento não entra (mas `playing` continua)
     assert [row["played"] for row in official["groups"][0]["rows"]] == [1, 1, 1, 1]
     assert {row["team"]["name"] for row in official["groups"][0]["rows"] if row["playing"]} == {"Náutico", "Santa Cruz"}

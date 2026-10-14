@@ -347,6 +347,8 @@ class FakeApi:
         self.rankings = []  # RankingRef da competição (botões ao lado da tabela)
         self.ranking_stage_ids = []  # fases somadas por GET /api/rankings/{id}
         self.round_matches = None  # MatchOut de GET /api/matches?roundId= (padrão: scheduledToday)
+        self.competition = None  # CompetitionOut de GET /api/competitions/:slug (padrão: COMPETITION)
+        self.home = None  # HomeOut de GET /api/home (padrão: HOME)
 
     def json(self, route, body, status=200):
         route.fulfill(
@@ -405,7 +407,7 @@ class FakeApi:
             return self.json(route, {"competitions": self.fx["COMPETITIONS"]})
         if path == "/api/home":
             day = dict(parse_qsl(query)).get("date")  # o seletor de dias pede ?date=
-            return self.json(route, {**copy.deepcopy(self.fx["HOME"]), **stamp, **({"date": day} if day else {})})
+            return self.json(route, {**copy.deepcopy(self.home or self.fx["HOME"]), **stamp, **({"date": day} if day else {})})
         if path.startswith("/api/competitions/"):
             if path.endswith("/nao-existe"):
                 return self.json(
@@ -417,7 +419,7 @@ class FakeApi:
                     },
                     404,
                 )
-            data = {**copy.deepcopy(self.fx["COMPETITION"]), **stamp}
+            data = {**copy.deepcopy(self.competition or self.fx["COMPETITION"]), **stamp}
             if "stage=6" in query:
                 data["stage"] = {
                     "id": 6,
@@ -450,6 +452,8 @@ class FakeApi:
                     "ranking_id": ranking_id,
                     "scope": ref["scope"],
                     "stage_ids": self.ranking_stage_ids,
+                    # a classificação é um "grupo" com o nome dela (standings/services.py)
+                    "groups": [{**copy.deepcopy(self.fx["STANDINGS"]["groups"][0]), "id": None, "name": ref["name"]}],
                 },
             )
         if path == "/api/matches":
@@ -464,6 +468,9 @@ class FakeApi:
                     "knockoutPenalties",
                 )
                 matches = [_summary(self.fx["MATCHES"][k]) for k in keys]
+                status = dict(parse_qsl(query)).get("status")  # ?status=live: o menu da competição
+                if status:
+                    matches = [m for m in matches if m["status"] in status.split(",")]
             return self.json(route, {**stamp, "matches": matches})
         if path.startswith("/api/matches/"):
             found = self.match_detail(int(path.rsplit("/", 1)[1]))
@@ -876,6 +883,25 @@ def test_home_fase_de_grupos_em_linhas_so_com_os_grupos_com_jogo(open_page, fixt
     assert not errors, errors
 
 
+def test_home_classificacao_diz_a_fase_quando_a_competicao_tem_outras(open_page, fixtures):
+    """Classificação resumida da home: com mais de uma fase na temporada (`season_stages`), o
+    título diz de qual fase é ("Classificação · 1ª fase"); com uma só, "Classificação"."""
+    home = copy.deepcopy(fixtures["HOME"])
+    home["competitions"][0]["stages"][0]["standings"]["season_stages"] = 2
+
+    def prepare(api):
+        api.home = home
+
+    caption = "() => document.querySelector('#competitions .standings caption')?.firstChild.textContent"
+    page, api, errors = open_page("/", prepare=prepare)
+    page.wait_for_selector("#competitions .standings caption")
+    assert page.evaluate(caption) == "Classificação · 1ª fase"
+    page, api, errors_single = open_page("/")
+    page.wait_for_selector("#competitions .standings caption")
+    assert page.evaluate(caption) == "Classificação"
+    assert not errors and not errors_single, errors + errors_single
+
+
 def test_home_seletor_de_dias(open_page):
     today = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
     tomorrow = (today + timedelta(days=1)).isoformat()
@@ -933,7 +959,14 @@ def test_competicao_rodadas_fase_e_slug_inexistente(open_page, fixtures):
     assert legs[0][0] == "Jogo de ida"
     assert "Agregado" in legs[0][1] and "3 × 3" in legs[0][1] and "Náutico" in legs[0][1] and "avança nos pênaltis" in legs[0][1]
     assert legs[1] == [None]  # jogo único ainda sem vencedor
+    # a faixa do card não repete a fase da navegação ("Semifinal"): só o jogo
+    assert page.evaluate("[...document.querySelectorAll('#round-matches .match__lead > .match__round')].map((e) => e.textContent)") == ["Ida", "Volta", "Jogo único"]
     assert first["url"] == "?slug=copa-pernambuco&stage=7&round=30"
+    # compartilhar os resultados: o mesmo botão da home ("Compartilhar" no celular, 44 px de altura)
+    share = page.locator("#round-share")
+    assert share.get_attribute("class") == "btn btn--ghost btn--sm controls__share"
+    assert share.inner_text().strip() == "Compartilhar" and share.bounding_box()["height"] >= 44
+    assert share.get_attribute("aria-label") == "Compartilhar os resultados no WhatsApp"
     page.click("#round-next")
     page.wait_for_function(
         "() => document.getElementById('round-label').textContent === 'Final'"
@@ -1079,6 +1112,8 @@ def test_competicao_classificacao_geral_atualiza_com_partida_do_mata_mata(open_p
             ping,
         ]
     assert ranking_gets() == 2
+    # o card redesenhado pelo stream continua sem a fase da navegação na faixa
+    assert page.evaluate("document.querySelector('.match[data-match-id=\"21\"] .match__lead > .match__round').textContent") == "Volta"
     api.streams = [
         _sse(
             [
@@ -1150,7 +1185,7 @@ def test_competicao_classificacao_geral_nao_perde_gol_anulado(open_page, fixture
     assert ranking_gets() == 2
 
     # com a tabela da fase na tela chega o 2x0; de volta à classificação, ela mostra o 2x0
-    switch.get_by_role("button", name="Fase de grupos").click()
+    switch.get_by_role("button", name="Por grupo").click()
     deliver(score(2), 4184)
     with refetches_ranking():
         switch.get_by_role("button", name="Geral").click()
@@ -1169,7 +1204,7 @@ def test_competicao_classificacao_geral_nao_perde_gol_anulado(open_page, fixture
 
     # o 2x0 chega no meio da carga (da tabela da fase para "Geral"): as fases somadas ainda
     # não chegaram e a resposta pode vir velha; ao fim da carga, busca de novo
-    switch.get_by_role("button", name="Fase de grupos").click()
+    switch.get_by_role("button", name="Por grupo").click()
     held = []  # segura a primeira resposta da classificação
     page.route(lambda url: "/api/rankings/5" in url, lambda route: route.fallback() if held else held.append(route))
     switch.get_by_role("button", name="Geral").click()
@@ -1185,6 +1220,102 @@ def test_competicao_classificacao_geral_nao_perde_gol_anulado(open_page, fixture
     with refetches_ranking():  # agrupado: 1,5 s depois da resposta
         pass
     assert ranking_gets() == 8
+    assert not errors, errors
+
+
+def test_competicao_melhores_segundos_troca_no_lugar_dos_botoes(open_page, fixtures):
+    """Fase de grupos com outra classificação: os botões dizem o tipo de tabela ("Por grupo", não
+    o nome da fase, que é o do seletor "Fase"). No celular, tocar não tira os botões do lugar: a
+    tabela escolhida aparece logo abaixo deles, antes dos jogos, e o foco fica no botão tocado. No
+    desktop, a troca é no alto da coluna da direita, como antes."""
+
+    def prepare(api):
+        api.rankings = [{"id": 9, "name": "Melhores segundos", "scope": "position"}]
+        api.ranking_stage_ids = [6]
+
+    page, api, errors = open_page("/competition.html?slug=copa-pernambuco&stage=6", width=390, prepare=prepare)
+    page.wait_for_selector("#round-matches .group-row--head #standings-switch button")
+    switch = page.locator("#standings-switch")
+    assert switch.locator("button").all_inner_texts() == ["Por grupo", "Melhores segundos"]
+    where = """() => {
+      const sw = document.getElementById('standings-switch').getBoundingClientRect();
+      const ranking = document.getElementById('ranking-standings');
+      const table = ranking.hidden ? null : ranking.querySelector('.standings')?.getBoundingClientRect();
+      const game = document.querySelector('#round-matches .match').getBoundingClientRect();
+      return { top: Math.round(sw.top + scrollY), left: Math.round(sw.left), right: sw.left > game.right,
+        below: table ? [Math.round(table.top - sw.bottom), table.bottom <= game.top] : null,
+        focus: [document.activeElement?.textContent, document.activeElement?.getAttribute('aria-pressed')],
+        caption: table ? ranking.querySelector('caption').firstChild.textContent : null };
+    }"""
+    before = page.evaluate(where)
+    switch.get_by_role("button", name="Melhores segundos").click()
+    page.wait_for_selector("#ranking-standings:not([hidden]) .standings")
+    after = page.evaluate(where)
+    assert (after["top"], after["left"]) == (before["top"], before["left"])  # os botões não saem do lugar
+    assert 0 <= after["below"][0] <= 24 and after["below"][1]  # a tabela logo abaixo, antes dos jogos
+    assert after["focus"] == ["Melhores segundos", "true"] and after["caption"] == "Melhores segundos"
+    switch.get_by_role("button", name="Por grupo").click()
+    page.wait_for_selector("#round-matches .group-row--head #standings-switch")
+    back = page.evaluate(where)
+    assert (back["top"], back["left"]) == (before["top"], before["left"]) and back["focus"] == ["Por grupo", "true"]
+    # desktop: no alto da coluna da direita, nas duas tabelas
+    page.set_viewport_size({"width": 1280, "height": 900})
+    wide = page.evaluate(where)
+    switch.get_by_role("button", name="Melhores segundos").click()
+    page.wait_for_selector("#ranking-standings:not([hidden]) .standings")
+    ranking = page.evaluate(where)
+    assert wide["right"] and ranking["right"] and abs(ranking["top"] - wide["top"]) <= 1 and ranking["below"][0] <= 24
+    assert ranking["focus"] == ["Melhores segundos", "true"]
+    assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
+    assert not errors, errors
+
+
+def test_competicao_turno_com_classificacao_geral_e_menu_ao_vivo(open_page, fixtures):
+    """Fase de tabela única com classificação geral: "Só esta fase | Geral" (sem repetir o nome da
+    fase do seletor) e o título diz o recorte ("Classificação · 2º turno", "Classificação geral"),
+    com "Jogando agora" na legenda e a nota do "=" embaixo da tabela. O menu marca, também aqui,
+    a competição com jogo ao vivo agora (GET /api/matches?status=live, atualizado pelo stream)."""
+    comp = copy.deepcopy(fixtures["COMPETITION"])
+    comp["competition"] = fixtures["COMPETITIONS"][2]  # Série A2
+    comp["stages"] = [
+        {"id": 2, "name": "1º turno", "format": "league", "position": 1, "rounds": [{"id": 39, "number": 1, "name": "Rodada 1"}]},
+        {"id": 3, "name": "2º turno", "format": "league", "position": 2, "rounds": [{"id": 40, "number": 1, "name": "Rodada 1"}]},
+    ]
+    comp["current_stage_id"], comp["current_round_id"] = 3, 40
+    comp["stage"] = {"id": 3, "name": "2º turno", "format": "league", "standings": {**fixtures["STANDINGS"], "stage_name": "2º turno"}, "matches": [], "ties": []}
+
+    def prepare(api):
+        api.competition = comp
+        api.rankings = [{"id": 5, "name": "Classificação geral", "scope": "overall"}]
+        api.ranking_stage_ids = [2, 3]
+
+    page, api, errors = open_page("/competition.html?slug=serie-a2", width=360, prepare=prepare)
+    page.wait_for_selector("#stage-standings .standings caption")
+    switch = page.locator("#standings-switch")
+    assert switch.locator("button").all_inner_texts() == ["Só esta fase", "Geral"]
+    table = page.evaluate("""() => {
+      const group = document.querySelector('#stage-standings .standings__group');
+      return { caption: group.querySelector('caption').firstChild.textContent,
+        legend: [...group.querySelectorAll('.legend__item')].map((li) => li.textContent),
+        note: group.querySelector('.standings__note')?.textContent,
+        noScroll: group.querySelector('.table-scroll').scrollWidth <= group.querySelector('.table-scroll').clientWidth };
+    }""")
+    assert table["caption"] == "Classificação · 2º turno"
+    assert table["legend"] == ["Semifinal 1º–4º", "Rebaixamento 7º–8º", "Jogando agora"]
+    assert table["note"] == "= Empatados em todos os critérios de desempate" and table["noScroll"]
+    switch.get_by_role("button", name="Geral").click()
+    page.wait_for_selector("#ranking-standings:not([hidden]) .standings caption")
+    assert page.evaluate("document.querySelector('#ranking-standings caption').firstChild.textContent") == "Classificação geral"
+    # menu: o Pernambucano tem jogo ao vivo agora (o ponto e o texto para leitor de tela)
+    live = "() => [...document.querySelectorAll('#competitions-nav a')].filter((a) => a.querySelector('.comp-nav__live')).map((a) => [a.getAttribute('href'), a.querySelector('.visually-hidden').textContent])"
+    assert page.evaluate(live) == [["/competition.html?slug=pernambucano", " (jogando agora)"]]
+    assert any(r[1] == "/api/matches" and "status=live" in r[2] for r in api.requests)
+    # os dois jogos ao vivo terminam: o ponto some
+    done = [{**_summary(fixtures["MATCHES"][key]), "status": "finished", "version": 999} for key in ("live", "halfTime")]
+    ping = _sse([("ping", {"server_time": _now_iso()}, None)])
+    api.streams = [_sse([("match", {"stage_id": 3, "competition_id": 1, "match": m}, 5001 + i) for i, m in enumerate(done)]), ping]
+    page.wait_for_function(f"() => ({live})().length === 0", timeout=10_000)
+    assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
     assert not errors, errors
 
 

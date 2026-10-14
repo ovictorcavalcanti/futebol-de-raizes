@@ -6,7 +6,8 @@
  * Abre na fase e na rodada atuais; ‹ › trocam a rodada (GET /api/matches?roundId=; no
  * mata-mata, GET /api/competitions/:slug?stage=&round=, que traz os confrontos com todos
  * os jogos) e o <select> troca a fase (GET /api/competitions/:slug?stage=), atualizando a URL
- * sem recarregar. Assina o stream como a home (esta página não alerta gols).
+ * sem recarregar. Assina o stream como a home (esta página não alerta gols). O menu marca
+ * as competições com jogo ao vivo (GET /api/matches?status=live, atualizado pelo stream).
  */
 import { h, renderCompetitionNav, showToast } from './render.js';
 import { ServerClock, mountClock } from './clock.js';
@@ -68,6 +69,9 @@ const state = {
   pending: null, // troca de rodada/fase em andamento: mensagens do stream recebidas no meio
   rankingMatchKeys: new Map(), // match id → {key, stageId}: o que conta na classificação (último visto pelo stream)
   seq: 0, // ignora respostas fora de ordem (troca rápida de rodada/fase)
+  competitions: [], // menu (GET /api/competitions)
+  liveMatches: new Map(), // match id → slug da competição: jogos ao vivo agora, de todas (o ponto do menu)
+  liveKey: null,
 };
 let stream = null;
 let clockMounted = false;
@@ -122,7 +126,6 @@ function groupRowsMode() {
   return state.stage?.format === 'groups' && state.view === 'stage' && !!state.standingsData?.groups?.length;
 }
 
-/** Linhas dos grupos (createGroupRows), com os botões das classificações em cima. */
 /** Rodada da tabela: a atual da competição, se é desta fase; senão a exibida. */
 function standingsRound() {
   const round = state.rounds.find((r) => r.id === state.data?.current_round_id) || state.rounds[state.roundIndex];
@@ -134,6 +137,7 @@ function standingsRound() {
  *  tem rodada: junta fases). */
 const standingsShare = (groups = false, round = standingsRound) => ({ title: state.data?.competition?.name, url: () => window.location.href, groups, round });
 
+/** Linhas dos grupos (createGroupRows), com os botões das classificações em cima. */
 function groupRows(matches, card) {
   state.groupLayout = createGroupRows(state.standingsData, matches, card, { share: standingsShare(true) });
   const rows = state.groupLayout.rows;
@@ -141,7 +145,8 @@ function groupRows(matches, card) {
   return rows;
 }
 
-/** Fora das linhas de grupo: os botões das classificações voltam para o aside. */
+/** Fora das linhas de grupo: os botões das classificações voltam para o aside (no alto da
+ *  coluna da direita; empilhado, o aside sobe para o lugar deles: updateAside). */
 function leaveGroupRows() {
   els.matches.classList.remove('group-rows');
   if (els.standingsSwitch.parentElement !== els.aside) els.aside.prepend(els.standingsSwitch);
@@ -193,9 +198,9 @@ function renderStandings(stage) {
   state.standingsData = stage.standings || null;
   if (stage.standings) {
     if (state.standingsEl && state.standingsStageId === stage.id) {
-      updateStandings(state.standingsEl, stage.standings);
+      updateStandings(state.standingsEl, stage.standings, { stageTitle: stageTitle() });
     } else {
-      state.standingsEl = createStandings(stage.standings, { share: standingsShare(stage.format === 'groups') });
+      state.standingsEl = createStandings(stage.standings, { share: standingsShare(stage.format === 'groups'), stageTitle: stageTitle() });
       state.standingsStageId = stage.id;
       els.standings.replaceChildren(state.standingsEl);
     }
@@ -216,6 +221,20 @@ function rankingRefs(data) {
   return [...(data.rankings || []), ...(data.stage?.rankings || [])].filter((r) => !seen.has(r.id) && seen.add(r.id));
 }
 
+/** Com outras fases ou outras classificações, o título da tabela da fase diz qual recorte é
+ *  ("Classificação · 2º turno"); as outras já têm o nome delas ("Classificação geral"). */
+const stageTitle = () => (state.data?.stages || []).length > 1 || rankingRefs(state.data || {}).length > 0;
+
+/** Botões pelo tipo de tabela, não pelo nome da fase (é o do seletor "Fase", logo acima): a da
+ *  fase é "Por grupo" (fase de grupos) ou "Só esta fase"; a classificação, pelo nome, sem o
+ *  "Classificação" do começo ("Classificação geral" → "Geral"; "Melhores segundos" fica). */
+function switchLabel(ref) {
+  if (!ref) return state.data?.stage?.format === 'groups' ? 'Por grupo' : 'Só esta fase';
+  const name = String(ref.name || '').trim();
+  const rest = name.replace(/^classificação\s+/i, '');
+  return rest && rest !== name ? rest[0].toLocaleUpperCase('pt-BR') + rest.slice(1) : name;
+}
+
 function paintStandingsSwitch() {
   const data = state.data || {};
   const refs = rankingRefs(data);
@@ -230,16 +249,19 @@ function paintStandingsSwitch() {
     b.type = 'button';
     b.className = 'btn btn--secondary btn--sm btn--toggle';
     b.textContent = text;
+    b.dataset.view = String(view);
     b.setAttribute('aria-pressed', String(state.view === view));
     b.addEventListener('click', () => {
       if (state.view === view) return;
       state.view = view;
       paintStandingsSwitch();
       if (state.stage?.format === 'groups') reorderCards(); // linhas de grupo × jogos por grupo
+      // os botões são refeitos (e mudam de lugar na fase de grupos): o tocado fica com o foco
+      els.standingsSwitch.querySelector(`[data-view="${view}"]`)?.focus({ preventScroll: true });
     });
     return b;
   };
-  const buttons = [...(hasStage ? [button('stage', data.stage.name || 'Fase')] : []), ...refs.map((r) => button(r.id, r.name))];
+  const buttons = [...(hasStage ? [button('stage', switchLabel(null))] : []), ...refs.map((r) => button(r.id, switchLabel(r)))];
   els.standingsSwitch.replaceChildren(...buttons);
   els.standingsSwitch.hidden = buttons.length < 2 && state.view === 'stage';
   els.standings.hidden = state.view !== 'stage' || !hasStage || groupRowsMode(); // grupos: tabela ao lado dos jogos
@@ -272,8 +294,11 @@ async function loadRanking(id) {
 function updateAside() {
   const hasAside = !els.standings.hidden || !els.ties.hidden || !els.rankingStandings.hidden;
   els.grid.classList.toggle('split--no-aside', !hasAside);
-  // mata-mata no celular: o resumo dos confrontos (quem avança) vem antes dos cards
-  els.grid.classList.toggle('split--aside-first', !els.ties.hidden);
+  // empilhado (celular/tablet), o aside vem antes dos cards: no mata-mata, o resumo dos
+  // confrontos (quem avança); na fase de grupos com outra classificação, os botões e ela, no
+  // lugar onde os botões ficam nas linhas de grupo (o toque não os tira de baixo do dedo)
+  const rankingOnGroups = state.stage?.format === 'groups' && state.view !== 'stage' && !els.rankingStandings.hidden;
+  els.grid.classList.toggle('split--aside-first', !els.ties.hidden || rankingOnGroups);
   els.aside.hidden = !hasAside;
 }
 
@@ -355,6 +380,50 @@ function render(data, requestedRoundId = null) {
   renderMatches(data.stage?.matches || [], data.stage?.format === 'knockout' ? data.stage?.ties || null : null);
   writeUrl();
 }
+
+/* --- Menu: competições com jogo ao vivo ------------------------------------------------------ */
+
+/** O ponto "Jogando agora" do menu, como na home: as competições com jogo ao vivo agora. */
+function paintNav(force = false) {
+  if (!els.nav) return;
+  const slugs = new Set(state.liveMatches.values());
+  const key = [...slugs].sort().join('|');
+  if (!force && key === state.liveKey) return;
+  state.liveKey = key;
+  renderCompetitionNav(els.nav, state.competitions, { activeSlug: state.slug, liveSlugs: slugs });
+}
+
+/** Jogos ao vivo agora, de todas as competições (GET /api/matches?status=live): a home tira o
+ *  ponto do menu dos jogos do dia; esta página não os tem. */
+function setLiveMatches(data) {
+  state.liveMatches = new Map((data?.matches || []).filter((m) => m.status === 'live' && m.competition?.slug).map((m) => [m.id, m.competition.slug]));
+}
+
+/** Mensagem `match` de qualquer competição: entrou ou saiu do ao vivo. */
+function liveOnMatch(message) {
+  const match = message?.match;
+  if (!match?.id) return;
+  const slug = match.competition?.slug || state.competitions.find((c) => c.id === message.competition_id)?.slug;
+  if (match.status === 'live' && slug) state.liveMatches.set(match.id, slug);
+  else state.liveMatches.delete(match.id);
+  paintNav();
+}
+
+/* --- Mata-mata: a faixa do card sem a fase da navegação ------------------------------------- */
+
+/** A navegação da rodada já diz a fase ("Final", "Semifinal"): a faixa do card fica só com o que
+ *  ela acrescenta ("Jogo único", "Ida", "Volta"). O card (match-card.js) escreve "Final · Jogo
+ *  único" e redesenha a faixa a cada mudança: aqui sobra a última parte, sem mexer no jogo que
+ *  ele guarda (a imagem e o texto de compartilhar o jogo continuam com a fase). */
+const LEGS = new Set(['Jogo único', 'Ida', 'Volta']);
+function trimTieContext() {
+  if (state.stage?.format !== 'knockout') return;
+  for (const el of els.matches.querySelectorAll('.tie-group .match__lead > .match__round')) {
+    const leg = el.textContent.split(' · ').at(-1);
+    if (LEGS.has(leg) && el.textContent !== leg) el.textContent = leg;
+  }
+}
+new MutationObserver(trimTieContext).observe(els.matches, { childList: true, subtree: true });
 
 /* --- Navegação ----------------------------------------------------------------------------- */
 
@@ -447,7 +516,14 @@ async function reload() {
   state.rankingMatchKeys.clear(); // as mensagens perdidas não voltam: o último visto pode estar velho
   const round = state.rounds[state.roundIndex];
   const seq = ++state.seq;
-  const data = await fetchCompetition({ stage: state.stage?.id ?? null, round: round?.id ?? null });
+  const [data, live] = await Promise.all([
+    fetchCompetition({ stage: state.stage?.id ?? null, round: round?.id ?? null }),
+    listMatches({ status: 'live' }).catch(() => null), // o menu: sem ela, fica o que estava
+  ]);
+  if (live) {
+    setLiveMatches(live);
+    paintNav();
+  }
   if (seq === state.seq) {
     sync(data);
     render(data, round?.id ?? null);
@@ -496,6 +572,7 @@ function rankingOnMatch(stageId, match) {
 function onMatch(message, id = null) {
   const match = message?.match;
   if (!match) return;
+  liveOnMatch(message);
   state.pending?.push({ topic: 'match', message, id });
   rankingOnMatch(message.stage_id, match);
   const card = state.cards.get(match.id);
@@ -535,11 +612,14 @@ async function boot() {
     return;
   }
   const requestedRound = toInt(params.get('round'));
-  const [compsResult, dataResult] = await Promise.allSettled([
+  const [compsResult, dataResult, liveResult] = await Promise.allSettled([
     getCompetitions(),
     fetchCompetition({ stage: toInt(params.get('stage')), round: requestedRound }),
+    listMatches({ status: 'live' }), // o ponto "Jogando agora" do menu
   ]);
-  if (els.nav) renderCompetitionNav(els.nav, compsResult.status === 'fulfilled' ? compsResult.value?.competitions || [] : [], { activeSlug: state.slug });
+  state.competitions = compsResult.status === 'fulfilled' ? compsResult.value?.competitions || [] : [];
+  if (liveResult.status === 'fulfilled') setLiveMatches(liveResult.value);
+  paintNav(true);
   if (dataResult.status !== 'fulfilled') {
     if (dataResult.reason?.status === 404) showMissing();
     else showError();

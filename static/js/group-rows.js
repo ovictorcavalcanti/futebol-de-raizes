@@ -9,8 +9,9 @@
  * jogos). O grupo que só tem jogo entre grupos não ganha linha própria; numa rodada mista (caso
  * raro), o grupo com jogo dentro dele tem a linha dele e a tabela aparece também na seção.
  *
- * Embaixo de cada tabela: a legenda das cores e as punições dos times do grupo; os critérios de
- * desempate ficam uma vez, no card do último grupo exibido.
+ * Embaixo de cada tabela: a legenda das cores, as punições dos times do grupo e a nota do "="
+ * quando a tabela tem empate; os critérios de desempate ficam uma vez, no card do último grupo
+ * exibido.
  */
 import { h } from './render.js';
 import { createStandings, updateStandings } from './standings.js';
@@ -74,16 +75,16 @@ function placeGroups(standings, split, only) {
   return { own, cross, order: [...own, ...cross] };
 }
 
-/** Tabela do grupo `index` dos exibidos: legenda e punições dos times dele; o último leva os
- *  critérios de desempate e a punição de time fora de todos os grupos. */
+/** Tabela do grupo `index` dos exibidos: legenda e punições dos times dele (e a nota do "=",
+ *  se ela tem empate); o último leva os critérios de desempate e a punição de time fora de
+ *  todos os grupos. */
 function tableArgs(standings, shown, index) {
   const group = shown[index];
   const last = index === shown.length - 1;
   const mine = idsOf([group]);
   const anywhere = idsOf(standings.groups || []);
   const adjustments = (standings.adjustments || []).filter((a) => mine.has(a.team?.id) || (last && !anywhere.has(a.team?.id)));
-  const tied = shown.some((g) => (g.rows || []).some((r) => r.tied));
-  return [{ ...standings, groups: [group], adjustments }, { criteria: last, tied }];
+  return [{ ...standings, groups: [group], adjustments }, { criteria: last }];
 }
 
 /** O que muda as linhas (grupos exibidos e onde, jogos de cada um, jogos entre grupos). Não

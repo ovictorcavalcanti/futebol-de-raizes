@@ -168,7 +168,7 @@ export function renderCompetitionNav(list, competitions, { activeSlug = null, li
       title: c.short_name && c.short_name !== c.name ? c.name : null,
     }, c.name);
     if (liveSlugs?.has(c.slug)) {
-      link.append(h('span', { class: 'comp-nav__live', 'aria-hidden': 'true' }), h('span', { class: 'visually-hidden', text: '(jogo ao vivo)' }));
+      link.append(h('span', { class: 'comp-nav__live', 'aria-hidden': 'true' }), h('span', { class: 'visually-hidden', text: ' (jogando agora)' }));
     }
     return h('li', { class: 'comp-nav__item' }, link);
   });

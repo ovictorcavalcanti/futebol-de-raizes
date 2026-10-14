@@ -561,7 +561,7 @@ COMPONENTS_JS = """async () => {
   out.standingsKeepsOpts = table.classList.contains('standings--compact') && !table.querySelector('.legend');
   // empatados em todos os critérios: a posição exibida (rank) se repete; a nota explica o "="
   out.tiedRanks = [...table.querySelectorAll('tbody tr')].map((tr) => tr.querySelector('.col-pos').firstChild.textContent);
-  out.tiedNote = table.querySelector('.criteria__note')?.textContent;
+  out.tiedNote = table.querySelector('.standings__note')?.textContent;
 
   // 8) brilho do gol: animationend de um filho não encerra o destaque do card
   const goal = { ...live, version: live.version + 5, home_score: live.home_score + 1 };
@@ -845,3 +845,106 @@ def test_nome_comprido_ao_lado_do_escudo_nao_e_cortado(browser_page, width):
     if width >= 328:  # celular de 360 px para cima: o nome, menor, não a sigla
         assert not any(n["sigla"] for n in out["long"]), out["long"]
     assert all(not n["sigla"] and n["cut"] <= 1 and n["px"] == 15 for n in out["short"]), out["short"]
+
+
+STANDINGS_WIDTH_JS = """async (width) => {
+  const St = await import('/static/js/standings.js');
+  const F = await import('/static/js/fixtures.js');
+  await Promise.all(['700 16px "Barlow Condensed"', '600 16px "Barlow Condensed"', '600 14px Barlow'].map((f) => document.fonts.load(f)));
+  const root = document.getElementById('root');
+  root.replaceChildren();
+  root.style.cssText = `width:${width}px`;
+  // o pior caso: nomes compridos, dois dígitos em tudo, "10=" e "99*", quem está em campo e,
+  // na classificação por posição, o grupo de cada time
+  const big = (r, i) => ({ ...r, team: { ...r.team, name: i % 2 ? 'Atlético Pernambucano' : 'Sete de Setembro' }, rank: 10 + i,
+    points: 99, played: 38, won: 30, drawn: 10, lost: 10, goals_for: 99, goal_difference: i % 2 ? -88 : 88, tied: i === 2 });
+  const league = { ...F.STANDINGS, groups: [{ ...F.STANDINGS.groups[0], rows: F.STANDINGS.groups[0].rows.map(big) }] };
+  const ranking = { stage_id: null, stage_name: 'Melhores segundos', kind: 'live', legend: [],
+    groups: [{ id: null, name: 'Melhores segundos', rows: F.STANDINGS.groups[0].rows.slice(0, 4).map((r, i) => ({ ...big(r, i), group: `Grupo ${'ABCD'[i]}` })) }] };
+  root.append(St.createStandings(league, { share: { title: 'PE Raiz' } }), St.createStandings(ranking));
+  const visible = (el) => getComputedStyle(el).display !== 'none';
+  return [...root.querySelectorAll('.standings__group')].map((group) => {
+    const scroll = group.querySelector('.table-scroll');
+    const names = [...group.querySelectorAll('tbody .team-cell__text')];
+    return {
+      overflow: scroll.scrollWidth - scroll.clientWidth,
+      columns: [...group.querySelectorAll('thead th')].filter(visible).map((th) => th.textContent),
+      cells: [...group.querySelectorAll('tbody tr')].every((tr) => [...tr.children].filter(visible).length === 9),
+      sigla: names.every((t) => visible(t.querySelector('.team-cell__short')) && !visible(t.querySelector('.team-cell__name'))),
+      full: names.every((t) => visible(t.querySelector('.team-cell__name')) && !visible(t.querySelector('.team-cell__short'))),
+    };
+  });
+}"""
+
+
+@pytest.mark.parametrize("width", [288, 328, 343, 358, 380, 400, 728])  # celular de 320 a 390 px, coluna do desktop, tablet
+def test_classificacao_mesmas_colunas_em_toda_largura(browser_page, width):
+    """A tabela tem as mesmas colunas em todas as larguras (# Time P J V E D GP SG; GC só na
+    imagem compartilhada) e cabe sem rolagem lateral até no celular de 320 px: quando aperta, o
+    nome vira a sigla (antes de qualquer coluna sumir)."""
+    page, errors = browser_page
+    out = page.evaluate(STANDINGS_WIDTH_JS, width)
+    assert not errors, errors
+    for table in out:
+        assert table["columns"] == ["#", "Time", "P", "J", "V", "E", "D", "GP", "SG"], table
+        assert table["cells"] and table["overflow"] <= 0, table
+        assert table["sigla"] if width <= 328 else table["full"], table
+
+
+STANDINGS_PARTS_JS = """async () => {
+  const St = await import('/static/js/standings.js');
+  const F = await import('/static/js/fixtures.js');
+  await Promise.all(['600 16px "Barlow Condensed"', '400 13px Barlow'].map((f) => document.fonts.load(f)));
+  const root = document.getElementById('root');
+  root.replaceChildren();
+  root.style.cssText = 'width:328px'; // celular de 360 px
+  // fase de grupos: empate em tudo só no Grupo A (o 1º), alguém em campo só no Grupo B; o melhor 2º
+  const [a, b] = F.STANDINGS_GROUPS.groups;
+  const groups = { ...F.STANDINGS_GROUPS, legend: [
+    { name: 'Classificados', color: '#12306B', from: 1, to: 1 },
+    { name: 'Melhor 2º', color: '#7ACB8F', from: 2, to: 2, condition: 'só o 1º em “Melhores segundos”' },
+  ], groups: [
+    { ...a, rows: a.rows.map((r, i) => ({ ...r, tied: i === 1 || i === 2, rank: i === 2 ? 2 : r.rank })) },
+    { ...b, rows: b.rows.map((r, i) => ({ ...r, playing: i === 0 })) },
+  ] };
+  const table = St.createStandings(groups);
+  root.append(table);
+  const item = [...table.querySelector('.legend').children].find((li) => li.textContent.startsWith('Melhor'));
+  const lines = (el) => new Set([...el.getClientRects()].map((r) => Math.round(r.top))).size;
+  const caption = (data, opts) => St.createStandings(data, opts).querySelector('caption').firstChild.textContent;
+  return {
+    foot: [...table.querySelectorAll('.standings__group')].map((g) => [
+      g.querySelector('.standings__note')?.textContent ?? null,
+      [...g.querySelectorAll('.legend__item--playing')].map((li) => li.textContent),
+      !!g.querySelector('.criteria'),
+    ]),
+    dot: [...table.querySelectorAll('tbody .live-dot')].map((d) => [d.title, d.nextElementSibling?.textContent]),
+    legend: [...table.querySelector('.legend').children].map((li) => li.textContent),
+    legendLines: [lines(item.querySelector('.legend__name')), lines(item.querySelector('.legend__cond'))],
+    condFont: getComputedStyle(item.querySelector('.legend__cond')).fontFamily,
+    captions: [
+      caption({ ...F.STANDINGS, season_stages: 2, stage_name: '2º turno' }),
+      caption({ ...F.STANDINGS, season_stages: 1 }),
+      caption({ ...F.STANDINGS, season_stages: 2, stage_name: '2º turno' }, { stageTitle: false }),
+      caption({ ...F.STANDINGS }, { stageTitle: true }),
+      caption({ ...F.STANDINGS, season_stages: 3, groups: [{ ...F.STANDINGS.groups[0], name: 'Classificação geral' }] }),
+    ],
+  };
+}"""
+
+
+def test_classificacao_legenda_nota_de_empate_e_titulo(browser_page):
+    """Legenda como frase (o "Melhor 2º" sem a faixa repetida e sem quebrar no meio; a condição em
+    texto corrido, não na fonte numérica condensada), "Jogando agora" na legenda da tabela que tem
+    time em campo (o mesmo nome do ponto), a nota do "=" embaixo de cada tabela com empate e o
+    título com a fase quando há outras ("Classificação · 2º turno")."""
+    page, errors = browser_page
+    out = page.evaluate(STANDINGS_PARTS_JS)
+    assert not errors, errors
+    note = "= Empatados em todos os critérios de desempate"
+    # Grupo A: empate (nota), ninguém em campo; Grupo B: em campo, sem empate; critérios no último
+    assert out["foot"] == [[note, [], False], [None, ["Jogando agora"], True]]
+    assert out["dot"] == [["Jogando agora", ", jogando agora"]]
+    assert out["legend"] == ["Classificados 1º", "Melhor 2º (só o 1º em “Melhores segundos”)"]  # a do Grupo A
+    assert out["legendLines"][0] == 1 and "Condensed" not in out["condFont"]
+    assert out["captions"] == ["Classificação · 2º turno", "Classificação", "Classificação", "Classificação · 1ª fase", "Classificação geral"]

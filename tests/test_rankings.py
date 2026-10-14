@@ -192,6 +192,21 @@ def test_conditional_zone_paints_only_the_qualified_thirds(groups_stage):
     assert "condition" not in next(item for item in table["legend"] if item["name"] == "Classificados")
 
 
+def test_conditional_zone_of_a_single_ranking_position_reads_as_a_sentence(groups_stage):
+    """Só o melhor da outra classificação avança: "só o 1º em “...”", não "do 1º ao 1º"."""
+    from competitions.models import StandingZone
+    from standings.services import stage_standings
+
+    ranking = thirds(groups_stage, skip_extra_teams=True)
+    stage = groups_stage["groups_stage"]
+    StandingZone.objects.create(stage=stage, name="Melhor 3º", color="#7ACB8F", position_from=3, position_to=3,
+                                ranking=ranking, ranking_position_from=1, ranking_position_to=1)
+    table = stage_standings(stage, live=False)
+    zone_of = {row["team"]["name"]: (row["zone"] or {}).get("name") for group in table["groups"] for row in group["rows"]}
+    assert [name for name in ("A3", "B3", "C3") if zone_of[name]] == ["B3"]  # só o melhor terceiro
+    assert table["legend"] == [{"name": "Melhor 3º", "color": "#7ACB8F", "from": 3, "to": 3, "condition": "só o 1º em “Melhores terceiros”"}]
+
+
 def test_admin_validates_position_ranking(admin_client_fdr, groups_stage):
     add = url(Ranking, "add") + f"?season={groups_stage['season'].pk}"
     data = post_data(admin_client_fdr.get(add))

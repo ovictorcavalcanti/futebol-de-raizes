@@ -17,7 +17,7 @@ import logging
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 
-from django.db.models import Count, Q
+from django.db.models import Count, OuterRef, Q, Subquery
 
 from competitions.models import Group, GroupTeam, Stage, StageCriterion, StandingZone, Team
 from core.locks import locked_atomic
@@ -275,8 +275,12 @@ def stages_standings(stages: Iterable[Stage], live: bool = True, conditional: bo
         if conditional and zone.ranking_id:
             conditions[zone.stage_id].append(zone)
     groups: dict[int, list[Group]] = defaultdict(list)
-    for group in Group.objects.filter(stage_id__in=ids).order_by("stage_id", "name", "id"):
+    # na mesma consulta: quantas fases a temporada tem (com mais de uma, o título da tabela diz a fase)
+    season_stages: dict[int, int] = {}
+    stage_count = Stage.objects.filter(season_id=OuterRef("stage__season_id")).order_by().values("season_id").annotate(n=Count("id")).values("n")
+    for group in Group.objects.filter(stage_id__in=ids).annotate(season_stages=Subquery(stage_count)).order_by("stage_id", "name", "id"):
         groups[group.stage_id].append(group)
+        season_stages[group.stage_id] = group.season_stages or 1
     members: dict[int, list[GroupTeam]] = defaultdict(list)
     for item in GroupTeam.objects.filter(group__stage_id__in=ids).select_related("team"):
         members[item.group_id].append(item)
@@ -302,10 +306,7 @@ def stages_standings(stages: Iterable[Stage], live: bool = True, conditional: bo
         stage_zones_ = zones.get(stage.id, [])
         stage_adjustments_ = dict(adjustments.get(stage.id, {}))
         qualified = _conditional_zones(conditions.get(stage.id, []), live)
-        conditions_text = {
-            (z.position_from, z.position_to): f"só quem estiver do {z.ranking_position_from}º ao {z.ranking_position_to}º em “{z.ranking.name}”"
-            for z in conditions.get(stage.id, [])
-        }
+        conditions_text = {(z.position_from, z.position_to): _condition_text(z) for z in conditions.get(stage.id, [])}
         out_groups = []
         for group in groups.get(stage.id, []):
             teams = members.get(group.id, [])
@@ -326,6 +327,7 @@ def stages_standings(stages: Iterable[Stage], live: bool = True, conditional: bo
         result[stage.id] = {
             "stage_id": stage.id,
             "stage_name": stage.name,
+            "season_stages": season_stages.get(stage.id, 1),
             "kind": kind,
             "points": {"win": stage.points_win, "draw": stage.points_draw, "loss": stage.points_loss},
             "criteria": [{"key": key, "label": CRITERIA[key].label} for key in rules.criteria],
@@ -333,6 +335,7 @@ def stages_standings(stages: Iterable[Stage], live: bool = True, conditional: bo
                 {
                     "name": zone.name, "color": zone.color, "from": zone.position_from, "to": zone.position_to,
                     # só nas zonas condicionais: "só quem estiver do 1º ao 4º em “Melhores terceiros”"
+                    # ou, numa posição só, "só o 1º em “Melhores segundos”"
                     **({"condition": conditions_text[key]} if (key := (zone.position_from, zone.position_to)) in conditions_text else {}),
                 }
                 for zone in stage_zones_
@@ -344,6 +347,15 @@ def stages_standings(stages: Iterable[Stage], live: bool = True, conditional: bo
             ],
         }
     return result
+
+
+def _condition_text(zone: StandingZone) -> str:
+    """Condição da zona que depende de outra classificação, como frase da legenda: "só o 1º em
+    “Melhores segundos”" (uma posição) ou "só quem estiver do 1º ao 4º em “Melhores terceiros”"."""
+    first, last, name = zone.ranking_position_from, zone.ranking_position_to, zone.ranking.name
+    if first == last:
+        return f"só o {first}º em “{name}”"
+    return f"só quem estiver do {first}º ao {last}º em “{name}”"
 
 
 def stage_standings(stage: Stage, live: bool = True) -> dict:

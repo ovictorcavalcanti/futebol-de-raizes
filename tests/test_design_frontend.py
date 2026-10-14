@@ -837,11 +837,11 @@ LONG_NAMES_JS = """async (width) => {
 def test_nome_comprido_ao_lado_do_escudo_nao_e_cortado(browser_page, width):
     """No placar estreito, a palavra que não cabe ao lado do escudo ganha fonte menor (até 11 px),
     sem corte e sem quebrar no meio; se nem assim cabe (320 px), a sigla daquele time. O nome
-    curto fica no tamanho do CSS (16 px)."""
+    curto fica no tamanho do CSS (15 px)."""
     page, errors = browser_page
     out = page.evaluate(LONG_NAMES_JS, width)
     assert not errors, errors
     assert all(n["sigla"] or (n["cut"] <= 1 and n["px"] >= 11) for n in out["long"]), out["long"]
     if width >= 328:  # celular de 360 px para cima: o nome, menor, não a sigla
         assert not any(n["sigla"] for n in out["long"]), out["long"]
-    assert all(not n["sigla"] and n["cut"] <= 1 and n["px"] == 16 for n in out["short"]), out["short"]
+    assert all(not n["sigla"] and n["cut"] <= 1 and n["px"] == 15 for n in out["short"]), out["short"]

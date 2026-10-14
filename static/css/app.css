@@ -901,24 +901,29 @@
   .match[data-winner="away"] .team--home .crest { opacity: 0.7; }
   /* fora do fluxo (no canto de cima, junto da faixa do time): não aperta o nome */
 
-  /* placar estreito (celular): o nome do time (o popular, "Sport", não a sigla), ao lado do
-     escudo, um pouco menor; nome comprido quebra entre palavras, em até duas linhas */
+  /* card estreito (celular, < 520 px): uma escala só, mais compacta — 12 px de respiro nas
+     laterais de todas as faixas; placar de 30 px numa coluna estreita; escudo de 28 px e o nome do
+     time (o popular, "Sport", não a sigla) ao lado dele em 15 px, quebrando entre palavras em até
+     duas linhas; a palavra que não cabe ganha fonte menor e, nem em 11 px, a sigla (fitTeamNames) */
   @container match (max-width: 519px) {
-    .team__name { font-size: 1rem; }
+    .match__meta { padding-block: 8px; font-size: 0.8125rem; }
+    .match__board { gap: 6px 8px; padding: 12px 12px 10px; }
+    .team__band { top: 12px; bottom: 10px; }
+    .team { gap: 6px; }
+    .team .crest { --crest-size: 28px; }
+    .team__name { font-size: 0.9375rem; }
     .team__full { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
     .team__short { display: none; }
-    /* nem em 11 px o nome cabe (celular de 320 px): a sigla daquele time (fitTeamNames) */
     .team__name--short .team__full { display: none; }
     .team__name--short .team__short { display: inline; }
-  }
-
-  /* card estreito (celular até ~400 px): escudo, vão e coluna do placar menores */
-  @container match (max-width: 379px) {
-    .match__board { gap: var(--s-2) var(--s-2); padding-inline: var(--s-3); }
-    .team { gap: 6px; }
-    .team .crest { --crest-size: 30px; }
-    .score { min-width: 72px; }
-    .score__line { font-size: 2.25rem; }
+    .score { min-width: 56px; }
+    .score__line { gap: 4px; font-size: 1.875rem; }
+    .score__vs { font-size: 1.375rem; }
+    .score__kickoff { font-size: 1.125rem; }
+    .score__pen { font-size: 0.75rem; }
+    .match__summary { gap: 2px 12px; padding: 0 12px 10px; }
+    .match__tie { margin: 0 12px 10px; padding: 6px 10px; }
+    .match__toggle { min-height: 44px; padding-inline: 12px; font-size: 0.8125rem; }
   }
 
   @container match (min-width: 520px) {

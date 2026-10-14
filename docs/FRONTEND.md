@@ -200,11 +200,13 @@ estádio com o ícone de estádio e a cidade com o pino, `.match__place-item`). 
 linhas centradas, como o placar (o espaço do botão
 de compartilhar fica dos dois lados); no contêiner largo (≥ 560 px), "quando" à esquerda e
 "onde" à direita. O botão de compartilhar tem borda (é botão, não ícone de informação) e área
-de toque de 44 px (o desenho segue de 32 px). No placar estreito (< 520 px), o nome do time (o
-popular, como no cadastro: "Sport", "Náutico"), não a sigla, ao lado do escudo, um pouco menor,
-em até duas linhas; a palavra que não cabe ("Pernambucano" em 360 px) não é cortada: só aquele
-nome ganha fonte menor até caber (mínimo 11 px; `fitTeamNames`, refeito quando o card muda de
-largura). No celular, a janela de compartilhar abre como
+de toque de 44 px (o desenho segue de 32 px). No card estreito (< 520 px) vale uma escala só,
+compacta: 12 px de respiro nas laterais de todas as faixas (placar, resumo, desempate, botão de
+detalhes), placar de 30 px numa coluna estreita, escudo de 28 px e o nome do time (o popular,
+como no cadastro: "Sport", "Náutico"), não a sigla, ao lado do escudo em 15 px, quebrando entre
+palavras em até duas linhas; a palavra que não cabe ("Pernambucano" em 360 px) não é cortada:
+só aquele nome ganha fonte menor até caber (mínimo 11 px; `fitTeamNames`, refeito quando o card
+muda de largura) e, nem assim, a sigla. No celular, a janela de compartilhar abre como
 gaveta (presa embaixo, na largura da tela, com o botão largo).
 
 ### Operador (`operator.html`)

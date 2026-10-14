@@ -171,7 +171,7 @@ existe: a home de sempre.
   por lado; "🔗 link". `resultsShareText(title, matches, now, url)`: `*título*` e uma linha por
   jogo (placar; situação entre parênteses se não acabou; horário se não começou) e o link.
   `shareResultsOnWhatsApp(title, matches, {now, url})` abre a conversa com ela.
-* `renderMatchImage(match, {now, brand, host})` → PNG 1080 × 1080 no canvas: competição, rodada e
+* `renderMatchImage(match, {now, brand, host})` → PNG 1200 × 800 (3:2, tipos moderados, bloco do jogo centrado na altura) no canvas: competição, rodada e
   situação, escudos (o `crest_url` com CORS ou o escudo desenhado), times, placar e só os autores
   dos gols — todos os autores no mesmo tamanho de fonte (o maior em que o mais longo cabe), e os
   dois nomes também —, com o nome do site no rodapé. Sem servidor e sem dependência nova.

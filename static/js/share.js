@@ -2,7 +2,7 @@
  * Compartilhar no WhatsApp (docs/FRONTEND.md §Compartilhar).
  *
  * Jogo: mensagem formatada para o WhatsApp (placar em negrito, competição, autores dos gols e o
- * link /?jogo=<id>, que abre a home no dia do jogo com o card aberto) e uma imagem PNG quadrada
+ * link /?jogo=<id>, que abre a home no dia do jogo com o card aberto) e uma imagem PNG 3:2
  * (escudos, times, placar, autores dos gols) desenhada num canvas, sem servidor. A imagem entra
  * na conversa como arquivo pela folha nativa do celular (Web Share); sem ela (computador), abre o
  * WhatsApp com a mensagem (api.whatsapp.com) e copia a imagem para colar. Nunca há "baixar".
@@ -108,7 +108,9 @@ export function shareResultsOnWhatsApp(title, matches, { now = Date.now(), url =
 
 /* --- Imagem ------------------------------------------------------------------------------- */
 
-const SIZE = 1080;
+// 3:2, deitada: lê bem na conversa do WhatsApp
+const W = 1200;
+const H = 800;
 const COLORS = { paper: '#FBF6EC', ink: '#1B1712', ink3: '#6F675A', line: '#E4DACA', azul: '#12306B', stripe: ['#C8102E', '#F2B705', '#0E8A4A', '#12306B'] };
 
 function loadImage(src, { cors = false } = {}) {
@@ -167,13 +169,15 @@ function drawCrest(ctx, img, cx, cy, box) {
 function stripe(ctx, y, height) {
   COLORS.stripe.forEach((color, i) => {
     ctx.fillStyle = color;
-    ctx.fillRect((SIZE / 4) * i, y, SIZE / 4, height);
+    ctx.fillRect((W / 4) * i, y, W / 4, height);
   });
 }
 
 /**
- * Imagem do jogo (PNG 1080 × 1080): competição e situação, escudos, times, placar e autores dos
- * gols (só eles, todos no mesmo tamanho), com o nome do site no rodapé.
+ * Imagem do jogo (PNG 1200 × 800): competição e situação, escudos, times, placar e autores dos
+ * gols (só eles, todos no mesmo tamanho), com o nome do site no rodapé. Tipos moderados, com
+ * respiro: a imagem é lida no celular, mas não é um cartaz. O bloco do jogo (escudos, placar,
+ * nomes e gols) fica no meio da altura livre, com ou sem gols.
  * @returns {Promise<Blob>}
  */
 export async function renderMatchImage(match, { now = Date.now(), brand = '', host = globalThis.location?.host || '' } = {}) {
@@ -184,89 +188,98 @@ export async function renderMatchImage(match, { now = Date.now(), brand = '', ho
     num: root.getPropertyValue('--font-num').trim() || 'system-ui, sans-serif',
   };
   try {
-    await Promise.all([`400 40px ${font.brand}`, `700 40px ${font.num}`, `400 40px ${font.ui}`, `600 40px ${font.ui}`].map((f) => document.fonts.load(f)));
+    await Promise.all([`400 40px ${font.brand}`, `700 40px ${font.num}`, `500 40px ${font.ui}`, `600 40px ${font.ui}`].map((f) => document.fonts.load(f)));
   } catch {
     // sem as fontes do site, o canvas usa as do sistema
   }
   const [homeCrest, awayCrest] = await Promise.all([crestImage(match.home), crestImage(match.away)]);
 
   const canvas = document.createElement('canvas');
-  canvas.width = SIZE;
-  canvas.height = SIZE;
+  canvas.width = W;
+  canvas.height = H;
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = COLORS.paper;
-  ctx.fillRect(0, 0, SIZE, SIZE);
-  stripe(ctx, 0, 18);
-  stripe(ctx, SIZE - 18, 18);
+  ctx.fillRect(0, 0, W, H);
+  stripe(ctx, 0, 10);
+  stripe(ctx, H - 10, 10);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
   const line = (text, x, y, maxWidth) => ctx.fillText(clip(ctx, text, maxWidth), x, y);
+  const [left, right, middle] = [330, W - 330, W / 2]; // centro de cada time e do placar
 
   // competição; rodada e situação
   const competition = match.competition?.name || '';
   ctx.fillStyle = COLORS.ink;
-  groupFont(ctx, [competition], { size: 52, family: font.brand, maxWidth: 960 });
-  line(competition, SIZE / 2, 112, 960);
+  groupFont(ctx, [competition], { size: 36, family: font.brand, maxWidth: 1000 });
+  line(competition, middle, 88, 1000);
   const context = [match.round?.name, situation(match, now)].filter(Boolean).join(' · ').toUpperCase();
   ctx.fillStyle = COLORS.ink3;
-  groupFont(ctx, [context], { weight: 700, size: 36, family: font.num, maxWidth: 960 });
-  line(context, SIZE / 2, 166, 960);
+  groupFont(ctx, [context], { weight: 700, size: 22, family: font.num, maxWidth: 1000 });
+  line(context, middle, 124, 1000);
+
+  // bloco do jogo: escudos, placar, nomes e os gols embaixo, centrado entre o cabeçalho e o rodapé
+  const columns = [['home', left], ['away', right]].map(([side, x]) => {
+    const goals = scorers(match, side);
+    return [goals.length > 6 ? [...goals.slice(0, 5), `+${goals.length - 5} gols`] : goals, x];
+  });
+  const rows = Math.max(...columns.map(([texts]) => texts.length));
+  const blockHeight = rows ? 302 + (rows - 1) * 36 + 8 : 216;
+  const [top, bottom] = [150, H - 110];
+  const y0 = Math.max(top, Math.round(top + (bottom - top - blockHeight) / 2));
 
   // escudos e nomes (os dois do mesmo tamanho)
-  drawCrest(ctx, homeCrest, 250, 360, 250);
-  drawCrest(ctx, awayCrest, SIZE - 250, 360, 250);
+  drawCrest(ctx, homeCrest, left, y0 + 80, 160);
+  drawCrest(ctx, awayCrest, right, y0 + 80, 160);
   const names = [name(match.home).toUpperCase(), name(match.away).toUpperCase()];
   ctx.fillStyle = COLORS.ink;
-  groupFont(ctx, names, { weight: 700, size: 44, family: font.num, maxWidth: 400, min: 26 });
-  line(names[0], 250, 552, 400);
-  line(names[1], SIZE - 250, 552, 400);
+  groupFont(ctx, names, { weight: 700, size: 28, family: font.num, maxWidth: 380, min: 20 });
+  line(names[0], left, y0 + 208, 380);
+  line(names[1], right, y0 + 208, 380);
 
-  // placar (ou "×" com o horário, antes do jogo)
+  // placar (ou "×", antes do jogo)
   if (hasScore(match)) {
-    ctx.font = `400 150px ${font.brand}`;
+    ctx.font = `400 96px ${font.brand}`;
     ctx.textAlign = 'right';
-    ctx.fillText(String(match.home_score ?? 0), SIZE / 2 - 46, 412);
+    ctx.fillText(String(match.home_score ?? 0), middle - 34, y0 + 114);
     ctx.textAlign = 'left';
-    ctx.fillText(String(match.away_score ?? 0), SIZE / 2 + 46, 412);
+    ctx.fillText(String(match.away_score ?? 0), middle + 34, y0 + 114);
     ctx.textAlign = 'center';
     ctx.fillStyle = COLORS.ink3;
-    ctx.font = `400 64px ${font.brand}`;
-    ctx.fillText('×', SIZE / 2, 392);
+    ctx.font = `400 40px ${font.brand}`;
+    ctx.fillText('×', middle, y0 + 100);
   } else {
     ctx.fillStyle = COLORS.ink3;
-    ctx.font = `400 96px ${font.brand}`;
-    ctx.fillText('×', SIZE / 2, 400);
+    ctx.font = `400 60px ${font.brand}`;
+    ctx.fillText('×', middle, y0 + 104);
   }
   ctx.fillStyle = COLORS.ink3;
   const under = match.home_penalties != null && match.away_penalties != null
     ? `Pênaltis ${match.home_penalties} × ${match.away_penalties}` : walkoverText(match);
   if (under) {
-    groupFont(ctx, [under], { weight: 600, size: 32, family: font.ui, maxWidth: 300 });
-    line(under, SIZE / 2, 470, 300);
+    groupFont(ctx, [under], { weight: 600, size: 20, family: font.ui, maxWidth: 260 });
+    line(under, middle, y0 + 156, 260);
   }
 
   // autores dos gols, cada lado embaixo do seu escudo, todos no mesmo tamanho (até 6 linhas por lado)
-  ctx.strokeStyle = COLORS.line;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(80, 612);
-  ctx.lineTo(SIZE - 80, 612);
-  ctx.stroke();
-  const columns = [['home', 250], ['away', SIZE - 250]].map(([side, x]) => {
-    const goals = scorers(match, side);
-    return [goals.length > 6 ? [...goals.slice(0, 5), `+${goals.length - 5} gols`] : goals, x];
-  });
-  ctx.fillStyle = COLORS.ink;
-  groupFont(ctx, columns.flatMap(([texts]) => texts), { weight: 600, size: 34, family: font.ui, maxWidth: 440, min: 24 });
-  for (const [texts, x] of columns) texts.forEach((text, i) => line(text, x, 676 + i * 50, 440));
+  if (rows) {
+    ctx.strokeStyle = COLORS.line;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(120, y0 + 252);
+    ctx.lineTo(W - 120, y0 + 252);
+    ctx.stroke();
+    ctx.fillStyle = COLORS.ink;
+    groupFont(ctx, columns.flatMap(([texts]) => texts), { weight: 500, size: 22, family: font.ui, maxWidth: 420, min: 16 });
+    for (const [texts, x] of columns) texts.forEach((text, i) => line(text, x, y0 + 302 + i * 36, 420));
+  }
 
   // rodapé: site
   ctx.fillStyle = COLORS.azul;
-  groupFont(ctx, [brand], { size: 34, family: font.brand, maxWidth: 900 });
-  line(brand, SIZE / 2, 1000, 900);
+  groupFont(ctx, [brand], { size: 24, family: font.brand, maxWidth: 1000 });
+  line(brand, middle, H - 70, 1000);
   ctx.fillStyle = COLORS.ink3;
-  groupFont(ctx, [host], { weight: 600, size: 26, family: font.ui, maxWidth: 900 });
-  line(host, SIZE / 2, 1040, 900);
+  groupFont(ctx, [host], { weight: 600, size: 17, family: font.ui, maxWidth: 1000 });
+  line(host, middle, H - 42, 1000);
 
   return new Promise((resolve, reject) => canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('toBlob'))), 'image/png'));
 }
@@ -300,7 +313,7 @@ export function openMatchShare(match, { now = Date.now(), nav = globalThis.navig
   const probe = typeof File === 'function' ? new File([''], filename, { type: 'image/png' }) : null;
   const canShareFiles = !!(nav?.share && nav.canShare && probe && nav.canShare({ files: [probe] }));
 
-  const preview = h('img', { class: 'share-sheet__img', alt: `Imagem do jogo: ${title}`, width: 540, height: 540, hidden: true });
+  const preview = h('img', { class: 'share-sheet__img', alt: `Imagem do jogo: ${title}`, width: 600, height: 400, hidden: true });
   const status = h('p', { class: 'share-sheet__status', text: 'Gerando a imagem…' });
   const label = [icon('share'), 'Compartilhar no WhatsApp'];
   const send = canShareFiles

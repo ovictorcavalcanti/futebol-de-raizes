@@ -655,7 +655,7 @@ SHARE_JS = """async () => {
   const opened = [];
   S.shareResultsOnWhatsApp('PE · Rodada 5', [fin], { url: 'https://x.test/r', win: { open: (...args) => opened.push(args) } });
   out.opened = opened.map(([href, target]) => [decodeURIComponent(href.split('?text=')[1]), href.split('?')[0], target]);
-  // imagem: PNG 1080 × 1080 (canvas limpo: o toBlob funciona); autores dos gols todos na mesma fonte
+  // imagem: PNG 1200 × 800 (canvas limpo: o toBlob funciona); autores dos gols todos na mesma fonte
   const drawn = [];
   const fillText = CanvasRenderingContext2D.prototype.fillText;
   CanvasRenderingContext2D.prototype.fillText = function (text, ...rest) { drawn.push([String(text), this.font]); return fillText.call(this, text, ...rest); };
@@ -730,7 +730,7 @@ def test_compartilhar_jogo_no_whatsapp_texto_imagem_e_janela(browser_page):
     assert out["results"][3].startswith(f"{out['later'][0]} × {out['later'][1]} — ")  # ainda não começou: o horário
     assert out["results"][-2:] == ["", "🔗 https://x.test/r"]
     assert out["opened"] == [["*PE · Rodada 5*\n\n" + out["text"][0].strip("*") + "\n\n🔗 https://x.test/r", "https://api.whatsapp.com/send", "_blank"]]
-    assert out["image"] == ["image/png", 1080, 1080, True]
+    assert out["image"] == ["image/png", 1200, 800, True]  # 3:2
     assert out["scorerFonts"] == [3, 1] and out["nameFonts"] == 1  # mesmo tamanho para todos os autores (e os dois nomes)
     assert out["buttons"] == [True, False]
     assert out["cardDialog"] == [True, True, [["BUTTON", "Fechar"], ["A", "Compartilhar no WhatsApp"]]] and out["removed"]

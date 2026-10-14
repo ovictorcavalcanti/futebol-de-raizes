@@ -1894,3 +1894,140 @@ def test_home_no_celular_barra_do_dia_ao_vivo_nomes_e_gaveta(open_page, fixtures
     sheet = page.locator("dialog.share-sheet").bounding_box()
     assert abs(sheet["y"] + sheet["height"] - 900) <= 1 and sheet["width"] == 390
     assert not errors, errors
+
+
+# contraste WCAG entre duas cores calculadas ("rgb(r, g, b)")
+CONTRAST_JS = """(pair) => {
+  const lum = (css) => {
+    const [r, g, b] = css.match(/[\\d.]+/g).slice(0, 3).map(Number).map((v) => {
+      v /= 255;
+      return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const [a, b] = pair.map(lum).sort((x, y) => y - x);
+  return (a + 0.05) / (b + 0.05);
+}"""
+
+
+def test_home_tablet_barra_do_dia_e_ao_vivo_ate_960(open_page):
+    """Coluna única (< 960 px, tablet): barra fixa do dia e "Ao vivo N" como no celular; com a
+    classificação ao lado (>= 960 px), nenhum dos dois (barra escondida e inerte). O atalho usa
+    --on-vermelho, como a pílula AO VIVO: contraste AA também no tema escuro."""
+    page, _, errors = open_page("/", width=768)
+    page.wait_for_selector("[data-hook=competition] .match")
+    bar = "document.querySelector('[data-hook=day-bar]')"
+    assert page.is_hidden("[data-hook=day-bar]") and page.evaluate(f"{bar}.inert")
+    page.evaluate("window.scrollTo(0, document.getElementById('competitions').getBoundingClientRect().top + scrollY + 400)")
+    page.wait_for_function(f"() => !{bar}.hidden")
+    assert not page.evaluate(f"{bar}.inert") and page.evaluate("document.body.classList.contains('has-day-bar')")
+    chip = page.locator("[data-hook=day-bar] [data-hook=live-jump]")
+    assert chip.is_visible()
+    chip.click()
+    page.wait_for_timeout(700)  # rolagem suave
+    first = page.evaluate(f"""() => {{
+      const card = [...document.querySelectorAll('#competitions .match')].find((c) => c.dataset.status === 'live');
+      return [card.getBoundingClientRect().top, {bar}.getBoundingClientRect().bottom];
+    }}""")
+    assert first[1] <= first[0] < first[1] + 40
+    # tema escuro: texto e bolinha do atalho na cor do texto da pílula AO VIVO, com 4,5:1
+    page.evaluate("document.documentElement.dataset.theme = 'dark'")
+    colors = page.evaluate("""() => {
+      const chip = document.querySelector('[data-hook=day-bar] [data-hook=live-jump]');
+      const style = getComputedStyle(chip);
+      return { fg: style.color, bg: style.backgroundColor,
+        dot: getComputedStyle(chip.querySelector('.live-dot')).backgroundColor,
+        pill: getComputedStyle(document.querySelector('#competitions .pill--live')).color };
+    }""")
+    assert colors["fg"] == colors["dot"] == colors["pill"], colors
+    assert page.evaluate(CONTRAST_JS, [colors["fg"], colors["bg"]]) >= 4.5, colors
+    # duas colunas: a barra sai (e fica fora do Tab), sem o espaço guardado nos cards
+    page.set_viewport_size({"width": 1024, "height": 900})
+    page.wait_for_function(f"() => {bar}.hidden && {bar}.inert && !document.body.classList.contains('has-day-bar')")
+    assert not errors, errors
+
+
+@pytest.mark.parametrize("width", [320, 390, 1280])
+def test_cabecalho_botao_do_minuto_com_borda_legenda_e_nome_com_o_texto(open_page, width):
+    """Formato do minuto no topo: botão com borda e a legenda "Minuto" no desenho da legenda do
+    relógio; o nome acessível contém o texto visível (WCAG 2.5.3) e o trecho escondido diz o que
+    o toque faz; no celular, alvo de 44 px; a 320 px, logo + relógio + minuto + tema numa linha."""
+    page, _, errors = open_page("/", width=width)
+    page.wait_for_selector("article.match")
+    button = page.locator("[data-minute-format-toggle]")
+    assert button.get_attribute("aria-label") is None
+    # texto na tela (sem o trecho escondido): o valor e a legenda, que abrem o nome acessível
+    visible = """() => {
+      const b = document.querySelector('[data-minute-format-toggle]');
+      return `${b.querySelector('.minute-toggle__value').innerText.trim()} ${b.querySelector('.minute-toggle__label').firstChild.textContent}`;
+    }"""
+    assert page.evaluate(visible) == "45+2' Minuto"
+    off = page.get_by_role("button", name="45+2' Minuto — ver por tempo (1T/2T)", exact=True, pressed=False)
+    assert off.count() == 1
+    layout = """() => {
+      const b = document.querySelector('[data-minute-format-toggle]');
+      const s = getComputedStyle(b);
+      const label = getComputedStyle(b.querySelector('.minute-toggle__label'));
+      const clock = getComputedStyle(document.querySelector('.clock__label'));
+      const rects = ['.brand__logo--light', '.clock', '[data-minute-format-toggle]', '[data-theme-toggle]']
+        .map((sel) => document.querySelector(sel).getBoundingClientRect());
+      return {
+        border: s.borderTopStyle === 'solid' && parseFloat(s.borderTopWidth) >= 1 && s.borderTopColor !== s.backgroundColor,
+        sameLabel: ['fontFamily', 'fontSize', 'fontWeight', 'letterSpacing', 'textTransform', 'color'].every((k) => label[k] === clock[k]),
+        rects: rects.map((r) => ({ left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height })),
+        scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth,
+      };
+    }"""
+    out = page.evaluate(layout)
+    logo, clock, minute, theme = out["rects"]
+    assert out["border"] and out["sameLabel"], out
+    assert out["scroll"] <= out["client"], out
+    # numa linha: logo, relógio, minuto e tema, nessa ordem, dentro da margem lateral
+    assert logo["right"] <= clock["left"] and clock["right"] <= minute["left"] and minute["right"] <= theme["left"], out
+    assert theme["right"] <= width - 16 + 0.5 and max(r["top"] for r in out["rects"]) < min(r["bottom"] for r in out["rects"]), out
+    assert logo["width"] >= 85 and minute["height"] >= 40, out
+    if width < 640:
+        # toque de 44 px: o ::after estende a área além do desenho de 40 px
+        hit = "([x, y]) => document.elementFromPoint(x, y)?.closest('[data-minute-format-toggle]') !== null"
+        x = (minute["left"] + minute["right"]) / 2
+        assert page.evaluate(hit, [x, minute["top"] - 2]) and page.evaluate(hit, [x, minute["bottom"] + 2])
+    # ao tocar, o valor troca no lugar (largura fixa: o relógio não pula) e o nome acompanha
+    button.click()
+    assert page.evaluate(visible) == "47' 1T Minuto"
+    assert page.get_by_role("button", name="47' 1T Minuto — ver por tempo (1T/2T)", exact=True, pressed=True).count() == 1
+    assert page.evaluate(layout)["rects"][1]["left"] == clock["left"]
+    assert not errors, errors
+
+
+@pytest.mark.parametrize("width", [320, 1280])
+def test_ultimos_gols_som_e_notificacoes_curtos_no_celular(open_page, width):
+    """Celular (< 640 px): "Som" e "Notificações" (com ícone) na linha do título, em todos os
+    estados; o nome acessível é o texto visível; toque de 44 px. Desktop: rótulos longos."""
+    page, _, errors = open_page("/", width=width)
+    page.wait_for_selector("article.match")
+    mobile = width < 640
+    # como num celular (sem notificações do sistema): só o som, na linha do título
+    same_line = """(id) => {
+      const [t, b] = [document.querySelector('.goals__title'), document.getElementById(id)].map((el) => el.getBoundingClientRect());
+      return b.top < t.bottom && t.top < b.bottom && b.left > t.right;
+    }"""
+    assert page.evaluate(same_line, "toggle-sound")
+    # botão de notificações (HTTPS no computador) e os dois estados de cada botão
+    page.evaluate("document.getElementById('toggle-notifications').hidden = false")
+    states = {
+        "false": ("Som", "Notificações") if mobile else ("Ativar som", "Ativar notificações"),
+        "true": ("Som", "Notificações") if mobile else ("Som ligado", "Notificações ligadas"),
+    }
+    for pressed, names in states.items():
+        page.evaluate(f"for (const id of ['toggle-sound', 'toggle-notifications']) document.getElementById(id).setAttribute('aria-pressed', '{pressed}')")
+        for button_id, name in zip(("toggle-sound", "toggle-notifications"), names):
+            assert page.inner_text(f"#{button_id}").strip() == name
+            role = page.get_by_role("button", name=name, exact=True, pressed=pressed == "true")
+            assert role.count() == 1 and role.get_attribute("id") == button_id
+    if mobile:
+        box = page.locator("#toggle-sound").bounding_box()
+        hit = "([x, y]) => document.elementFromPoint(x, y)?.closest('#toggle-sound') !== null"
+        x = box["x"] + box["width"] / 2
+        assert page.evaluate(hit, [x, box["y"] - 5]) and page.evaluate(hit, [x, box["y"] + box["height"] + 5])
+    assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
+    assert not errors, errors

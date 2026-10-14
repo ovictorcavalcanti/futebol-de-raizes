@@ -166,12 +166,13 @@ function setDayBusy(busy) {
   for (const button of [els.dayPrev, els.dayNext, els.dayToday, els.dayBarPrev, els.dayBarNext]) if (button) button.disabled = busy;
 }
 
-/* --- Celular: barra fixa do dia e atalho dos jogos ao vivo -------------------------------- */
+/* --- Celular e tablet: barra fixa do dia e atalho dos jogos ao vivo ----------------------- */
 
-// A barra só aparece no celular e depois que o seletor de dias sai da tela por cima (nunca os
-// dois ao mesmo tempo); escondida, fica inerte (fora do Tab). Os cards guardam o espaço dela
-// (scroll-margin) quando o atalho ou o link de um jogo os leva para o topo.
-const narrow = window.matchMedia('(max-width: 639px)');
+// A barra só aparece enquanto a página está em coluna única (celular e tablet, < 960 px, como
+// no CSS) e depois que o seletor de dias sai da tela por cima (nunca os dois ao mesmo tempo);
+// escondida, fica inerte (fora do Tab). Os cards guardam o espaço dela (scroll-margin) quando
+// o atalho ou o link de um jogo os leva para o topo.
+const narrow = window.matchMedia('(max-width: 959.98px)');
 let pastDayNav = false;
 
 function paintDayBar() {

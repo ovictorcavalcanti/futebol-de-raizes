@@ -28,9 +28,10 @@
   <link rel="modulepreload" href="{% static 'js/alerts.js' %}">
 {% endblock %}
 {% block main %}
-{# Celular: depois que o seletor de dias sai da tela (ao rolar), uma barra fixa no topo repete o dia #}
-{# (‹ dia ›) e traz o atalho dos jogos ao vivo (só aqui). Fora do .container (não entra no espaçamento); #}
-{# escondida (e inerte) enquanto o seletor está na tela e no desktop (home.js).                    #}
+{# Celular e tablet (coluna única, < 960 px): depois que o seletor de dias sai da tela (ao rolar), #}
+{# uma barra fixa no topo repete o dia (‹ dia ›) e traz o atalho dos jogos ao vivo (só aqui). Fora  #}
+{# do .container (não entra no espaçamento); escondida (e inerte) enquanto o seletor está na tela  #}
+{# e no desktop (home.js).                                                                          #}
 <div class="day-bar" data-hook="day-bar" hidden>
   <div class="day-bar__inner">
     <button type="button" class="btn btn--ghost btn--icon" data-hook="day-bar-prev" aria-label="Dia anterior">
@@ -74,13 +75,16 @@
         <svg class="icon" aria-hidden="true"><use href="#i-ball"/></svg>Últimos gols
       </h2>
       <div class="goals__toggles">
+        {# celular (< 640 px): rótulo curto ("Som", "Notificações") na linha do título; o estado fica #}
+        {# no ícone e no destaque do botão pressionado. O rótulo longo some (display: none), então   #}
+        {# o nome acessível é sempre o texto que está na tela.                                       #}
         <button id="toggle-sound" type="button" class="btn btn--secondary btn--sm btn--toggle" aria-pressed="false" data-hook="toggle-sound">
-          <span class="when-off cluster"><svg class="icon" aria-hidden="true"><use href="#i-speaker-off"/></svg>Ativar som</span>
-          <span class="when-on cluster"><svg class="icon" aria-hidden="true"><use href="#i-speaker"/></svg>Som ligado</span>
+          <span class="when-off cluster"><svg class="icon" aria-hidden="true"><use href="#i-speaker-off"/></svg><span class="hide-sm">Ativar som</span><span class="only-sm">Som</span></span>
+          <span class="when-on cluster"><svg class="icon" aria-hidden="true"><use href="#i-speaker"/></svg><span class="hide-sm">Som ligado</span><span class="only-sm">Som</span></span>
         </button>
         <button id="toggle-notifications" type="button" class="btn btn--secondary btn--sm btn--toggle" aria-pressed="false" data-hook="toggle-notifications" hidden>
-          <span class="when-off cluster"><svg class="icon" aria-hidden="true"><use href="#i-bell-off"/></svg>Ativar notificações</span>
-          <span class="when-on cluster"><svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg>Notificações ligadas</span>
+          <span class="when-off cluster"><svg class="icon" aria-hidden="true"><use href="#i-bell-off"/></svg><span class="hide-sm">Ativar notificações</span><span class="only-sm">Notificações</span></span>
+          <span class="when-on cluster"><svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg><span class="hide-sm">Notificações ligadas</span><span class="only-sm">Notificações</span></span>
         </button>
       </div>
     </div>

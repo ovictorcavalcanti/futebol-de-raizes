@@ -12,9 +12,12 @@
         <span class="clock__label"><span class="clock__label-long">Horário de </span>Brasília</span>
       </div>
       {% if page and page != "operator" %}
-      {# formato do minuto (minute-format.js): internacional por padrão; pressionado = por tempo #}
-      <button type="button" class="btn btn--ghost btn--sm btn--toggle minute-toggle" data-minute-format-toggle aria-pressed="false" aria-label="Minutos por tempo (1T/2T)" title="Ver minutos por tempo (47' 1T)">
-        <span class="when-off">45+2'</span><span class="when-on">47' 1T</span>
+      {# formato do minuto (minute-format.js): internacional por padrão; pressionado = por tempo.   #}
+      {# Botão com borda e a legenda "Minuto" embaixo do valor (como "Brasília" no relógio). Sem    #}
+      {# aria-label: o nome é o texto visível + o trecho escondido ("45+2' Minuto — ver por tempo"). #}
+      <button type="button" class="btn btn--secondary btn--toggle minute-toggle" data-minute-format-toggle aria-pressed="false" title="Ver minutos por tempo (47' 1T)">
+        <span class="minute-toggle__value"><span class="when-off">45+2'</span><span class="when-on">47' 1T</span></span>
+        <span class="minute-toggle__label">Minuto<span class="visually-hidden"> — ver por tempo (1T/2T)</span></span>
       </button>
       {% endif %}
       <button type="button" class="btn btn--ghost btn--icon theme-toggle" data-theme-toggle aria-pressed="false" aria-label="Tema escuro" title="Usar tema escuro">

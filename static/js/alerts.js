@@ -219,6 +219,11 @@ export function createGoalAlerts({
   let soundOn = false;
   let notifyOn = false;
 
+  // Os botões só recebem aria-pressed; os rótulos de cada estado estão no HTML (index.html):
+  // desligado "Ativar som"/"Ativar notificações", ligado "Som ligado"/"Notificações ligadas" e,
+  // no celular, o curto "Som"/"Notificações" nos dois (o ícone e o destaque mostram o estado).
+  // Bloqueado pelo navegador = desligado, com o aviso (toast) explicando.
+
   /* --- Som ------------------------------------------------------------------------ */
   const paintSound = () => soundButton?.setAttribute('aria-pressed', String(soundOn));
 
@@ -234,7 +239,7 @@ export function createGoalAlerts({
   }
 
   if (soundButton && audio) {
-    // a escolha fica guardada; se o navegador já avisa que vai recusar, o botão volta a "Ativar som"
+    // a escolha fica guardada; se o navegador já avisa que vai recusar, o botão volta a desligado
     const policy = typeof win.navigator?.getAutoplayPolicy === 'function' ? safePolicy(win.navigator, audio) : 'allowed';
     soundOn = storageGet(SOUND_KEY) === 'on' && policy === 'allowed';
     paintSound();
@@ -327,7 +332,7 @@ export function createGoalAlerts({
       pageAlert(goal, 'goal');
       if (soundOn) {
         playSound().catch((error) => {
-          // o navegador recusou o som depois de recarregar: o botão volta a "Ativar som"
+          // o navegador recusou o som depois de recarregar: o botão volta a desligado
           if (error?.name === 'NotAllowedError') {
             soundOn = false;
             paintSound();

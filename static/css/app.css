@@ -421,6 +421,11 @@
   .live-status .icon { animation: spin 1.2s linear infinite; }
   /* celular: só o ícone girando (o texto continua para o leitor de tela) */
   @media (max-width: 639px) {
+    /* 320 px: logo, relógio, minuto e tema numa linha só, sem rolagem lateral (o logo encolhe) */
+    .header__tools { gap: 6px; }
+    .clock { padding-inline: 0; }
+    /* área de toque de 44 px no botão do minuto (o desenho continua de 40 px) */
+    .minute-toggle::after { content: ""; position: absolute; inset: -4px 0; }
     .live-status { padding: 6px; }
     .live-status [data-hook="live-status-text"] {
       position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
@@ -589,7 +594,31 @@
   .btn[aria-pressed="true"] .when-off { display: none; }
 
   .theme-toggle .icon { width: 22px; height: 22px; }
-  .minute-toggle { font-family: var(--font-num); font-weight: 700; letter-spacing: 0.02em; white-space: nowrap; }
+  /* formato do minuto (cabeçalho): botão com borda, valor em cima e a legenda "Minuto" embaixo,
+     no desenho da legenda do relógio (.clock__label); largura fixa: "45+2'" e "47' 1T" não
+     empurram o relógio ao trocar */
+  .minute-toggle {
+    position: relative;
+    display: inline-grid;
+    justify-items: center;
+    align-content: center;
+    gap: 3px;
+    min-width: 3.625rem;
+    padding: 2px var(--s-2);
+    font-family: var(--font-num);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+  .minute-toggle__value { font-size: 0.9375rem; line-height: 1; font-variant-numeric: tabular-nums; }
+  .minute-toggle__label {
+    font-weight: 500;
+    font-size: 0.6875rem;
+    line-height: 1;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
   .theme-toggle .theme-toggle__moon { display: none; }
   :root[data-theme="dark"] .theme-toggle .theme-toggle__sun { display: none; }
   :root[data-theme="dark"] .theme-toggle .theme-toggle__moon { display: block; }
@@ -1476,6 +1505,15 @@
   .goals__list > .skeleton { flex: none; width: 180px; height: 61px; border-radius: var(--radius); }
   .goals__empty { color: var(--ink-3); font-size: 0.9375rem; }
   .goals__hint { margin: calc(-1 * var(--s-1)) 0 var(--s-3); font-size: 0.8125rem; color: var(--ink-3); }
+  /* celular: "Som" e "Notificações" (rótulos curtos, index.html) na linha do título; o toque
+     vai a 44 px pelo ::after, sem a linha crescer */
+  @media (max-width: 639px) {
+    .goals { padding-bottom: var(--s-3); }
+    .goals__head { gap: var(--s-2); margin-bottom: var(--s-2); }
+    .goals__toggles { gap: 6px; }
+    .goals__toggles .btn { position: relative; padding-inline: 10px; --cluster-gap: 6px; }
+    .goals__toggles .btn::after { content: ""; position: absolute; inset: -8px 0; }
+  }
   .goal-chip {
     flex: none;
     scroll-snap-align: start;
@@ -1772,14 +1810,23 @@
   .page-intro { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--s-2) var(--s-4); }
   .date-nav { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
   .date-nav .page-intro__date { margin: 0; min-width: 12ch; text-align: center; }
-  /* celular (home): atalho "Ao vivo" e a barra fixa do dia, que só aparece depois que o seletor
-     de dias sai da tela; os cards guardam o espaço dela ao serem levados para o topo */
+  /* celular: topo mais justo (h1, linha da data e Últimos gols), para o primeiro placar subir;
+     o desktop não muda */
+  @media (max-width: 639px) {
+    .page-home .site-main { padding-top: var(--s-4); }
+    .page-home .goals { margin-top: var(--s-4); }
+    .page-home .competitions { margin-top: var(--s-5); }
+  }
+  /* celular e tablet (coluna única, < 960 px): atalho "Ao vivo" e a barra fixa do dia, que só
+     aparece depois que o seletor de dias sai da tela; os cards guardam o espaço dela ao serem
+     levados para o topo. Texto e bolinha em --on-vermelho, como a pílula AO VIVO (contraste AA
+     também no tema escuro, onde o vermelho é claro). */
   .live-jump {
     display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px;
-    border: 0; border-radius: 999px; background: var(--vermelho); color: #FFFFFF; cursor: pointer;
+    border: 0; border-radius: 999px; background: var(--vermelho); color: var(--on-vermelho); cursor: pointer;
     font-family: var(--font-num); font-weight: 700; font-size: 0.8125rem; letter-spacing: 0.06em; text-transform: uppercase;
   }
-  .live-jump .live-dot { background: #FFFFFF; }
+  .live-jump .live-dot { background: currentColor; }
   .live-jump__count { font-variant-numeric: tabular-nums; }
   .day-bar {
     position: fixed; inset: 0 0 auto; z-index: 40;
@@ -1798,7 +1845,7 @@
     font-family: var(--font-num); font-weight: 600; font-size: 0.9375rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-2);
   }
   .has-day-bar .match { scroll-margin-top: 68px; }
-  @media (min-width: 640px) { .day-bar, .live-jump { display: none !important; } }
+  @media (min-width: 960px) { .day-bar, .live-jump { display: none !important; } }
   .page-intro__date { min-height: 1.5em; font-family: var(--font-num); font-weight: 600; font-size: 1rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-3); }
   .competitions { display: grid; gap: var(--s-7); }
   .comp-section {

@@ -499,18 +499,29 @@ COMPONENTS_JS = """async () => {
   root.append(lateCard);
   const notes = lateCard.querySelector('.match__tie');
   out.delay = [notes.hidden, notes.textContent, notes.querySelector('.match__tie-row')?.firstElementChild?.querySelector('use')?.getAttribute('href'), lateCard.querySelector('.match__meta').textContent.includes('Chuva'), lateCard.querySelector('.match__board').textContent.includes('Chuva')];
+  // a data da faixa diz o que é: "Previsto" (atrasado), "Era" (a original do adiado e do
+  // cancelado), "Início" (suspenso) ou "Retomada" (suspenso com data nova)
+  const whenShown = () => lateCard.querySelector('.match__when')?.textContent;
+  out.delayWhen = whenShown();
+  const noteRows = () => [...notes.querySelectorAll('.match__tie-row')].map((r) => [r.textContent, r.firstElementChild?.querySelector('use')?.getAttribute('href')]);
   M.updateMatchCard(lateCard, { ...late, status: 'postponed', status_label: 'Adiado', status_note: 'Falta de energia' });
-  out.postponed = [notes.textContent, notes.querySelector('.match__tie-row')?.firstElementChild?.querySelector('use')?.getAttribute('href')];
+  out.postponed = noteRows();
+  out.postponedWhen = [whenShown(), lateCard.querySelector('.match__when-tag')?.textContent, lateCard.querySelector('.match__board').getAttribute('aria-label')];
   // suspenso: o motivo e, com data nova (parou num dia, volta no outro), a retomada com o
   // calendário; cancelado: o motivo
-  const noteRows = () => [...notes.querySelectorAll('.match__tie-row')].map((r) => [r.textContent, r.firstElementChild?.querySelector('use')?.getAttribute('href')]);
   const stopped = { ...late, status: 'suspended', status_label: 'Suspenso', period: 'second_half', period_label: '2º tempo', home_score: 0, away_score: 1, status_note: 'Chuva forte' };
   M.updateMatchCard(lateCard, stopped);
   out.suspended = noteRows();
-  M.updateMatchCard(lateCard, { ...stopped, resumes_at: F.MATCHES.scheduledTomorrow.kickoff_at });
+  out.suspendedWhen = whenShown();
+  // reagendado depois da suspensão: o kickoff_at já é o da volta (igual a resumes_at)
+  const tomorrow = F.MATCHES.scheduledTomorrow.kickoff_at;
+  M.updateMatchCard(lateCard, { ...stopped, kickoff_at: tomorrow, resumes_at: tomorrow });
   out.suspendedMoved = noteRows();
+  out.suspendedMovedWhen = whenShown();
   M.updateMatchCard(lateCard, { ...stopped, status: 'cancelled', status_label: 'Cancelado', status_note: 'Sem condições de jogo', resumes_at: null });
   out.cancelled = noteRows();
+  M.updateMatchCard(lateCard, { ...late, status: 'cancelled', status_label: 'Cancelado', status_note: 'Sem condições de jogo', home_score: null, away_score: null });
+  out.cancelledWhen = whenShown();
   // W.O.: encerrado com o placar do W.O. e o aviso "W.O. em favor do {time} — motivo"
   M.updateMatchCard(lateCard, { ...stopped, status: 'finished', status_label: 'Encerrado', status_note: null, home_score: 0, away_score: 3, walkover: { team_id: late.away.id, reason: 'Central não compareceu' } });
   out.walkover = [noteRows(), `W.O. em favor do ${late.away.name} — Central não compareceu`];
@@ -535,6 +546,15 @@ COMPONENTS_JS = """async () => {
   const assisted = [...timeline.querySelectorAll('.tl-item--goal')].find((li) => li.textContent.includes('Biel Ventura'));
   out.assistHidden = assisted?.querySelector('.tl-item__sub .visually-hidden')?.textContent || '';
   out.scoreSep = assisted?.querySelector('.tl-item__min-sep')?.textContent || '';
+  // o time de cada lance de um lado, oculto na tela (a coluna diz só para quem vê); lance neutro, sem time
+  const sided = [...timeline.querySelectorAll('.tl-item--home, .tl-item--away')];
+  out.teamPrefix = [sided.length > 0, sided.filter((li) => li.querySelector('.tl-item__text > .visually-hidden')?.textContent !== `${live[li.classList.contains('tl-item--home') ? 'home' : 'away'].name}: `).length,
+    [...timeline.querySelectorAll('.tl-item--neutral .tl-item__text > .visually-hidden')].length];
+  out.yellowSpoken = [cardItems('Zé Roberto').find((li) => describe(li)[0] === 'Cartão amarelo')?.querySelector('.tl-item__text').textContent, `${live.home.name}: Zé Roberto`];
+  // reagendado: a data nova e a de antes, sem "Hoje"/"Amanhã" maiúsculo no meio da frase
+  const moved = { id: 99902, sequence: 9998, type: 'rescheduled', type_label: 'Reagendado', team_side: null,
+    payload: { kickoff_at: '2030-01-05T20:00:00Z', previous_kickoff_at: '2030-01-02T22:00:00Z', reason: 'Chuva' } };
+  out.rescheduled = M.renderTimeline({ ...live, events: [...live.events, moved] }).querySelector('[data-event-id="99902"] .tl-item__title')?.textContent;
 
   // 5) transmissões: javascript: não vira link
   const facts = M.createMatchCard({ ...live, version: 999, broadcasts: [
@@ -548,6 +568,13 @@ COMPONENTS_JS = """async () => {
   const links = [...facts.querySelectorAll('.fact__links a')].map((a) => a.getAttribute('href'));
   out.links = links;
   out.maliciousAsText = [...facts.querySelectorAll('.fact__links li')].some((li) => li.textContent.startsWith('Malicioso') && !li.querySelector('a'));
+  // arbitragem: cada nome numa peça que quebra inteira; estatísticas e lances com os dois times no topo
+  const factsPanel = facts.querySelector('.tabpanel[data-tab="facts"]');
+  out.officials = [...factsPanel.querySelectorAll('.fact--officials dd')].map((dd) => [dd.textContent, dd.querySelectorAll('.fact__person').length]);
+  const sideNames = (el) => (el ? [...el.querySelectorAll('.sides__name')].map((n) => n.textContent).concat(el.getAttribute('aria-hidden'), el.querySelectorAll('.crest').length) : null);
+  out.statsTeams = [sideNames(factsPanel.querySelector('.stats > .stats__teams')), factsPanel.querySelector('.stats__teams')?.previousElementSibling?.className];
+  out.timelineTeams = [sideNames(facts.querySelector('.tabpanel[data-tab="events"] > .tl-sides')), facts.querySelector('.tl-sides')?.nextElementSibling?.className];
+  out.teamNames = [live.home.name, live.away.name];
 
   // 6) aviso de correção: placar do gol que caiu riscado
   const alert = M.createGoalAlert(F.LATEST_GOALS[0], { kind: 'correction', reason: 'annulled' });
@@ -610,11 +637,19 @@ def test_componentes_no_navegador(browser_page):
     assert out["finalAdv"] == ["Campeão nos pênaltis", True, "#i-star", False]
     assert out["semiAdv"] == ["avança nos pênaltis", True, "#i-advance", False]
     assert out["delay"] == [False, "Início atrasado — Chuva forte", "#i-alert", False, False] and out["delayGone"]
-    assert out["postponed"] == ["Jogo adiado — Falta de energia", "#i-alert"]
+    # adiado: a data da faixa é a original ("Era ..."), e a observação diz que a nova não saiu
+    assert out["postponed"] == [["Jogo adiado — Falta de energia", "#i-alert"], ["Nova data a definir", "#i-calendar"]]
+    when, tag, label = out["postponedWhen"]
+    assert re.fullmatch(r"Era hoje · \d\d:\d\d", when) and tag == "Era "
+    assert re.search(r" contra .+, marcado para hoje às \d\d:\d\d\. Adiado: Falta de energia$", label), label
+    assert re.fullmatch(r"Previsto hoje · \d\d:\d\d", out["delayWhen"])
     assert out["suspended"] == [["Jogo suspenso — Chuva forte", "#i-alert"]]
+    assert re.fullmatch(r"Início hoje · \d\d:\d\d", out["suspendedWhen"])
     assert out["suspendedMoved"][0] == ["Jogo suspenso — Chuva forte", "#i-alert"]
     assert out["suspendedMoved"][1][0].startswith("Retomada: amanhã às ") and out["suspendedMoved"][1][1] == "#i-calendar"
+    assert re.fullmatch(r"Retomada amanhã · \d\d:\d\d", out["suspendedMovedWhen"])
     assert out["cancelled"] == [["Jogo cancelado — Sem condições de jogo", "#i-alert"]]
+    assert re.fullmatch(r"Era hoje · \d\d:\d\d", out["cancelledWhen"])
     assert out["walkover"][0] == [[out["walkover"][1], "#i-alert"]]
     assert out["varMinute"] == "31'"
     # 1º amarelo + o vermelho do 2º; o tipo vai no nome acessível do ícone, sem legenda repetida
@@ -622,7 +657,15 @@ def test_componentes_no_navegador(browser_page):
     assert out["plainYellowItems"] == [["Cartão amarelo", ""]]
     assert ["Gol"] not in out["goalSubs"] and ["Assistência: Assist.: Biel Ventura"] in out["goalSubs"] and ["De pênalti"] in out["goalSubs"]
     assert out["assistHidden"] == "Assistência: " and out["scoreSep"] == "·"
+    # cada lance de um lado diz o time ao leitor de tela; os neutros (VAR sem time, acréscimos) não
+    assert out["teamPrefix"] == [True, 0, 0]
+    assert out["yellowSpoken"][0] == out["yellowSpoken"][1]
+    assert out["rescheduled"] == "Reagendado para sáb, 05/01 · 17:00 (era qua, 02/01 · 19:00) — Chuva"
     assert out["links"] == ["https://tv.example.com/"] and out["maliciousAsText"]
+    assert ["Clóvis Amaral (PE), Bruna Alves (PE)", 2] in out["officials"] and ["Anderson Bezerra (PE)", 1] in out["officials"]
+    home_name, away_name = out["teamNames"]
+    assert out["statsTeams"] == [[home_name, away_name, "true", 2], "stats__title"]  # logo abaixo do título
+    assert out["timelineTeams"] == [[home_name, away_name, "true", 2], "timeline"]  # logo acima da linha do tempo
     assert (
         out["correctionStruck"]
         and out["correctionTitle"] == "Oxe! Gol anulado."
@@ -948,3 +991,114 @@ def test_classificacao_legenda_nota_de_empate_e_titulo(browser_page):
     assert out["legend"] == ["Classificados 1º", "Melhor 2º (só o 1º em “Melhores segundos”)"]  # a do Grupo A
     assert out["legendLines"][0] == 1 and "Condensed" not in out["condFont"]
     assert out["captions"] == ["Classificação · 2º turno", "Classificação", "Classificação", "Classificação · 1ª fase", "Classificação geral"]
+
+
+CARD_LAYOUT_JS = """async () => {
+  const M = await import('/static/js/match-card.js');
+  const F = await import('/static/js/fixtures.js');
+  const box = document.createElement('div');
+  document.getElementById('root').append(box);
+  const make = (match, width, opts = {}) => {
+    const wrap = document.createElement('div');
+    wrap.style.width = `${width}px`;
+    box.append(wrap);
+    const card = M.createMatchCard(match, opts);
+    wrap.append(card);
+    return card;
+  };
+  const open = async (card, tab) => {
+    card.querySelector('details').open = true;
+    await new Promise((r) => setTimeout(r, 30));
+    if (tab) card.querySelector(`[data-tab="${tab}"]`).click();
+  };
+  // linhas de um bloco flex: centros verticais distintos dos filhos (alinhados ao centro)
+  const lines = (el) => (el ? new Set([...el.children].map((c) => c.getBoundingClientRect()).filter((r) => r.height > 1).map((r) => Math.round((r.top + r.bottom) / 2))).size : 0);
+  const metaLines = (card) => [lines(card.querySelector('.match__lead')), lines(card.querySelector('.match__place'))];
+  const out = {};
+
+  // 1) faixa no celular (card de 358 px): "quando" e "onde" numa linha cada; o estádio longo corta,
+  // a cidade fica inteira; com a rodada, no máximo 3 linhas. Desktop (700 px): sem corte.
+  const longVenue = { ...F.MATCHES.postponed, id: 9401, venue: 'Estádio Municipal Governador Paulo Guerra', city: 'São Lourenço da Mata, PE' };
+  const kinds = { live: F.MATCHES.live, finished: F.MATCHES.finished, postponed: longVenue, cancelled: F.MATCHES.cancelled, scheduled: F.MATCHES.scheduledToday, suspended: F.MATCHES.suspended };
+  out.mobile = Object.fromEntries(Object.entries(kinds).map(([k, m]) => [k, metaLines(make(m, 358))]));
+  out.mobileRound = Object.fromEntries(Object.entries(kinds).map(([k, m]) => [k, metaLines(make(m, 358, { showRound: true })).reduce((a, b) => a + b)]));
+  const cut = make(longVenue, 358);
+  const text = cut.querySelector('.match__place-text');
+  const city = cut.querySelector('.match__place-item--city');
+  out.cut = [text.scrollWidth > text.clientWidth, city.scrollWidth <= city.clientWidth + 1, city.textContent, cut.querySelector('.match__place-item--venue').title,
+    cut.querySelector('.match__place').getBoundingClientRect().right <= cut.getBoundingClientRect().right];
+  const wide = make(longVenue, 700).querySelector('.match__place-text');
+  out.desktopUncut = wide.scrollWidth <= wide.clientWidth + 1;
+
+  // 2) lances no celular: faixa dos times no topo, presa ao rolar; lados mais largos
+  const live = make(F.MATCHES.live, 358);
+  box.append(Object.assign(document.createElement('div'), { style: 'height: 1500px' }));
+  await open(live, 'events');
+  const sides = live.querySelector('.tl-sides');
+  const plain = [...live.querySelectorAll('.tl-item--away:not(.tl-item--goal) .tl-item__body')][0];
+  out.sideWidth = Math.round(plain.getBoundingClientRect().width);
+  out.sticky = getComputedStyle(sides).position;
+  window.scrollTo(0, scrollY + sides.getBoundingClientRect().top + 300);
+  out.stuckTop = Math.round(sides.getBoundingClientRect().top);
+  const firstItem = live.querySelector('.timeline .tl-item');
+  out.coversItems = getComputedStyle(sides).backgroundColor !== 'rgba(0, 0, 0, 0)' && Number(getComputedStyle(sides).zIndex) > Number(getComputedStyle(firstItem.querySelector('.tl-item__min')).zIndex);
+  window.scrollTo(0, 0);
+
+  // 3) ficha no desktop (768 px): a arbitragem na coluna larga, cada nome numa linha
+  const long = { ...F.MATCHES.live, id: 9402, officials: [
+    { role: 'referee', role_label: 'Árbitro', name: 'Gustavo Freitas Freitas', state: 'CE' },
+    { role: 'assistant', role_label: 'Assistente', name: 'Elias Pereira Bezerra', state: 'PB' },
+    { role: 'assistant', role_label: 'Assistente', name: 'Rodrigo Melo Almeida', state: 'CE' },
+    { role: 'fourth', role_label: 'Quarto árbitro', name: 'Márcio Gomes Veloso', state: 'PE' },
+    { role: 'var', role_label: 'VAR', name: 'Everton Freitas Monteiro', state: 'CE' }],
+    attendance: 24339, revenue_cents: 126572600 };
+  const facts = {};
+  for (const width of [358, 768]) {
+    const card = make(long, width);
+    await open(card, 'facts');
+    const [officials, other] = [...card.querySelectorAll('.fact')].map((f) => f.getBoundingClientRect());
+    facts[width] = { oneLine: [...card.querySelectorAll('.fact__person')].every((p) => p.getClientRects().length === 1 && p.getBoundingClientRect().height < 30),
+      officialsWider: officials.width > other.width, sideBySide: Math.round(officials.top) === Math.round(other.top) };
+  }
+  out.facts = facts;
+
+  // 4) selo "Encerrado" discreto (tonal) e legível nos dois temas; "Ao vivo" continua o destaque
+  const rgb = (c) => (c.startsWith('#') ? [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16)) : c.match(/[\\d.]+/g).slice(0, 3).map(Number));
+  const lum = (c) => { const v = rgb(c).map((x) => x / 255).map((x) => (x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4)); return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; };
+  const ratio = (a, b) => { const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x); return (hi + 0.05) / (lo + 0.05); };
+  const finished = make(F.MATCHES.finished, 358).querySelector('.pill');
+  const livePill = live.querySelector('.pill');
+  const pills = {};
+  for (const theme of ['light', 'dark']) {
+    document.documentElement.dataset.theme = theme;
+    const surface = getComputedStyle(document.documentElement).getPropertyValue('--surface').trim();
+    const f = getComputedStyle(finished);
+    pills[theme] = { text: ratio(f.color, f.backgroundColor) >= 4.5, quiet: ratio(f.backgroundColor, surface) < 1.5,
+      liveLoud: ratio(getComputedStyle(livePill).backgroundColor, surface) >= 3 };
+  }
+  document.documentElement.dataset.theme = 'light';
+  out.pills = pills;
+  box.remove();
+  return out;
+}"""
+
+
+def test_card_faixa_lances_ficha_e_selo_no_celular_e_no_desktop(browser_page):
+    page, errors = browser_page
+    out = page.evaluate(CARD_LAYOUT_JS)
+    assert not errors, errors
+    # "quando" numa linha e "onde" numa linha; o suspenso ("parou no 2º tempo") usa 2 no "quando"
+    assert {k: v for k, v in out["mobile"].items() if k != "suspended"} == {
+        k: [1, 1] for k in ("live", "finished", "postponed", "cancelled", "scheduled")
+    }, out["mobile"]
+    assert out["mobile"]["suspended"][1] == 1 and sum(out["mobile"]["suspended"]) <= 3
+    assert all(total <= 3 for total in out["mobileRound"].values()), out["mobileRound"]  # com a rodada
+    assert out["cut"] == [True, True, "Cidade: São Lourenço da Mata, PE", "Estádio Municipal Governador Paulo Guerra", True]
+    assert out["desktopUncut"]
+    # lances: lados com mais largura no celular; faixa dos times presa no topo ao rolar
+    assert out["sideWidth"] >= 145, out["sideWidth"]
+    assert out["sticky"] == "sticky" and out["stuckTop"] == 0 and out["coversItems"]
+    # ficha: no desktop, a arbitragem ao lado de público e renda, mais larga; nomes sem quebrar
+    assert out["facts"]["768"] == {"oneLine": True, "officialsWider": True, "sideBySide": True}
+    assert out["facts"]["358"]["oneLine"] and not out["facts"]["358"]["sideBySide"]
+    assert out["pills"] == {t: {"text": True, "quiet": True, "liveLoud": True} for t in ("light", "dark")}

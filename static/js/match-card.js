@@ -299,10 +299,30 @@ function roundLabel(match) {
   return match.round?.name || '';
 }
 
+/**
+ * O que a data da faixa significa quando o jogo saiu do previsto (sem prefixo, é o início):
+ * atrasado "Previsto", adiado e cancelado "Era" (a data original; o adiado ainda não tem data
+ * nova: reagendar o devolve a agendado), suspenso "Início" (parou nesse dia) ou "Retomada"
+ * (reagendado: o kickoff_at já é o da volta). O 2º valor é o do leitor de tela, no rótulo do placar.
+ */
+function whenPrefix(match) {
+  switch (match.status) {
+    case 'delayed': return ['Previsto', 'previsto para'];
+    case 'postponed': return ['Era', 'marcado para'];
+    case 'cancelled': return hasScore(match) ? ['Início', 'começou'] : ['Era', 'marcado para'];
+    case 'suspended': return match.resumes_at ? ['Retomada', 'retomada'] : ['Início', 'começou'];
+    default: return null;
+  }
+}
+
+/** "Hoje · 16:00" depois de um prefixo vira "hoje · 16:00" ("sáb, 03/10" já é minúsculo). */
+const lowerFirst = (text) => text.charAt(0).toLowerCase() + text.slice(1);
+
 function renderMeta(meta, match, now, opts) {
   // dois blocos: "quando" (o selo do status, o minuto ao vivo, o dia e a hora do início e a
   // rodada/competição, quando pedidas) e "onde" (local e cidade). No desktop, um à esquerda e o
-  // outro à direita; no celular, duas linhas centradas, como o placar.
+  // outro à direita; no celular, duas linhas centradas, como o placar ("onde" numa linha só:
+  // o nome do estádio corta com reticências e a cidade fica inteira).
   const status = h('span', { class: 'match__status' }, statusPill(match));
   if (match.status === 'live' && !match.partial_info && !INTERVALS.has(match.period) && match.period !== 'penalties') {
     status.append(h('span', { class: 'match__minute' },
@@ -315,13 +335,18 @@ function renderMeta(meta, match, now, opts) {
   }
   const kickoff = toDate(match.kickoff_at);
   const context = [opts.showCompetition && (match.competition?.short_name || match.competition?.name), opts.showRound && roundLabel(match)].filter(Boolean).join(' · ');
+  const prefix = whenPrefix(match)?.[0];
+  const whenLabel = kickoff ? formatWhen(kickoff, now) : '';
   const when = h('div', { class: 'match__lead' }, status,
-    kickoff ? h('time', { class: 'match__when', datetime: kickoff.toISOString(), text: formatWhen(kickoff, now) }) : null,
-    context ? h('span', { class: 'match__round', text: context }) : null);
-  // "onde": o estádio com o ícone de estádio e a cidade com o pino
+    kickoff ? h('time', { class: 'match__when', datetime: kickoff.toISOString() },
+      prefix ? h('span', { class: 'match__when-tag', text: `${prefix} ` }) : null,
+      prefix ? lowerFirst(whenLabel) : whenLabel) : null,
+    context ? h('span', { class: 'match__round match__context', title: context, text: context }) : null);
+  // "onde": o estádio com o ícone de estádio e a cidade com o pino; o nome completo do estádio
+  // fica no title (no celular ele pode aparecer cortado)
   const place = [
-    match.venue ? h('span', { class: 'match__place-item' }, icon('stadium'), h('span', { class: 'visually-hidden', text: 'Estádio: ' }), match.venue) : null,
-    match.city ? h('span', { class: 'match__place-item' }, icon('pin'), h('span', { class: 'visually-hidden', text: 'Cidade: ' }), match.city) : null,
+    match.venue ? h('span', { class: 'match__place-item match__place-item--venue', title: match.venue }, icon('stadium'), h('span', { class: 'visually-hidden', text: 'Estádio: ' }), h('span', { class: 'match__place-text', text: match.venue })) : null,
+    match.city ? h('span', { class: 'match__place-item match__place-item--city' }, icon('pin'), h('span', { class: 'visually-hidden', text: 'Cidade: ' }), match.city) : null,
   ].filter(Boolean);
   // sem estádio nem cidade: só o "quando" (replaceChildren escreveria "null")
   meta.replaceChildren(when, ...(place.length ? [h('p', { class: 'match__place' }, ...place)] : []));
@@ -351,7 +376,9 @@ function boardLabel(match, now) {
   const home = displayName(match.home);
   const away = displayName(match.away);
   if (!hasScore(match)) {
-    const when = match.kickoff_at ? `, ${whenText(match.kickoff_at, now)}` : '';
+    // a mesma leitura da faixa: "marcado para" (a data original do adiado/cancelado), "previsto para"
+    const spoken = whenPrefix(match)?.[1];
+    const when = match.kickoff_at ? `, ${spoken ? `${spoken} ` : ''}${whenText(match.kickoff_at, now)}` : '';
     const note = NOTICES[match.status] && match.status_note ? `: ${match.status_note}` : '';
     return `${home} contra ${away}${when}. ${match.status_label || ''}${note}`.trim();
   }
@@ -453,7 +480,8 @@ const isFinalRound = (tie) => String(tie.round?.name || '').trim().toLowerCase()
  * Observações do jogo, abaixo do placar: o aviso de status ("Início atrasado", "Jogo adiado",
  * "Jogo suspenso" ou "Jogo cancelado" — motivo, com o alerta na frente; some com a mudança de
  * status), o W.O. ("W.O. em favor do Sport — motivo", também com o alerta), a retomada do
- * suspenso com data nova ("Retomada: amanhã às 16:00", com o calendário) e o confronto do
+ * suspenso com data nova ("Retomada: amanhã às 16:00", com o calendário), o adiado ainda sem
+ * data ("Nova data a definir", também com o calendário) e o confronto do
  * mata-mata. Ida e volta: a ida diz "Jogo
  * de ida"; a volta traz o agregado (parcial até o fim do confronto) — as duas com o ícone de
  * informação na frente — e, no fim, quem avança e como. Jogo único: só quem avança, no fim.
@@ -487,6 +515,10 @@ function renderTie(p, match, now) {
   if (match.status === 'suspended' && match.resumes_at) {
     // parou num dia e volta em outro, de onde parou
     rows.push(lead('calendar', row(h('span', null, h('strong', { text: 'Retomada:' }), ` ${whenText(match.resumes_at, now)}`))));
+  }
+  if (match.status === 'postponed') {
+    // a data da faixa é a original ("Era ..."); com data nova, o jogo volta a agendado
+    rows.push(lead('calendar', row(h('span', { text: 'Nova data a definir' }))));
   }
   const tie = match.tie;
   if (!tie) {
@@ -592,7 +624,7 @@ function renderBody(el, st, flash) {
   const panels = tabs.map((key) => {
     const panel = h('div', { class: 'tabpanel', id: `${prefix}-panel-${key}`, role: tabs.length > 1 ? 'tabpanel' : null, tabindex: tabs.length > 1 ? '0' : null, 'aria-labelledby': tabs.length > 1 ? `${prefix}-tab-${key}` : null, 'data-tab': key });
     panel.hidden = key !== st.activeTab;
-    if (key === 'events') panel.append(renderTimeline(match, newIds));
+    if (key === 'events') panel.append(sidesHead(match, { className: 'tl-sides' }), renderTimeline(match, newIds));
     else if (key === 'lineups') panel.append(renderLineups(match));
     else panel.append(renderFacts(match));
     return panel;
@@ -640,6 +672,18 @@ function selectTab(el, st, key, focus) {
   for (const panel of body.querySelectorAll('.tabpanel')) panel.hidden = panel.dataset.tab !== key;
 }
 
+/**
+ * Referência dos lados (lances e estatísticas): escudo e nome do mandante à esquerda e do
+ * visitante à direita. Só visual: cada lance e cada estatística já dizem o time ao leitor de tela.
+ */
+function sidesHead(match, { tag = 'div', className = '' } = {}) {
+  const side = (key) => h('span', { class: `sides__team sides__team--${key}`, title: displayName(match[key]) },
+    createCrest(match[key], { size: 20 }),
+    h('span', { class: 'sides__name', text: displayName(match[key]) }),
+  );
+  return h(tag, { class: ['sides', className], 'aria-hidden': 'true' }, side('home'), side('away'));
+}
+
 function detailSkeleton() {
   const line = (w) => h('span', { class: 'skeleton skeleton--line', style: { width: w } });
   return h('div', { class: 'skeleton-card', 'aria-label': 'Carregando lances', role: 'status' },
@@ -655,13 +699,15 @@ function eventPlayer(e) {
   return e.player?.name || e.payload?.player || '';
 }
 
-function timelineItem(e, side, { title, sub = [], score = null, extraClass = '', isNew = false, minuteText }) {
+function timelineItem(e, side, { title, sub = [], score = null, extraClass = '', isNew = false, minuteText, team = '' }) {
   const minute = minuteText ?? minuteLabel(e);
   const body = h('div', { class: 'tl-item__body' },
     // lance sem time (ex.: VAR) ocupa o centro e esconde o trilho: o minuto vai junto do texto
     !side && minute ? h('span', { class: 'tl-item__min-inline', text: minute }) : null,
     icon(eventIconName(e), { className: 'tl-item__icon', label: e.type_label || '' }),
     h('div', { class: 'tl-item__text' },
+      // o lado (coluna) diz o time só para quem vê: o leitor de tela ouve "Náutico: Fulano"
+      side && team ? h('span', { class: 'visually-hidden', text: `${team}: ` }) : null,
       h('span', { class: 'tl-item__title', text: title }),
       ...sub.filter(Boolean).map((sline) => (typeof sline === 'string' ? h('span', { class: 'tl-item__sub', text: sline }) : sline)),
     ),
@@ -781,6 +827,8 @@ export function renderTimeline(match, newIds = null) {
     }
   }
   const list = h('ol', { class: 'timeline', 'aria-label': 'Lances do jogo' });
+  // cada lance de um lado leva o nome do time (oculto na tela, onde a coluna já diz)
+  const item = (e, side, opts) => timelineItem(e, side, { ...opts, team: side ? displayName(match[side]) : '' });
   let score = '0 × 0';
   let shootout = { home: 0, away: 0 };
   for (const e of events) {
@@ -811,7 +859,7 @@ export function renderTimeline(match, newIds = null) {
               h('span', { 'aria-hidden': 'true', text: 'Assist.: ' }), e.payload.assist));
           }
         }
-        list.append(timelineItem(e, side, {
+        list.append(item(e, side, {
           title: eventPlayer(e) || GOAL_TO_CONFIRM, sub, score: annulled ? null : (e.score_after ? formatScore(e.score_after.home, e.score_after.away) : null),
           extraClass: annulled ? 'tl-item--annulled' : 'tl-item--goal', isNew,
         }));
@@ -820,13 +868,13 @@ export function renderTimeline(match, newIds = null) {
       case 'goal_annulled': {
         if (annulments.get(e.annuls_event_id) === e) break; // já mostrado no gol riscado
         // dado, não emoção: o título já diz "Gol anulado"; a linha de baixo traz o motivo
-        list.append(timelineItem(e, side, { title: 'Gol anulado', sub: [e.payload?.reason || 'Gol anulado'], isNew }));
+        list.append(item(e, side, { title: 'Gol anulado', sub: [e.payload?.reason || 'Gol anulado'], isNew }));
         break;
       }
       case 'substitution': {
         const inName = e.payload?.player_in || 'Entra';
         const outName = e.payload?.player_out || '';
-        list.append(timelineItem(e, side, {
+        list.append(item(e, side, {
           title: inName,
           sub: [h('span', { class: 'tl-item__sub tl-item__sub--in', text: '▲ entra' }), outName ? `▼ sai ${outName}` : null],
           isNew,
@@ -839,34 +887,34 @@ export function renderTimeline(match, newIds = null) {
         // "Cartão amarelo"/"Cartão vermelho" já é o nome acessível do ícone: sem legenda repetida.
         // O 2º amarelo fica escrito, porque o vermelho direto e o do 2º amarelo não são o mesmo lance.
         const second = e.type === 'red_card' && e.payload?.reason === 'second_yellow';
-        list.append(timelineItem(e, side, { title: eventPlayer(e) || e.type_label, sub: [second ? 'Segundo amarelo e vermelho' : null], isNew }));
+        list.append(item(e, side, { title: eventPlayer(e) || e.type_label, sub: [second ? 'Segundo amarelo e vermelho' : null], isNew }));
         break;
       }
       case 'penalty_awarded':
-        list.append(timelineItem(e, side, { title: 'Pênalti marcado', sub: [], isNew }));
+        list.append(item(e, side, { title: 'Pênalti marcado', sub: [], isNew }));
         break;
       case 'penalty_missed': {
         const how = MISS_LABEL[e.payload?.outcome];
-        list.append(timelineItem(e, side, { title: eventPlayer(e) || 'Pênalti perdido', sub: [`Pênalti perdido${how ? ` · ${how}` : ''}`], isNew }));
+        list.append(item(e, side, { title: eventPlayer(e) || 'Pênalti perdido', sub: [`Pênalti perdido${how ? ` · ${how}` : ''}`], isNew }));
         break;
       }
       case 'var_review': {
         const incident = e.payload?.incident || '';
         const decision = e.payload?.decision || '';
-        list.append(timelineItem(e, side, { title: 'Revisão do VAR', sub: [incident, decision ? `Decisão: ${decision}` : null], isNew }));
+        list.append(item(e, side, { title: 'Revisão do VAR', sub: [incident, decision ? `Decisão: ${decision}` : null], isNew }));
         break;
       }
       case 'clock_adjust':
         break; // ajuste interno do relógio: não aparece nos lances do público
       case 'stoppage_time': {
         const minutes = e.payload?.minutes;
-        list.append(timelineItem(e, null, { title: minutes ? `+${minutes} min de acréscimo` : 'Acréscimos', isNew, minuteText: '' }));
+        list.append(item(e, null, { title: minutes ? `+${minutes} min de acréscimo` : 'Acréscimos', isNew, minuteText: '' }));
         break;
       }
       case 'shootout_kick': {
         const scored = e.payload?.scored !== false;
         if (side && scored) shootout = { ...shootout, [side]: shootout[side] + 1 };
-        list.append(timelineItem(e, side, {
+        list.append(item(e, side, {
           title: eventPlayer(e) || 'Cobrança', sub: [scored ? 'Converteu' : 'Perdeu'],
           score: `${shootout.home} × ${shootout.away}`, extraClass: scored ? '' : 'tl-item--missed', isNew, minuteText: '',
         }));
@@ -875,12 +923,14 @@ export function renderTimeline(match, newIds = null) {
       default: {
         if (STATUS_EVENTS.has(e.type)) {
           const favored = e.type === 'walkover' && e.team_side ? match[e.team_side] : null;
-          const extra = e.type === 'rescheduled' && e.payload?.kickoff_at ? ` para ${formatWhen(e.payload.kickoff_at)}`
+          // reagendado: a data nova e, quando gravada, a de antes ("para sáb, 17/10 · 16:00 (era qua, 14/10 · 19:00)")
+          const before = e.payload?.previous_kickoff_at ? ` (era ${lowerFirst(formatWhen(e.payload.previous_kickoff_at))})` : '';
+          const extra = e.type === 'rescheduled' && e.payload?.kickoff_at ? ` para ${lowerFirst(formatWhen(e.payload.kickoff_at))}${before}`
             : favored ? ` em favor do ${displayName(favored)}` : '';
           const reason = e.payload?.reason ? ` — ${e.payload.reason}` : '';
-          list.append(timelineItem(e, null, { title: `${e.type_label || e.type}${extra}${reason}`, isNew, minuteText: '' }));
+          list.append(item(e, null, { title: `${e.type_label || e.type}${extra}${reason}`, isNew, minuteText: '' }));
         } else {
-          list.append(timelineItem(e, side, { title: e.type_label || e.type, sub: [], isNew }));
+          list.append(item(e, side, { title: e.type_label || e.type, sub: [], isNew }));
         }
       }
     }
@@ -935,8 +985,10 @@ function renderFacts(match) {
       byRole.get(key).push(o.state ? `${o.name} (${o.state})` : o.name);
     }
     const dl = h('dl', { class: 'fact__list' });
-    for (const [role, names] of byRole) dl.append(h('dt', { text: role }), h('dd', { text: names.join(', ') }));
-    blocks.push(h('section', { class: 'fact' }, icon('whistle', { className: 'fact__icon' }), h('h4', { class: 'fact__title', text: 'Arbitragem' }), dl));
+    // cada nome quebra inteiro para a linha de baixo ("Fulano (PE)," / "Beltrano (CE)"), não no meio
+    const people = (names) => names.flatMap((name, i) => [i ? ' ' : null, h('span', { class: 'fact__person', text: i < names.length - 1 ? `${name},` : name })]);
+    for (const [role, names] of byRole) dl.append(h('dt', { text: role }), h('dd', null, ...people(names)));
+    blocks.push(h('section', { class: 'fact fact--officials' }, icon('whistle', { className: 'fact__icon' }), h('h4', { class: 'fact__title', text: 'Arbitragem' }), dl));
   }
   if (match.attendance != null || match.revenue_cents != null) {
     const dl = h('dl', { class: 'fact__list' });
@@ -965,6 +1017,8 @@ function renderFacts(match) {
 function renderStats(match) {
   const list = h('ul', { class: 'stats', 'aria-label': 'Estatísticas' });
   list.append(h('li', { class: 'stats__title' }, h('h4', { class: 'fact__title' }, icon('chart'), ' Estatísticas')));
+  // de quem é cada lado (as cores dos dois times podem ser parecidas)
+  list.append(sidesHead(match, { tag: 'li', className: 'stats__teams' }));
   const pct = (a, b) => {
     const total = (Number(a) || 0) + (Number(b) || 0);
     return total ? Math.round(((Number(a) || 0) / total) * 100) : 0;

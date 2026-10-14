@@ -626,7 +626,8 @@
   .pill--interval { background: var(--amarelo); color: var(--on-amarelo); }
   .pill--partial { background: var(--surface-2); color: var(--ink); border: 2px dashed var(--vermelho); }
   .pill--delayed, .pill--postponed { background: var(--surface); color: var(--ink); border: 2px solid var(--laranja); }
-  .pill--finished { background: var(--ink); color: var(--on-ink); }
+  /* encerrado discreto (tonal, texto secundário): o preenchimento forte fica para o que acontece agora */
+  .pill--finished { background: var(--surface-2); color: var(--ink-2); border-color: var(--line-strong); }
   .pill--scheduled {
     background: var(--azul-tint);
     color: var(--azul);
@@ -721,12 +722,12 @@
   }
   .match[data-status="live"] { border-color: color-mix(in srgb, var(--vermelho) 35%, var(--line)); }
   /* faixa de status no topo, nas cores dos selos: agendado azul, ao vivo vermelho, intervalo
-     amarelo, atrasado e adiado laranja, encerrado tinta, suspenso e cancelado cinza */
+     amarelo, atrasado e adiado laranja, encerrado neutro discreto, suspenso e cancelado cinza */
   .match[data-status="scheduled"]::before { background: var(--azul); }
   .match[data-status="live"]::before { background: var(--vermelho); }
   .match[data-period="half_time"]::before, .match[data-period="extra_half_time"]::before { background: var(--amarelo); }
   .match[data-status="delayed"]::before, .match[data-status="postponed"]::before { background: var(--laranja); }
-  .match[data-status="finished"]::before { background: var(--ink); }
+  .match[data-status="finished"]::before { background: var(--line-strong); }
   .match[data-status="suspended"]::before, .match[data-status="cancelled"]::before { background: var(--ink-3); }
 
   /* faixa de meta */
@@ -734,6 +735,7 @@
      à esquerda e o outro à direita (container query mais abaixo) */
   .match__meta {
     display: grid;
+    grid-template-columns: minmax(0, 1fr); /* "onde" encolhe na largura do card (e corta o estádio) */
     justify-items: center;
     gap: 4px;
     padding: 10px var(--s-4) 9px;
@@ -755,9 +757,18 @@
   }
   /* compartilhar: no canto de cima, a faixa de meta deixa o espaço do botão */
   .match--shareable > .match__meta { padding-inline: 46px; } /* centrado, longe do botão */
-  .match__lead { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px var(--s-3); min-width: 0; }
-  .match__place { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 2px var(--s-3); min-width: 0; margin: 0; color: var(--ink-3); font-size: 0.875rem; }
+  .match__lead { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px var(--s-3); min-width: 0; max-width: 100%; }
+  /* no celular, "onde" numa linha só: o estádio corta com reticências (nome completo no title),
+     a cidade fica inteira */
+  .match__place { display: flex; flex-wrap: nowrap; justify-content: center; align-items: center; gap: 2px var(--s-3); min-width: 0; max-width: 100%; margin: 0; color: var(--ink-3); font-size: 0.875rem; }
   .match__place-item { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+  .match__place-item--venue { flex: 0 1 auto; }
+  .match__place-item--city { flex: none; white-space: nowrap; }
+  .match__place-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @container match (max-width: 559px) {
+    /* "onde" fica abaixo do botão de compartilhar: usa a largura do card, sem o recuo do botão */
+    .match--shareable > .match__meta > .match__place { margin: 2px -30px 0; max-width: calc(100% + 60px); }
+  }
   .match__place .icon { flex: none; width: 15px; height: 15px; color: var(--ink-3); }
   .match__share { position: absolute; top: 7px; right: 8px; }
   /* área de toque de 44 px (o desenho continua de 32 px): bom para o dedo */
@@ -799,6 +810,7 @@
   }
   .match__minute-period { font-weight: 600; color: var(--ink-3); margin-right: 4px; }
   .match__when { font-family: var(--font-num); font-weight: 600; font-size: 0.9375rem; letter-spacing: 0.02em; color: var(--ink-2); white-space: nowrap; }
+  .match__when-tag { font-weight: 500; color: var(--ink-3); } /* "Era", "Previsto", "Início", "Retomada" */
   .match__round {
     font-family: var(--font-num);
     font-weight: 600;
@@ -807,6 +819,8 @@
     text-transform: uppercase;
     color: var(--ink-3);
   }
+  /* rodada/fase/competição: uma linha no máximo (ao lado do "quando" se couber) */
+  .match__context { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .divider-dot { color: var(--line-strong); }
 
@@ -814,7 +828,8 @@
     .match__meta { grid-template-columns: auto auto; justify-content: space-between; align-items: center; gap: var(--s-3); text-align: left; }
     .match--shareable > .match__meta { padding-inline: var(--s-4) 56px; }
     .match__lead { justify-content: flex-start; }
-    .match__place { justify-self: end; justify-content: flex-end; text-align: right; }
+    .match__place { justify-self: end; justify-content: flex-end; text-align: right; flex-wrap: wrap; }
+    .match__place-text { overflow: visible; white-space: normal; }
   }
 
   /* placar */
@@ -1090,6 +1105,30 @@
     .tabs { padding-inline: var(--s-4); }
   }
 
+  /* referência dos lados (lances e estatísticas): escudo e nome de cada time, mandante à
+     esquerda e visitante à direita */
+  .sides { display: flex; justify-content: space-between; align-items: center; gap: var(--s-3); margin: 0; font-family: var(--font-num); font-weight: 700; font-size: 0.9375rem; letter-spacing: 0.02em; color: var(--ink); }
+  .sides__team { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+  .sides__team--away { flex-direction: row-reverse; }
+  .sides__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sides .crest { --crest-size: 20px; }
+  /* nos lances, cada time junto do trilho, do seu lado (como no placar); a faixa fica no topo
+     ao rolar a linha do tempo, que é longa no celular (abaixo da barra do dia, quando houver) */
+  .tl-sides {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 48px minmax(0, 1fr);
+    padding: 6px 0;
+    margin-bottom: var(--s-1);
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .tl-sides .sides__team--home { grid-column: 1; justify-self: end; flex-direction: row-reverse; }
+  .tl-sides .sides__team--away { grid-column: 3; justify-self: start; flex-direction: row; }
+  .has-day-bar .tl-sides { top: calc(53px + env(safe-area-inset-top, 0px)); }
+
   /* linha do tempo de dois lados com trilho central */
   .timeline {
     position: relative;
@@ -1214,15 +1253,23 @@
   .timeline-legend { margin-top: var(--s-3); font-size: 0.75rem; color: var(--ink-3); text-align: center; }
 
   @container match (min-width: 520px) {
-    .tl-item { grid-template-columns: minmax(0, 1fr) 104px minmax(0, 1fr); min-height: 44px; }
+    .tl-item, .tl-sides { grid-template-columns: minmax(0, 1fr) 104px minmax(0, 1fr); }
+    .tl-item { min-height: 44px; }
     .tl-item__min-sep { margin-inline: 4px; }
     .tl-item__title { font-size: 0.9375rem; }
     .tl-item__sub { font-size: 0.8125rem; }
     .tl-item__min { font-size: 0.875rem; min-width: 46px; }
     .tl-item__body { padding: 6px var(--s-3); }
   }
+  /* celular: os lados ganham largura (painel com menos margem, coluna do minuto mais estreita),
+     para os nomes e as legendas quebrarem menos */
   @container match (max-width: 400px) {
-    .tl-item__body { padding-inline: 4px; gap: 6px; }
+    .tabpanel[data-tab="events"] { padding-inline: var(--s-2); }
+    .tl-item { grid-template-columns: minmax(0, 1fr) minmax(36px, auto) minmax(0, 1fr); }
+    .tl-sides { grid-template-columns: minmax(0, 1fr) 36px minmax(0, 1fr); }
+    .tl-item__min { min-width: 34px; padding: 1px 4px; font-size: 0.75rem; }
+    .tl-item__min-sep { margin-inline: 2px; }
+    .tl-item__body { padding-inline: 3px; gap: 4px; }
     .tl-item__icon { width: 18px; height: 18px; }
   }
 
@@ -1264,16 +1311,23 @@
   .fact__links { display: flex; flex-wrap: wrap; gap: 4px var(--s-3); margin: 0; padding: 0; list-style: none; font-size: 0.875rem; }
   .fact__links a { display: inline-flex; align-items: center; gap: 4px; }
   .fact__links .icon { width: 14px; height: 14px; }
-  .fact__kind { color: var(--ink-3); font-size: 0.75rem; }
+  .fact__kind { color: var(--ink-3); font-size: 0.75rem; white-space: nowrap; }
+  .fact__person { display: inline-block; } /* o nome quebra inteiro para a linha de baixo */
+  /* tela larga: a arbitragem (nomes longos) na coluna larga; público e renda e transmissões
+     empilhados ao lado (em três colunas iguais, os nomes quebravam em três linhas) */
   @container match (min-width: 640px) {
-    .facts { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; }
+    .facts { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 0; }
     .fact { padding: 0 var(--s-4); }
     .fact:first-child { padding-left: 0; }
+    .fact:only-child { grid-column: 1 / -1; }
     .fact + .fact { border-left: 1px solid var(--line); }
+    .fact--officials { grid-row: span 2; }
+    .fact--officials ~ .fact + .fact { padding-top: var(--s-4); }
   }
 
   .stats { display: grid; gap: var(--s-3); margin: var(--s-5) 0 0; padding: var(--s-4) 0 0; border-top: 1px solid var(--line); list-style: none; }
   .stats__title { grid-column: 1 / -1; }
+  .stats__teams { font-size: 0.875rem; }
   .stat { display: grid; grid-template-columns: 3.5ch minmax(0, 1fr) 3.5ch; align-items: center; gap: 4px var(--s-2); }
   .stat__label { text-align: center; font-size: 0.8125rem; color: var(--ink-2); }
   .stat__value { font-family: var(--font-num); font-weight: 700; font-size: 1rem; }

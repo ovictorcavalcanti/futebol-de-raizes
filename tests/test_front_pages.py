@@ -1685,6 +1685,31 @@ def test_nome_do_time_nao_quebra_letra_a_letra(open_page, url, width):
     assert not errors, errors
 
 
+META_LINES_JS = """() => [...document.querySelectorAll('article.match')].map((card) => {
+  // linhas de um bloco flex: centros verticais distintos dos filhos (alinhados ao centro)
+  const lines = (el) => (el ? new Set([...el.children].map((c) => c.getBoundingClientRect()).filter((r) => r.height > 1)
+    .map((r) => Math.round((r.top + r.bottom) / 2))).size : 0);
+  return { id: card.dataset.matchId, status: card.dataset.status,
+    when: lines(card.querySelector('.match__lead')), where: lines(card.querySelector('.match__place')) };
+}).filter((c) => c.when)"""
+
+
+@pytest.mark.parametrize("width", [360, 390])
+@pytest.mark.parametrize("url", ["/", "/competition.html?slug=copa-pernambuco"])
+def test_faixa_do_card_no_celular_em_ate_tres_linhas(open_page, url, width):
+    """Celular: "onde" numa linha só (o estádio corta com reticências, a cidade fica inteira) e a
+    faixa toda em até 3 linhas (normalmente 2: "quando" e "onde"; rodada/fase cabe numa a mais)."""
+    page, _, errors = open_page(url, width=width)
+    page.wait_for_selector("article.match .match__meta")
+    page.wait_for_timeout(200)
+    cards = page.evaluate(META_LINES_JS)
+    assert cards
+    bad = [c for c in cards if c["where"] > 1 or c["when"] + c["where"] > 3]
+    assert not bad, bad
+    assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
+    assert not errors, errors
+
+
 @pytest.mark.parametrize("width", [320, 390])
 def test_logo_horizontal_largo_nao_empurra_o_cabecalho(open_page, width):
     """BRAND_LOGO_URL de qualquer proporção (aqui 10:1): relógio e tema continuam na tela."""

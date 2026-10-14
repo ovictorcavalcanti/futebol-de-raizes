@@ -123,8 +123,11 @@ function groupRowsMode() {
 }
 
 /** Linhas dos grupos (createGroupRows), com os botões das classificações em cima. */
+/** Compartilhar as tabelas no WhatsApp, com o link da página como está (fase e rodada). */
+const standingsShare = (title = state.data?.competition?.name) => ({ title, url: () => window.location.href });
+
 function groupRows(matches, card) {
-  state.groupLayout = createGroupRows(state.standingsData, matches, card);
+  state.groupLayout = createGroupRows(state.standingsData, matches, card, { share: standingsShare() });
   const rows = state.groupLayout.rows;
   if (!els.standingsSwitch.hidden) rows.unshift(h('div', { class: 'group-row group-row--head' }, els.standingsSwitch));
   return rows;
@@ -184,7 +187,7 @@ function renderStandings(stage) {
     if (state.standingsEl && state.standingsStageId === stage.id) {
       updateStandings(state.standingsEl, stage.standings);
     } else {
-      state.standingsEl = createStandings(stage.standings);
+      state.standingsEl = createStandings(stage.standings, { share: standingsShare() });
       state.standingsStageId = stage.id;
       els.standings.replaceChildren(state.standingsEl);
     }
@@ -246,7 +249,7 @@ async function loadRanking(id) {
     const data = await getRanking(id);
     if (token !== state.rankingToken || state.view !== id) return; // trocou de botão no meio
     state.rankingStageIds = data.stage_ids || [];
-    els.rankingStandings.replaceChildren(createStandings(data));
+    els.rankingStandings.replaceChildren(createStandings(data, { share: standingsShare() }));
   } catch {
     if (token === state.rankingToken) showToast('Não deu para carregar a classificação agora.', { kind: 'error' });
   } finally {

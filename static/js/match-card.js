@@ -11,7 +11,7 @@
 import { h, clear, setText } from './render.js';
 import { icon, eventIconName } from './icons.js';
 import { createCrest } from './crest.js';
-import { formatTime, formatWhen, formatDay, formatInt, formatMoney, formatScore, toDate } from './format.js';
+import { formatWhen, formatInt, formatMoney, formatScore, toDate } from './format.js';
 import { liveMinuteLabel } from './clock.js';
 import { getMinuteFormat, minuteLabel } from './minute-format.js';
 import { openMatchShare } from './share.js';
@@ -118,7 +118,7 @@ export function createMatchCard(match, opts = {}) {
     // no canto de cima, por cima da faixa de meta (que deixa o espaço); compartilha o jogo como está agora
     el.classList.add('match--shareable');
     el.append(h('button', {
-      type: 'button', class: 'btn btn--ghost btn--icon btn--sm match__share', 'aria-label': 'Compartilhar jogo', title: 'Compartilhar jogo',
+      type: 'button', class: 'btn btn--secondary btn--icon btn--sm match__share', 'aria-label': 'Compartilhar jogo no WhatsApp', title: 'Compartilhar no WhatsApp',
       onclick: () => {
         const st = STATE.get(el);
         if (st?.match) openMatchShare(st.match, { now: nowOf(st.opts) });
@@ -244,11 +244,13 @@ export function setMatchCardError(el) {
    Faixa de meta
    ========================================================================== */
 
-function statusPill(match) {
+function statusPill(match, now) {
   const { status } = match;
   if (status === 'scheduled') {
-    const time = formatTime(match.kickoff_at);
-    return h('span', { class: 'pill pill--scheduled' }, icon('clock'), h('span', { class: 'visually-hidden', text: 'Agendado para ' }), time || 'A definir');
+    // dia e hora juntos, na ordem em que se fala: "Hoje · 19:00", "sáb, 18/10 · 16:00"
+    const kickoff = toDate(match.kickoff_at);
+    return h('span', { class: 'pill pill--scheduled' }, icon('clock'), h('span', { class: 'visually-hidden', text: 'Agendado para ' }),
+      kickoff ? h('time', { datetime: kickoff.toISOString(), text: formatWhen(kickoff, now) }) : 'A definir');
   }
   if (status === 'live') {
     if (match.partial_info) return h('span', { class: 'pill pill--partial', text: 'Informações parciais' });
@@ -273,7 +275,9 @@ function roundLabel(match) {
 
 function renderMeta(meta, match, now, opts) {
   const parts = [];
-  const status = h('span', { class: 'match__status' }, statusPill(match));
+  // 1ª linha: status (o agendado traz dia e hora no selo) e, nos outros, o dia e a hora do início;
+  // 2ª linha: rodada/competição (quando pedidas) e o local numa linha só ("Lacerdão · Caruaru, PE")
+  const status = h('span', { class: 'match__status' }, statusPill(match, now));
   if (match.status === 'live' && !match.partial_info && !INTERVALS.has(match.period) && match.period !== 'penalties') {
     status.append(h('span', { class: 'match__minute' },
       // no formato por tempo o período já vai no rótulo ("27' 2T")
@@ -286,19 +290,16 @@ function renderMeta(meta, match, now, opts) {
   parts.push(status);
 
   const kickoff = toDate(match.kickoff_at);
-  if (kickoff) {
-    const text = match.status === 'scheduled' ? formatDay(kickoff, now) : formatWhen(kickoff, now);
-    parts.push(h('time', { class: 'match__when', datetime: kickoff.toISOString() }, icon('calendar', { className: 'icon--sm' }), text));
+  if (kickoff && match.status !== 'scheduled') {
+    parts.push(h('time', { class: 'match__when', datetime: kickoff.toISOString() }, icon('calendar', { className: 'icon--sm' }), formatWhen(kickoff, now)));
   }
 
   const context = [opts.showCompetition && (match.competition?.short_name || match.competition?.name), opts.showRound && roundLabel(match)].filter(Boolean);
   if (context.length) parts.push(h('span', { class: 'match__round', text: context.join(' · ') }));
 
-  if (match.venue || match.city) {
-    parts.push(h('span', { class: 'match__place' },
-      match.venue ? h('span', { class: 'match__place-item' }, icon('stadium'), h('span', { class: 'visually-hidden', text: 'Estádio: ' }), match.venue) : null,
-      match.city ? h('span', { class: 'match__place-item' }, icon('pin'), h('span', { class: 'visually-hidden', text: 'Cidade: ' }), match.city) : null,
-    ));
+  const place = [match.venue, match.city].filter(Boolean).join(' · ');
+  if (place) {
+    parts.push(h('span', { class: 'match__place' }, icon('pin'), h('span', { class: 'visually-hidden', text: 'Local: ' }), h('span', { class: 'match__place-text', text: place })));
   }
   meta.replaceChildren(...parts);
 }

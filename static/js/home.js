@@ -190,10 +190,16 @@ function cardFor(match, next) {
   return card;
 }
 
-function standingsFor(stage, next) {
+/** Compartilhar as tabelas da fase no WhatsApp, com o link da fase na página da competição. */
+const standingsShare = (comp, stage) => ({
+  title: comp.name,
+  url: `${window.location.origin}/competition.html?slug=${encodeURIComponent(comp.slug)}&stage=${stage.id}`,
+});
+
+function standingsFor(stage, next, comp) {
   let el = state.standings.get(stage.id)?.el;
   if (el) updateStandings(el, stage.standings);
-  else el = createStandings(stage.standings);
+  else el = createStandings(stage.standings, { share: standingsShare(comp, stage) });
   next.set(stage.id, { el });
   return el;
 }
@@ -245,7 +251,7 @@ function competitionSection(comp, nextCards, nextStandings) {
       // jogos entre grupos numa seção à parte (createGroupRows)
       const matches = stage.matches || [];
       const when = { 0: 'hoje', [-1]: 'ontem', 1: 'amanhã' }[daysFromToday(state.date)] ?? 'neste dia'; // o seletor mostra outros dias
-      const layout = createGroupRows(stage.standings, matches, (m) => cardFor(m, nextCards), { only: 'playing', when });
+      const layout = createGroupRows(stage.standings, matches, (m) => cardFor(m, nextCards), { only: 'playing', when, share: standingsShare(comp, stage) });
       b.matches.classList.add('match-groups', 'group-rows');
       b.matches.replaceChildren(...layout.rows);
       b.standings.remove();
@@ -258,7 +264,7 @@ function competitionSection(comp, nextCards, nextStandings) {
       b.matches.replaceChildren(...(grouped
         ? createMatchGroupBlocks(matches, null, (m) => cardFor(m, nextCards))
         : matches.map((m) => cardFor(m, nextCards))));
-      if (stage.standings) b.standings.append(standingsFor(stage, nextStandings));
+      if (stage.standings) b.standings.append(standingsFor(stage, nextStandings, comp));
       else b.standings.remove();
     }
     p.stages.append(block);

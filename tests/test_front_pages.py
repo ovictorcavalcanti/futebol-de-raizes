@@ -1497,6 +1497,21 @@ def test_resultados_no_whatsapp_da_rodada_e_do_dia(open_page, fixtures):
     assert lines[0].startswith(f"*{title}") and lines[0].endswith("*") and lines[1] == ""
     assert len(lines) == cards + 4 and lines[-2:] == ["", "🔗 " + page.evaluate("location.href")]
 
+    # classificação (fase de grupos: uma tabela por grupo): o botão no canto manda a tabela do
+    # grupo, uma linha por time, com o link da página
+    page, api, errors_groups = open_page("/competition.html?slug=x&stage=6")
+    page.wait_for_selector("#round-matches .group-row__table .standings__share")
+    page.evaluate(WHATSAPP_SPY)
+    table = page.locator("#round-matches .group-row__table .standings__group").first
+    table.locator(".standings__share").click()
+    page.wait_for_function("() => window.__opened")
+    lines = page.evaluate("window.__opened").split("\n")
+    group = table.locator("caption").text_content().replace("Ao vivo", "").strip()
+    assert lines[0].startswith(f"*Classificação · {title} · Fase de grupos · ") and group.lower() in lines[0].lower()
+    assert len(lines) == table.locator("tbody tr").count() + 4
+    assert re.fullmatch(r"1\. .+ — \d+ pts? · \d+J · SG [+-]?\d+", lines[2]) and lines[-1] == "🔗 " + page.evaluate("location.href")
+    errors += errors_groups
+
     page, api, errors_home = open_page("/")
     page.wait_for_selector("[data-hook=competition] [data-hook=competition-share]")
     page.evaluate(WHATSAPP_SPY)

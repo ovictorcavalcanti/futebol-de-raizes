@@ -9,7 +9,8 @@
  * A folha nativa só abre no clique do usuário (o Safari exige), então a imagem é desenhada quando
  * a janela abre e o botão chama o share direto.
  *
- * Resultados (competição ou dia): a mensagem com os jogos e o link, direto no WhatsApp.
+ * Resultados (competição ou dia) e classificação: a mensagem com os jogos ou a tabela e o link,
+ * direto no WhatsApp.
  */
 import { h, showToast } from './render.js';
 import { icon } from './icons.js';
@@ -104,6 +105,24 @@ export function resultsShareText(title, matches, now = Date.now(), url = '') {
 /** Resultados direto no WhatsApp (só texto: a conversa abre com a mensagem pronta). */
 export function shareResultsOnWhatsApp(title, matches, { now = Date.now(), url = '', win = window } = {}) {
   win.open(whatsappUrl(resultsShareText(title, matches, now, url)), '_blank', 'noopener');
+}
+
+const signed = (n) => (n > 0 ? `+${n}` : String(n));
+const pts = (n) => `${n} pt${Math.abs(n) === 1 ? '' : 's'}`;
+
+/**
+ * Mensagem da classificação para o WhatsApp: `*Classificação · título*` (ao vivo, se há jogo
+ * rolando) e uma linha por time, na ordem da tabela ("1. Sport — 13 pts · 5J · SG +8"), e o link.
+ */
+export function standingsShareText(title, group, { live = false, url = '' } = {}) {
+  const rows = (group?.rows || []).map((r) =>
+    `${r.rank ?? r.position}. ${name(r.team)} — ${pts(r.points ?? 0)} · ${r.played ?? 0}J · SG ${signed(r.goal_difference ?? 0)}`);
+  return [`*Classificação · ${title}*${live ? ' (ao vivo)' : ''}`, '', ...rows, ...(url ? ['', `🔗 ${url}`] : [])].join('\n');
+}
+
+/** Classificação direto no WhatsApp (a conversa abre com a mensagem pronta). */
+export function shareStandingsOnWhatsApp(title, group, { live = false, url = '', win = window } = {}) {
+  win.open(whatsappUrl(standingsShareText(title, group, { live, url })), '_blank', 'noopener');
 }
 
 /* --- Imagem ------------------------------------------------------------------------------- */

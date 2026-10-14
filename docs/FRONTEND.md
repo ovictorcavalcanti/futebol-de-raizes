@@ -176,6 +176,17 @@ existe: a home de sempre.
   dos gols — todos os autores no mesmo tamanho de fonte (o maior em que o mais longo cabe), e os
   dois nomes também —, com o nome do site no rodapé. Sem servidor e sem dependência nova.
 * `matchUrl(match)` → `/?jogo=<id>`.
+* Classificação: com `opts.share = {title, url}` em `createStandings` (home, competição e linhas
+  de grupo passam o nome da competição e o link), cada tabela tem `.standings__share` no canto do
+  título: a mensagem `*Classificação · competição · fase · grupo*` (ao vivo, se há jogo rolando)
+  com uma linha por time ("1. Sport — 13 pts · 5J · SG +8") e o link, direto no WhatsApp
+  (`standingsShareText`, `shareStandingsOnWhatsApp`).
+
+Faixa de informações do card (`.match__meta`): na 1ª linha o status — o agendado traz dia e hora
+juntos no selo ("Hoje · 19:00", "sáb, 18/10 · 16:00"); os outros, o selo e o dia e a hora do
+início (`.match__when`) —; na 2ª, a rodada/competição (quando pedidas) e o local numa linha só,
+com um ícone (`.match__place`: "Lacerdão · Caruaru, PE"). No contêiner largo, tudo numa linha,
+com o local à direita. O botão de compartilhar tem borda (é botão, não ícone de informação).
 
 ### Operador (`operator.html`)
 

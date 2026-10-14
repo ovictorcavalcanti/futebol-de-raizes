@@ -746,8 +746,12 @@
   .section-head__actions { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); }
   /* compartilhar: no canto de cima, a faixa de meta deixa o espaço do botão */
   .match--shareable > .match__meta { padding-right: 52px; }
-  .match__share { position: absolute; top: 7px; right: 8px; color: var(--ink-2); }
+  .match__share { position: absolute; top: 7px; right: 8px; }
   .match__share .icon { width: 18px; height: 18px; }
+  .standings__group--shareable { position: relative; }
+  .standings__group--shareable caption { padding-right: 52px; }
+  .standings__share { position: absolute; top: 6px; right: 8px; z-index: 1; }
+  .standings__share .icon { width: 18px; height: 18px; }
   /* janela de compartilhar o jogo: prévia da imagem e os botões */
   .share-sheet__title { margin: 0; font-family: var(--font-num); font-weight: 700; font-size: 1.125rem; color: var(--ink); }
   .share-sheet__preview { display: grid; place-items: center; margin: 0; min-height: 120px; border-radius: var(--radius); background: var(--surface-2); }
@@ -781,21 +785,22 @@
     text-transform: uppercase;
     color: var(--ink-3);
   }
+  /* local numa linha só, com um ícone: "Lacerdão · Caruaru, PE" (no celular, a 2ª linha da faixa) */
   .match__place {
     display: flex;
-    flex-wrap: wrap;
     align-items: center;
-    gap: 2px var(--s-3);
+    gap: 5px;
     flex-basis: 100%;
+    min-width: 0;
     color: var(--ink-3);
     font-size: 0.8125rem;
   }
-  .match__place-item { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
-  .match__place-item .icon { width: 15px; height: 15px; color: var(--ink-3); }
+  .match__place .icon { flex: none; width: 15px; height: 15px; color: var(--ink-3); }
+  .match__place-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .divider-dot { color: var(--line-strong); }
 
   @container match (min-width: 560px) {
-    .match__place { flex-basis: auto; margin-left: auto; font-size: 0.875rem; gap: var(--s-3); }
+    .match__place { flex-basis: auto; margin-left: auto; font-size: 0.875rem; }
     .match__when { padding-left: var(--s-3); border-left: 1px solid var(--line); }
   }
 

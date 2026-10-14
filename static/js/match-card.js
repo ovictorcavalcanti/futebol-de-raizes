@@ -269,10 +269,9 @@ function roundLabel(match) {
 }
 
 function renderMeta(meta, match, now, opts) {
-  const parts = [];
-  // o selo é sempre o status (com o minuto, ao vivo); logo depois, uma frase só, alinhada à
-  // esquerda: rodada/competição (quando pedidas) · dia e hora do início · local
-  // ("Hoje · 19:00 · Lacerdão, Caruaru, PE"). No celular, a frase desce para a 2ª linha.
+  // dois blocos: "quando" (o selo do status, o minuto ao vivo, o dia e a hora do início e a
+  // rodada/competição, quando pedidas) e "onde" (local e cidade). No desktop, um à esquerda e o
+  // outro à direita; no celular, duas linhas centradas, como o placar.
   const status = h('span', { class: 'match__status' }, statusPill(match));
   if (match.status === 'live' && !match.partial_info && !INTERVALS.has(match.period) && match.period !== 'penalties') {
     status.append(h('span', { class: 'match__minute' },
@@ -283,18 +282,15 @@ function renderMeta(meta, match, now, opts) {
   } else if (match.status === 'suspended' && match.period_label) {
     status.append(h('span', { class: 'match__round', text: `parou no ${match.period_label}` }));
   }
-  parts.push(status);
-
   const kickoff = toDate(match.kickoff_at);
   const context = [opts.showCompetition && (match.competition?.short_name || match.competition?.name), opts.showRound && roundLabel(match)].filter(Boolean).join(' · ');
-  const place = [match.venue, match.city].filter(Boolean).join(', ');
-  const info = [
-    context,
+  const when = h('div', { class: 'match__lead' }, status,
     kickoff ? h('time', { class: 'match__when', datetime: kickoff.toISOString(), text: formatWhen(kickoff, now) }) : null,
-    place ? h('span', { class: 'match__place', text: place }) : null,
-  ].filter(Boolean);
-  if (info.length) parts.push(h('p', { class: 'match__info' }, ...info.flatMap((item, i) => (i ? [' · ', item] : [item]))));
-  meta.replaceChildren(...parts);
+    context ? h('span', { class: 'match__round', text: context }) : null);
+  const place = [match.venue, match.city].filter(Boolean).join(', ');
+  meta.replaceChildren(when, place
+    ? h('p', { class: 'match__place' }, icon('pin'), h('span', { class: 'visually-hidden', text: 'Local: ' }), h('span', { text: place }))
+    : null);
 }
 
 /* ==========================================================================

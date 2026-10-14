@@ -731,12 +731,14 @@
   .match[data-status="suspended"]::before, .match[data-status="cancelled"]::before { background: var(--ink-3); }
 
   /* faixa de meta */
+  /* "quando" e "onde": no celular, duas linhas centradas (como o placar); no desktop, um bloco
+     à esquerda e o outro à direita (container query mais abaixo) */
   .match__meta {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px var(--s-3);
+    display: grid;
+    justify-items: center;
+    gap: 4px;
     padding: 10px var(--s-4) 9px;
+    text-align: center;
     border-bottom: 1px solid var(--line);
     background: color-mix(in srgb, var(--surface-2) 55%, var(--surface));
     font-size: 0.875rem;
@@ -745,7 +747,10 @@
   .match__status { display: inline-flex; align-items: center; gap: var(--s-2); }
   .section-head__actions { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); }
   /* compartilhar: no canto de cima, a faixa de meta deixa o espaço do botão */
-  .match--shareable > .match__meta { padding-right: 52px; }
+  .match--shareable > .match__meta { padding-inline: 46px; } /* centrado, longe do botão */
+  .match__lead { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px var(--s-3); min-width: 0; }
+  .match__place { display: inline-flex; align-items: center; gap: 5px; min-width: 0; margin: 0; color: var(--ink-3); font-size: 0.875rem; }
+  .match__place .icon { flex: none; width: 15px; height: 15px; color: var(--ink-3); }
   .match__share { position: absolute; top: 7px; right: 8px; }
   .match__share .icon { width: 18px; height: 18px; }
   .standings__group--shareable { position: relative; }
@@ -767,8 +772,6 @@
     min-width: 3ch;
   }
   .match__minute-period { font-weight: 600; color: var(--ink-3); margin-right: 4px; }
-  /* a frase de informação do jogo: "Hoje · 19:00 · Lacerdão, Caruaru, PE" (no celular, 2ª linha) */
-  .match__info { flex-basis: 100%; min-width: 0; margin: 0; color: var(--ink-3); font-size: 0.875rem; line-height: 1.35; }
   .match__when { font-family: var(--font-num); font-weight: 600; font-size: 0.9375rem; letter-spacing: 0.02em; color: var(--ink-2); white-space: nowrap; }
   .match__round {
     font-family: var(--font-num);
@@ -782,7 +785,10 @@
   .divider-dot { color: var(--line-strong); }
 
   @container match (min-width: 560px) {
-    .match__info { flex-basis: auto; flex: 1 1 0; }
+    .match__meta { grid-template-columns: auto auto; justify-content: space-between; align-items: center; gap: var(--s-3); text-align: left; }
+    .match--shareable > .match__meta { padding-inline: var(--s-4) 56px; }
+    .match__lead { justify-content: flex-start; }
+    .match__place { justify-self: end; text-align: right; }
   }
 
   /* placar */

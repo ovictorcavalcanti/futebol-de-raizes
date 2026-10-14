@@ -179,18 +179,20 @@ existe: a home de sempre.
 * Classificação: com `opts.share = {title, url}` em `createStandings` (home, competição e linhas
   de grupo passam o nome da competição e o link), cada tabela tem `.standings__share` no canto do
   título, que abre a mesma janela (`openStandingsShare`): a imagem da tabela
-  (`renderStandingsImage`: PNG de 1080 de largura, altura pelo número de times; competição, fase
-  e grupo, "ao vivo" com jogo rolando, faixa da zona, posição, escudo, nome — todos do mesmo
-  tamanho —, P J V E D SG, legenda das zonas, o site no rodapé) e a mensagem
-  `*Classificação · competição · fase · grupo*` com uma linha por time ("1. Sport — 13 pts · 5J ·
-  SG +8") e o link (`standingsShareText`).
+  (`renderStandingsImage`: PNG de 1080 de largura, altura pelo número de times; competição,
+  "Classificação" ou "Classificação do Grupo A" (`groupLabel`), a fase e, na tabela ao vivo com
+  jogo em andamento, "parcial: há jogos em andamento"; faixa da zona, posição, escudo, nome —
+  todos do mesmo tamanho; bolinha vermelha = em jogo agora —, P J V E D SG; legenda das zonas e
+  da bolinha; o site no rodapé) e a mensagem `*Classificação do Grupo A*`, "competição · fase",
+  "🔴 Parcial: há jogos em andamento" (quando for), uma linha por time ("1. Sport 🔴 — 13 pts ·
+  5J · SG +8") e o link (`standingsShareText`).
 
-Faixa de informações do card (`.match__meta`): o selo é sempre o status ("Agendado", "Ao vivo"
-com o minuto, "Encerrado"...) e, logo depois, uma frase só, alinhada à esquerda (`.match__info`):
-rodada/competição (quando pedidas) · dia e hora do início (`.match__when`) · local
-(`.match__place`, "Lacerdão, Caruaru, PE"). No celular a frase desce para a 2ª linha; no
-contêiner largo, tudo numa linha. O botão de compartilhar tem borda (é botão, não ícone de
-informação).
+Faixa de informações do card (`.match__meta`, grid): o bloco "quando" (`.match__lead`: o selo do
+status — "Agendado", "Ao vivo" com o minuto, "Encerrado"... —, o dia e a hora do início,
+`.match__when`, e a rodada/competição, quando pedidas) e o bloco "onde" (`.match__place`: 📍
+"Lacerdão, Caruaru, PE"). No celular, duas linhas centradas, como o placar (o espaço do botão
+de compartilhar fica dos dois lados); no contêiner largo (≥ 560 px), "quando" à esquerda e
+"onde" à direita. O botão de compartilhar tem borda (é botão, não ícone de informação).
 
 ### Operador (`operator.html`)
 

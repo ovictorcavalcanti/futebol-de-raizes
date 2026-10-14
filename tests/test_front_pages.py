@@ -1509,9 +1509,12 @@ def test_resultados_no_whatsapp_da_rodada_e_do_dia(open_page, fixtures):
     assert href.startswith("https://api.whatsapp.com/send?text=")
     lines = unquote(href.split("?text=", 1)[1]).split("\n")
     group = table.locator("caption").text_content().replace("Ao vivo", "").strip()
-    assert lines[0].startswith(f"*Classificação · {title} · Fase de grupos · ") and group.lower() in lines[0].lower()
-    assert len(lines) == table.locator("tbody tr").count() + 4
-    assert re.fullmatch(r"1\. .+ — \d+ pts? · \d+J · SG [+-]?\d+", lines[2]) and lines[-1] == "🔗 " + page.evaluate("location.href")
+    assert lines[0].lower() == f"*classificação do {group.lower()}*"  # é de grupo: diz qual
+    assert lines[1] == f"{title} · Fase de grupos"
+    head = 4 if lines[2].startswith("🔴 Parcial") else 3  # aviso de parcial com jogo em andamento
+    assert len(lines) == table.locator("tbody tr").count() + head + 2 and lines[head - 1] == ""
+    lines = lines[head - 1:]  # a partir da linha em branco antes dos times
+    assert re.fullmatch(r"1\. .+ — \d+ pts? · \d+J · SG [+-]?\d+", lines[1]) and lines[-1] == "🔗 " + page.evaluate("location.href")
     errors += errors_groups
 
     page, api, errors_home = open_page("/")

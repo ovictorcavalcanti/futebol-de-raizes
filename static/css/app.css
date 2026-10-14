@@ -901,12 +901,10 @@
   .match[data-winner="away"] .team--home .crest { opacity: 0.7; }
   /* fora do fluxo (no canto de cima, junto da faixa do time): não aperta o nome */
 
-  /* placar estreito (celular): o nome do time, não a sigla, embaixo do escudo, em até duas linhas */
+  /* placar estreito (celular): o nome do time (o popular, "Sport", não a sigla), ao lado do
+     escudo, um pouco menor; nome comprido quebra entre palavras, em até duas linhas */
   @container match (max-width: 519px) {
-    .team { flex-direction: column; align-items: center; justify-content: center; gap: 6px; text-align: center; }
-    .team--home { flex-direction: column-reverse; justify-content: flex-end; text-align: center; }
-    .team--away { justify-content: flex-start; text-align: center; }
-    .team__name { font-size: 0.9375rem; line-height: 1.15; text-wrap: balance; }
+    .team__name { font-size: 1rem; }
     .team__full { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
     .team__short { display: none; }
   }

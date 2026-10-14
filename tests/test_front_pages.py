@@ -1534,16 +1534,18 @@ def test_resultados_no_whatsapp_da_rodada_e_do_dia(open_page, fixtures):
 def test_home_no_celular_barra_do_dia_ao_vivo_nomes_e_gaveta(open_page, fixtures):
     page, api, errors = open_page("/", width=390)
     page.wait_for_selector("[data-hook=competition] .match")
-    # no topo, o seletor de dias está na tela: a barra fixa não aparece (nunca os dois juntos)
-    assert page.is_hidden("[data-hook=day-bar]")
-    # atalho "Ao vivo N" (no topo da página), com o número de jogos ao vivo
+    # no topo, o seletor de dias está na tela: a barra fixa não aparece (nunca os dois juntos); o
+    # atalho "Ao vivo" só existe nela
+    assert page.is_hidden("[data-hook=day-bar]") and page.locator("[data-hook=live-jump]").count() == 1
+    # ao rolar além do seletor, a barra aparece com o dia e "Ao vivo N"
+    page.evaluate("window.scrollTo(0, document.getElementById('competitions').getBoundingClientRect().top + scrollY + 400)")
+    page.wait_for_function("() => !document.querySelector('[data-hook=day-bar]').hidden")
     live = page.evaluate("[...document.querySelectorAll('#competitions .match')].filter((c) => c.dataset.status === 'live').length")
-    chip = page.locator(".page-intro [data-hook=live-jump]")
+    chip = page.locator("[data-hook=day-bar] [data-hook=live-jump]")
     assert live > 0 and chip.is_visible() and chip.locator("[data-hook=live-count]").text_content() == str(live)
     # cada toque leva ao próximo jogo ao vivo, no topo da tela, sem ficar atrás da barra
     chip.click()
-    page.wait_for_function("() => document.querySelector('[data-hook=day-bar]') && !document.querySelector('[data-hook=day-bar]').hidden")
-    page.wait_for_timeout(600)  # rolagem suave
+    page.wait_for_timeout(700)  # rolagem suave
     first = page.evaluate("""() => {
       const card = [...document.querySelectorAll('#competitions .match')].find((c) => c.dataset.status === 'live');
       return [card.getBoundingClientRect().top, document.querySelector('[data-hook=day-bar]').getBoundingClientRect().bottom];
@@ -1554,9 +1556,14 @@ def test_home_no_celular_barra_do_dia_ao_vivo_nomes_e_gaveta(open_page, fixtures
     page.click("[data-hook=day-bar-next]")
     page.wait_for_function("() => new URLSearchParams(location.search).has('date') && window.scrollY === 0")
     page.wait_for_function("() => document.querySelector('[data-hook=day-bar]').hidden")
-    # placar estreito: o nome do time (não a sigla) embaixo do escudo
+    # placar estreito: o nome do time (não a sigla), ao lado do escudo
     card = page.locator("#competitions .match").first
     assert card.locator(".team__full").first.is_visible() and not card.locator(".team__short").first.is_visible()
+    assert page.evaluate("""() => {
+      const team = document.querySelector('#competitions .match .team--away');
+      const [crest, name] = [team.querySelector('.crest'), team.querySelector('.team__name')].map((el) => el.getBoundingClientRect());
+      return name.left >= crest.right && Math.abs((name.top + name.bottom) / 2 - (crest.top + crest.bottom) / 2) < 12;
+    }""")
     # cabeçalho da competição: só os ícones (o texto fica para leitor de tela), alvos de 44 px
     label = page.locator("[data-hook=competition] .section-head__label").first.bounding_box()
     share = page.locator("[data-hook=competition] [data-hook=competition-share]").first.bounding_box()

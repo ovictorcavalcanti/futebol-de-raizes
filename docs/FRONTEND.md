@@ -103,7 +103,7 @@ escondidas; quem liga os dados tira o `hidden`.
 | `#home-date` (`<time>`) | Data do dia: já vem no HTML (`{% now %}`, Brasília) e o JS reescreve com `formatDateLong` da data da resposta — a linha nunca aparece depois (sem layout shift). |
 | `#latest-goals` | Bloco "Últimos gols", **visível desde a 1ª pintura** com um chip esqueleto (altura de um `.goal-chip`), sem layout shift quando os dados chegam. `home.js` o esconde no dia sem jogo (o estado vazio toma o lugar) e no erro da carga inicial. |
 | `#goal-alert` (`aria-live="polite"`) | Avisos: `createGoalAlert(goal)` / `createGoalAlert(goal, {kind: 'correction', reason})`. Use `prepend`. |
-| `[data-hook="live-jump"]` (`hidden`; um no `.page-intro`, outro na barra) | Celular: "Ao vivo N" (jogos com status `live` no dia); cada toque leva ao próximo, no topo da tela (os cards têm `scroll-margin-top` com a barra). Some sem jogo ao vivo. |
+| `[data-hook="live-jump"]` (`hidden`; só na barra fixa do dia) | Celular: "Ao vivo N" (jogos com status `live` no dia); cada toque leva ao próximo, no topo da tela (os cards têm `scroll-margin-top` com a barra). Some sem jogo ao vivo. |
 | `[data-hook="day-bar"]` (`hidden`) › `day-bar-prev`, `day-bar-date`, `day-bar-next` | Celular: barra fixa no topo que só aparece depois que o seletor de dias (`[data-hook="date-nav"]`) sai da tela por cima (IntersectionObserver; nunca os dois juntos); escondida, fica `inert`. Repete o dia (`formatDay`: "Hoje", "sáb, 18/10") e o ‹ › (fazem o mesmo que os do seletor e voltam ao topo). Fora do `.container`. |
 | `.section-head__label` | Celular: o texto de "Resultados no WhatsApp" e "Ver competição" fica só para leitor de tela; na tela, os ícones, em alvos de 44 px. |
 | `#toggle-sound`, `#toggle-notifications` (`hidden`) | Botões liga/desliga (`aria-pressed`). Os rótulos trocam sozinhos via `.when-on`/`.when-off`. O de notificações só aparece onde `new Notification()` funciona: um script inline logo depois dele (antes da 1ª pintura) aplica a mesma regra de `isMobileDevice`/`notificationSupport` (sem o teste do construtor) e `alerts.js` confirma depois — o botão não surge com os módulos empurrando a página. |
@@ -200,8 +200,9 @@ estádio com o ícone de estádio e a cidade com o pino, `.match__place-item`). 
 linhas centradas, como o placar (o espaço do botão
 de compartilhar fica dos dois lados); no contêiner largo (≥ 560 px), "quando" à esquerda e
 "onde" à direita. O botão de compartilhar tem borda (é botão, não ícone de informação) e área
-de toque de 44 px (o desenho segue de 32 px). No placar estreito (< 520 px), o nome do time, não
-a sigla, embaixo do escudo, em até duas linhas. No celular, a janela de compartilhar abre como
+de toque de 44 px (o desenho segue de 32 px). No placar estreito (< 520 px), o nome do time (o
+popular, como no cadastro: "Sport", "Náutico"), não a sigla, ao lado do escudo, um pouco menor,
+em até duas linhas. No celular, a janela de compartilhar abre como
 gaveta (presa embaixo, na largura da tela, com o botão largo).
 
 ### Operador (`operator.html`)

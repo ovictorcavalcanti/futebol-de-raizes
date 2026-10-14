@@ -29,7 +29,7 @@
 {% endblock %}
 {% block main %}
 {# Celular: depois que o seletor de dias sai da tela (ao rolar), uma barra fixa no topo repete o dia #}
-{# (‹ dia ›) e o atalho dos jogos ao vivo. Fora do .container (não entra no espaçamento dos blocos); #}
+{# (‹ dia ›) e traz o atalho dos jogos ao vivo (só aqui). Fora do .container (não entra no espaçamento); #}
 {# escondida (e inerte) enquanto o seletor está na tela e no desktop (home.js).                    #}
 <div class="day-bar" data-hook="day-bar" hidden>
   <div class="day-bar__inner">
@@ -63,8 +63,6 @@
       </button>
       <button id="day-today" type="button" class="btn btn--secondary btn--sm" data-hook="day-today" hidden>Hoje</button>
     </nav>
-    {# celular: atalho para os jogos ao vivo (cada toque leva ao próximo); some sem jogo ao vivo #}
-    <button type="button" class="live-jump" data-hook="live-jump" title="Ir para os jogos ao vivo" hidden><span class="live-dot" aria-hidden="true"></span>Ao vivo <span class="live-jump__count" data-hook="live-count">0</span></button>
   </header>
 
   {# Últimos gols: aviso de gol (aria-live), botões de som/notificação e a lista dos 10 mais recentes. #}

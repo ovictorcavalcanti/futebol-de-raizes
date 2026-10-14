@@ -60,6 +60,7 @@
     <label class="field__label" data-hook="label"></label>
     <input class="input" type="text" autocomplete="off" maxlength="80" data-hook="input">
     <datalist data-hook="datalist"></datalist>
+    <span class="field__hint" data-hook="hint" hidden></span>
   </div>
 </template>
 
@@ -121,8 +122,8 @@
       <button type="button" class="btn btn--ghost btn--sm op-event__edit" data-hook="edit" title="Editar lance">
         <svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg><span>Editar</span>
       </button>
-      <button type="button" class="btn btn--ghost btn--sm op-event__void" data-hook="void" title="Cancelar lançamento">
-        <svg class="icon" aria-hidden="true"><use href="#i-undo"/></svg><span>Cancelar</span>
+      <button type="button" class="btn btn--ghost btn--sm op-event__void" data-hook="void" title="Desfazer lançamento">
+        <svg class="icon" aria-hidden="true"><use href="#i-undo"/></svg><span>Desfazer</span>
       </button>
     </span>
   </li>

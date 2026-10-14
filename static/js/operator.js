@@ -10,8 +10,10 @@
  *   tempo, pênaltis, fim) num grupo à parte que sempre pede confirmação no envio;
  *   formulário montado pelo catálogo (GET /api/ops/catalog), minuto
  *   sugerido pelo relógio do jogo, confirmação de avisos (422 confirmation_required)
- *   com a MESMA chave de idempotência, linha do tempo com "cancelar lançamento" e
+ *   com a MESMA chave de idempotência, linha do tempo com "desfazer lançamento" e
  *   ações de status com <dialog>.
+ * * Celular (< 960 px): escolhida a partida, a lista recolhe no botão "Trocar partida",
+ *   logo acima do painel.
  * * Não assina o stream: busca a partida de novo depois de cada envio.
  *
  * As partes puras (minuto sugerido, corpo do lançamento, data em Brasília, grupos de
@@ -198,6 +200,57 @@ export function groupByCompetition(matches = []) {
   return [...groups.values()].map((group) => ({ ...group, matches: sortByStatus(group.matches) }));
 }
 
+/* Ajustes de apresentação sobre o catálogo (GET /api/ops/catalog), só nesta tela: rótulos que
+   dizem o que o campo é e ícones que não se repetem entre ações diferentes. */
+const OP_FIELD_LABELS = { 'goal|payload.origin': 'Tipo do gol' };
+const OP_STATUS_LABELS = { cancel: 'Cancelar partida' };
+/** Ícone por tipo de evento (botão e linha do tempo) quando o do catálogo repete o de outra ação:
+ * Relógio do jogo × Acréscimos (relógio), Reagendado × Adiado (calendário), W.O. × Fim de jogo
+ * (bandeira), Cancelado × Pênalti perdido (⊗). */
+const OP_EVENT_ICONS = { clock_adjust: 'stopwatch', rescheduled: 'calendar-arrow', walkover: 'trophy', cancelled: 'ban' };
+/** Ícone dos botões de "Status da partida" (ação → ícone), alinhado com OP_EVENT_ICONS. */
+export const STATUS_ICON = Object.freeze({
+  postpone: 'calendar', suspend: 'pause', resume: 'play', reschedule: 'calendar-arrow', cancel: 'ban', walkover: 'trophy',
+});
+
+/**
+ * Catálogo com os rótulos e ícones desta tela ("Origem" → "Tipo do gol", "Cancelar" →
+ * "Cancelar partida", Relógio do jogo com cronômetro). Não muda tipos, campos nem regras.
+ */
+export function operatorCatalog(catalog) {
+  const events = (catalog?.events || []).map((spec) => ({
+    ...spec,
+    icon: OP_EVENT_ICONS[spec.type] || spec.icon,
+    fields: (spec.fields || []).map((field) => ({ ...field, label: OP_FIELD_LABELS[`${spec.type}|${field.name}`] || field.label })),
+  }));
+  const statusActions = (catalog?.status_actions || []).map((item) => ({ ...item, label: OP_STATUS_LABELS[item.action] || item.label }));
+  return { ...catalog, events, status_actions: statusActions };
+}
+
+/** Ícone de um lançamento na linha do tempo do operador (o mesmo do botão que o lança). */
+export function operatorEventIcon(event) {
+  return OP_EVENT_ICONS[event?.type] || eventIconName(event);
+}
+
+/**
+ * Dica do minuto: diz o que vale quando o campo é opcional (vem preenchido pelo relógio
+ * ou em branco) e quando é obrigatório.
+ * @param {'required'|'optional'|'none'} mode
+ * @param {{filled?: boolean, suggested?: boolean}} [value] filled: há minuto no campo; suggested: veio do relógio
+ */
+export function minuteHint(mode, { filled = false, suggested = false } = {}) {
+  if (mode === 'required') return 'Sugerido pelo relógio do jogo. Acréscimo só no fim de cada tempo.';
+  if (!filled) return 'Em branco, vale o minuto padrão do lance.';
+  return suggested ? 'Sugerido pelo relógio; apague para usar o minuto padrão do lance.' : 'Apague para usar o minuto padrão do lance.';
+}
+
+/** Dica do jogador no gol contra: o autor é do time adversário do beneficiado. */
+export function ownGoalPlayerHint(match, teamId = null) {
+  const side = teamId == null ? null : match?.home?.id === teamId ? 'away' : match?.away?.id === teamId ? 'home' : null;
+  const opponent = side ? match[side]?.name || match[side]?.short_name : '';
+  return opponent ? `Gol contra: jogador do adversário (${opponent}).` : 'Gol contra: jogador do adversário do time beneficiado.';
+}
+
 /** Jogadores da escalação para o <datalist> (time escolhido; gol contra → adversário). */
 export function lineupPlayers(match, teamId = null, { opponent = false } = {}) {
   const lineups = match?.lineups || {};
@@ -226,7 +279,6 @@ export function lineupPlayers(match, teamId = null, { opponent = false } = {}) {
 let els = null;
 const clock = new ServerClock();
 const now = () => clock.nowMs();
-const STATUS_ICON = { postpone: 'calendar', suspend: 'pause', resume: 'play', reschedule: 'calendar', cancel: 'x-circle', walkover: 'flag' };
 const ERROR_FIELD = {
   invalid_minute: 'minute',
   team_required: 'team_id',
@@ -251,6 +303,7 @@ const state = {
   minute: null, // controle do minuto
   sending: false,
   clockMounted: false,
+  pickerOpen: false, // celular: lista aberta pelo "Trocar partida" (com uma partida escolhida)
 };
 
 let uidSeq = 0;
@@ -356,12 +409,16 @@ async function showApp(me) {
   const catalogLoad = state.catalog ? Promise.resolve() : loadCatalog();
   await Promise.all([catalogLoad, loadPicker()]);
   const wanted = Number(new URLSearchParams(window.location.search).get('match'));
-  if (Number.isInteger(wanted) && wanted > 0 && wanted !== state.matchId) selectMatch(wanted);
+  if (Number.isInteger(wanted) && wanted > 0 && wanted !== state.matchId) {
+    // aberta ou recarregada com ?match=: no celular, a lista já vem recolhida e o painel fica na tela
+    await selectMatch(wanted);
+    revealPanel({ onlyIfHidden: true });
+  }
 }
 
 async function loadCatalog() {
   try {
-    const catalog = await api.getCatalog();
+    const catalog = operatorCatalog(await api.getCatalog());
     state.catalog = catalog;
     state.specs = new Map((catalog?.events || []).map((spec) => [spec.type, spec]));
     if (state.match) paintActions();
@@ -398,6 +455,11 @@ function pickPill(match) {
   return h('span', { class: `pill pill--sm pill--${cls}`, text });
 }
 
+function pickScore(match) {
+  const started = !['scheduled', 'postponed', 'cancelled'].includes(match.status);
+  return started ? `${match.home_score ?? 0}–${match.away_score ?? 0}` : '×';
+}
+
 function pickItem(match) {
   const li = cloneTemplate('tpl-pick-item');
   const p = hooks(li);
@@ -406,8 +468,7 @@ function pickItem(match) {
   p['away-crest'].replaceWith(createCrest(match.away, { size: 20 }));
   p.home.textContent = teamShort(match.home);
   p.away.textContent = teamShort(match.away);
-  const started = !['scheduled', 'postponed', 'cancelled'].includes(match.status);
-  p.score.textContent = started ? `${match.home_score ?? 0}–${match.away_score ?? 0}` : '×';
+  p.score.textContent = pickScore(match);
   p.status.replaceWith(pickPill(match));
   p.time.textContent = formatTime(match.kickoff_at);
   p.time.dateTime = match.kickoff_at || '';
@@ -415,14 +476,56 @@ function pickItem(match) {
   p.pick.setAttribute('aria-label', `${teamName(match.home)} × ${teamName(match.away)}, ${match.status_label || ''}, ${formatTime(match.kickoff_at)}`);
   if (match.id === state.matchId) p.pick.setAttribute('aria-current', 'true');
   p.pick.addEventListener('click', () => {
+    const narrow = isNarrow();
+    state.pickerOpen = false; // a lista recolhe no "Trocar partida" (celular)
     selectMatch(match.id);
-    // celular/tablet: a lista fica acima do painel; leva o operador até o placar
-    if (window.matchMedia?.('(max-width: 959px)').matches) {
-      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      els.panel.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
+    if (narrow) {
+      // o botão clicado sumiu com a lista: o foco vai para o "Trocar partida", logo acima do placar
+      els.pickerSwitch.focus({ preventScroll: true });
+      revealPanel({ smooth: true });
     }
   });
   return li;
+}
+
+/** Celular/tablet (< 960 px): lista e painel numa coluna só. */
+function isNarrow() {
+  return !!window.matchMedia?.('(max-width: 959px)').matches;
+}
+
+/**
+ * "Trocar partida" (só no celular, pelo CSS): com uma partida escolhida, a lista recolhe neste
+ * botão, que mostra a partida atual; aberto, mostra a lista de novo.
+ */
+function paintPickerSwitch() {
+  const match = state.match?.id === state.matchId ? state.match : state.matches.find((m) => m.id === state.matchId);
+  const current = state.matchId != null && match ? match : null;
+  const collapsed = !!current && !state.pickerOpen;
+  els.pickerSwitch.hidden = !current;
+  els.pickerSwitch.setAttribute('aria-expanded', String(!collapsed));
+  els.picker.dataset.collapsed = String(collapsed);
+  if (!current) {
+    els.pickerCurrent.replaceChildren();
+    return;
+  }
+  els.pickerCurrent.replaceChildren(
+    h('span', { class: 'pick-item__teams' },
+      createCrest(current.home, { size: 20 }), h('span', { text: teamShort(current.home) }),
+      h('span', { class: 'pick-item__score num', text: pickScore(current) }),
+      h('span', { text: teamShort(current.away) }), createCrest(current.away, { size: 20 })),
+    pickPill(current),
+  );
+}
+
+/** Celular: leva o "Trocar partida" e o placar ao topo da tela (onlyIfHidden: só se o painel não está à vista). */
+function revealPanel({ smooth = false, onlyIfHidden = false } = {}) {
+  if (!isNarrow() || !state.matchId) return;
+  if (onlyIfHidden) {
+    const top = els.panel.getBoundingClientRect().top;
+    if (top >= 0 && top < window.innerHeight * 0.6) return;
+  }
+  const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  els.picker.scrollIntoView({ block: 'start', behavior: smooth && !reduce ? 'smooth' : 'auto' });
 }
 
 function renderPicker() {
@@ -436,6 +539,7 @@ function renderPicker() {
   els.pickerList.replaceChildren(...items);
   els.pickerList.removeAttribute('aria-busy');
   els.pickerEmpty.hidden = state.matches.length > 0;
+  paintPickerSwitch();
 }
 
 async function loadPicker() {
@@ -479,10 +583,12 @@ function resetPanel() {
   state.card = null;
   state.controls = new Map();
   state.minute = null;
+  state.pickerOpen = false;
   els.scoreboard.replaceChildren();
   els.scoreboard.hidden = true;
   els.work.hidden = true;
   els.placeholder.hidden = false;
+  paintPickerSwitch();
 }
 
 async function selectMatch(matchId) {
@@ -492,6 +598,7 @@ async function selectMatch(matchId) {
     markPicked();
     writeUrl();
   }
+  paintPickerSwitch();
   els.panel.setAttribute('aria-busy', 'true');
   try {
     const data = await api.getMatch(matchId);
@@ -540,6 +647,7 @@ function applyMatch(match, available) {
   paintActions();
   paintTimeline();
   updatePickItem(match);
+  paintPickerSwitch();
 
   if (state.formType && !state.editing) {
     if (!state.available.events.includes(state.formType)) {
@@ -592,7 +700,11 @@ function partialInfoSwitch(match) {
       showToast(error?.message || 'Não deu para mudar agora. Tente de novo.', { kind: 'error' });
     }
   });
-  return h('label', { class: 'switch op-tools__switch' }, input, h('span', { text: 'Informações parciais' }));
+  // uma linha diz o efeito no site antes de ligar (o aviso só vem depois, no toast)
+  const hint = h('span', { class: 'op-tools__hint', id: 'op-partial-info-hint', text: 'No site, o jogo aparece sem minuto.' });
+  input.setAttribute('aria-describedby', hint.id);
+  return h('div', { class: 'op-tools__partial' },
+    h('label', { class: 'switch op-tools__switch' }, input, h('span', { text: 'Informações parciais' })), hint);
 }
 
 /* --- Botões de lance e de status ----------------------------------------------------------- */
@@ -627,7 +739,7 @@ function actionButton(type) {
   const spec = specFor(type);
   const btn = cloneTemplate('tpl-action-button');
   const p = hooks(btn);
-  p['action-icon'].setAttribute('href', `#i-${spec.icon || 'info'}`);
+  p['action-icon'].setAttribute('href', `#i-${spec.icon || 'info'}`); // já com OP_EVENT_ICONS (operatorCatalog)
   p['action-label'].textContent = spec.label;
   btn.dataset.type = type;
   btn.classList.toggle('action-btn--goal', type === 'goal');
@@ -732,6 +844,7 @@ function playerControl() {
   p.input.id = id;
   p.label.htmlFor = id;
   p.datalist.id = listId;
+  p.hint.id = uid('player-hint');
   return {
     el,
     inputs: [p.input],
@@ -739,6 +852,13 @@ function playerControl() {
       p.label.textContent = field.label;
       p.input.required = !!field.required;
       p.input.name = field.name;
+    },
+    /** Dica sob o campo (gol contra: de que time é o jogador); '' esconde. */
+    setHint(text) {
+      p.hint.textContent = text || '';
+      p.hint.hidden = !text;
+      if (text) p.input.setAttribute('aria-describedby', p.hint.id);
+      else p.input.removeAttribute('aria-describedby');
     },
     setPlayers(players) {
       if (!players.length) {
@@ -870,6 +990,12 @@ function minuteControl() {
   const p = hooks(el);
   const id = uid('minute');
   p.input.id = id;
+  p.hint.id = uid('minute-hint');
+  p.input.setAttribute('aria-describedby', p.hint.id);
+  // a dica acompanha o campo: preenchido pelo relógio, digitado ou em branco
+  const paintHint = () => {
+    p.hint.textContent = minuteHint(control.mode, { filled: p.input.value !== '', suggested: !control.dirty });
+  };
   const control = {
     el,
     inputs: [p.input, p.stoppage],
@@ -879,15 +1005,14 @@ function minuteControl() {
       control.mode = mode;
       p.input.required = mode === 'required';
       p.label.textContent = mode === 'required' ? 'Minuto' : 'Minuto (opcional)';
-      p.hint.textContent = mode === 'required'
-        ? 'Sugerido pelo relógio do jogo. Acréscimo só no fim de cada tempo.'
-        : 'Em branco, vale o minuto padrão do lance.';
+      paintHint();
     },
     suggest(value) {
       const minute = value?.minute != null ? String(value.minute) : '';
       const stoppage = value?.stoppage ? String(value.stoppage) : '';
       if (p.input.value !== minute) p.input.value = minute;
       if (p.stoppage.value !== stoppage) p.stoppage.value = stoppage;
+      paintHint();
     },
     read() {
       const minute = p.input.value === '' ? null : Number(p.input.value);
@@ -897,15 +1022,22 @@ function minuteControl() {
     reset() {
       p.input.value = p.stoppage.value = '';
       control.dirty = false;
+      paintHint();
     },
     write(value) {
       p.input.value = value?.minute != null ? String(value.minute) : '';
       p.stoppage.value = value?.stoppage ? String(value.stoppage) : '';
       control.dirty = true; // não deixa a sugestão do relógio sobrescrever
+      paintHint();
     },
     focusTarget: () => p.input,
   };
-  for (const input of control.inputs) input.addEventListener('input', () => { control.dirty = true; });
+  for (const input of control.inputs) {
+    input.addEventListener('input', () => {
+      control.dirty = true;
+      paintHint();
+    });
+  }
   return control;
 }
 
@@ -941,7 +1073,9 @@ function refreshDependencies() {
   }
   for (const [field, control] of active) {
     if (field.kind !== 'player' || !control.setPlayers) continue;
-    control.setPlayers(lineupPlayers(match, teamId, { opponent: ownGoal && field.name === 'payload.player' }));
+    const author = ownGoal && field.name === 'payload.player';
+    control.setPlayers(lineupPlayers(match, teamId, { opponent: author }));
+    control.setHint?.(author ? ownGoalPlayerHint(match, teamId) : '');
   }
 }
 
@@ -1052,7 +1186,7 @@ function closeForm({ restoreFocus = true } = {}) {
   if (restoreFocus && type) (findActionButton(type) || actionButtons()[0])?.focus();
 }
 
-/** "Cancelar"/Esc/clique no mesmo botão: desiste do lance — os valores não passam para o próximo. */
+/** "Fechar"/Esc/clique no mesmo botão: desiste do lance — os valores não passam para o próximo. */
 function cancelForm() {
   resetFormValues();
   closeForm();
@@ -1235,6 +1369,9 @@ function askConfirm({ title, text, items = [], ok = 'Confirmar' }) {
   return openDialog(els.confirmDialog);
 }
 
+/** Títulos do #status-dialog que não saem de "<rótulo> a partida?" ("Cancelar partida" já diz "partida"). */
+const STATUS_TITLES = { delay: 'Marcar a partida como atrasada?', walkover: 'Encerrar a partida por W.O.?', cancel: 'Cancelar a partida?' };
+
 async function openStatusDialog(item) {
   const match = state.match;
   if (!match) return;
@@ -1242,7 +1379,7 @@ async function openStatusDialog(item) {
   const reschedule = item.action === 'reschedule';
   const delay = item.action === 'delay';
   const walkover = item.action === 'walkover';
-  p['status-title'].textContent = delay ? 'Marcar a partida como atrasada?' : walkover ? 'Encerrar a partida por W.O.?' : `${item.label} a partida?`;
+  p['status-title'].textContent = STATUS_TITLES[item.action] || `${item.label} a partida?`;
   p['status-text'].textContent = `${teamName(match.home)} × ${teamName(match.away)} · ${formatWhen(match.kickoff_at, now())} · ${match.status_label || ''}`;
   p['status-kickoff-field'].hidden = !reschedule;
   p['status-kickoff'].required = reschedule;
@@ -1387,7 +1524,7 @@ function paintTimeline() {
     const title = eventTitle(event);
     li.dataset.eventId = String(event.id);
     p.minute.textContent = event.minute_label || event.period_short || '';
-    p.icon.setAttribute('href', `#i-${eventIconName(event)}`);
+    p.icon.setAttribute('href', `#i-${operatorEventIcon(event)}`);
     p.title.textContent = title;
     p.sub.textContent = eventSub(event, match);
     li.classList.toggle('op-event--goal', event.type === 'goal');
@@ -1404,7 +1541,7 @@ function paintTimeline() {
     if (!can('void_event') || event.derived) {
       p.void.remove();
     } else {
-      p.void.setAttribute('aria-label', `Cancelar lançamento: ${title}${event.minute_label ? `, ${event.minute_label}` : ''}`);
+      p.void.setAttribute('aria-label', `Desfazer lançamento: ${title}${event.minute_label ? `, ${event.minute_label}` : ''}`);
       p.void.addEventListener('click', () => openVoidDialog(event));
     }
     return li;
@@ -1427,7 +1564,7 @@ async function sendVoid(event, reason) {
     const result = await api.voidEvent(matchId, event.id, reason);
     if (state.matchId !== matchId) return;
     const others = (result?.voided?.length || 1) - 1;
-    showToast(`Lançamento cancelado: ${eventSummary(event)}.${others > 0 ? ` ${others === 1 ? 'Um lance ligado caiu' : `${others} lances ligados caíram`} junto.` : ''}`, { kind: 'ok' });
+    showToast(`Lançamento desfeito: ${eventSummary(event)}.${others > 0 ? ` ${others === 1 ? 'Um lance ligado caiu' : `${others} lances ligados caíram`} junto.` : ''}`, { kind: 'ok' });
     applyMatch(result?.match, result?.available);
     refreshMatch();
   } catch (error) {
@@ -1437,7 +1574,7 @@ async function sendVoid(event, reason) {
       showToast('Sem resposta do servidor. Confira a conexão e tente de novo.', {
         kind: 'error',
         timeout: 0,
-        action: { label: 'Tentar de novo', onClick: () => sendVoid(event, reason) }, // cancelar de novo é seguro (already_voided)
+        action: { label: 'Tentar de novo', onClick: () => sendVoid(event, reason) }, // desfazer de novo é seguro (already_voided)
       });
       return;
     }
@@ -1469,6 +1606,9 @@ function bindElements() {
     pickerRefresh: $('picker-refresh'),
     pickerList: $('picker-list'),
     pickerEmpty: $('picker-empty'),
+    picker: document.querySelector('[data-hook="picker"]'),
+    pickerSwitch: $('picker-switch'),
+    pickerCurrent: document.querySelector('#picker-switch [data-hook="picker-current"]'),
     panel: $('op-panel'),
     placeholder: $('op-placeholder'),
     scoreboard: $('op-scoreboard'),
@@ -1490,7 +1630,7 @@ function bindElements() {
     eventWarningsList: fh['event-warnings-list'],
     eventError: fh['event-error'],
     eventFields: fh['event-fields'],
-    eventCancel: fh['event-cancel'],
+    eventCancel: fh['event-cancel'], // "Fechar" (o gancho manteve o nome)
     eventSubmit: fh['event-submit'],
     eventSubmitLabel: fh['event-submit-label'],
     timeline: $('op-timeline'),
@@ -1510,6 +1650,10 @@ function bindEvents() {
     state.date = els.pickerDate.value;
     writeUrl();
     loadPicker();
+  });
+  els.pickerSwitch.addEventListener('click', () => {
+    state.pickerOpen = !state.pickerOpen;
+    paintPickerSwitch();
   });
   els.pickerRefresh.addEventListener('click', () => {
     loadPicker();

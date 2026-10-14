@@ -6,10 +6,10 @@ import { svgUse } from './render.js';
 /** Todos os ícones do sprite (para o guia de estilo). */
 export const ICONS = Object.freeze([
   'ball', 'ball-penalty', 'ball-own', 'ball-x', 'whistle', 'stadium', 'pin', 'tv', 'radio', 'people', 'user',
-  'card', 'card-yellow', 'card-red', 'card-second-yellow', 'sub', 'arrow-up', 'arrow-down', 'var', 'clock',
+  'card', 'card-yellow', 'card-red', 'card-second-yellow', 'sub', 'arrow-up', 'arrow-down', 'var', 'clock', 'stopwatch',
   'bell', 'bell-off', 'speaker', 'speaker-off', 'sun', 'moon', 'chevron-left', 'chevron-right', 'chevron-down',
-  'chevron-up', 'external', 'star', 'trophy', 'advance', 'shield', 'calendar', 'logout', 'lock', 'x-circle', 'target',
-  'flag', 'pause', 'play', 'check', 'close', 'plus', 'undo', 'alert', 'info', 'refresh', 'list', 'shirt',
+  'chevron-up', 'external', 'star', 'trophy', 'advance', 'shield', 'calendar', 'calendar-arrow', 'logout', 'lock', 'x-circle',
+  'ban', 'target', 'flag', 'pause', 'play', 'check', 'close', 'plus', 'undo', 'alert', 'info', 'refresh', 'list', 'shirt',
   'clipboard', 'chart', 'menu', 'live', 'umbrella', 'share',
 ]);
 

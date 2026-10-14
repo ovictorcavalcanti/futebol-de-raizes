@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   effectiveMinuteMode, suggestMinute, buildEventBody, toBrasiliaInput, groupByCompetition, lineupPlayers,
   splitActions, structuralConfirm, sortByStatus, clockSetRange, editedToast,
+  operatorCatalog, operatorEventIcon, STATUS_ICON, minuteHint, ownGoalPlayerHint,
 } from '../../static/js/operator.js';
 import {
   ApiError, apiFetch, getCookie, listMatches, queryString, toApiError, newIdempotencyKey, setCsrfToken,
@@ -254,4 +255,50 @@ test('effectiveMinuteMode: gol tem minuto opcional em qualquer tempo (gol a conf
   for (const period of ['first_half', 'half_time', 'second_half', 'extra_half_time']) assert.equal(effectiveMinuteMode(goal, period), 'optional');
   assert.equal(effectiveMinuteMode(card, 'first_half'), 'required');
   assert.equal(effectiveMinuteMode(card, 'half_time'), 'optional');
+});
+
+test('catálogo do operador: "Tipo do gol", "Cancelar partida" e cronômetro no Relógio do jogo', () => {
+  const field = (name, label) => ({ name, kind: 'choice', label, required: false, choices: [] });
+  const catalog = {
+    events: [
+      { type: 'goal', label: 'Gol', kind: 'game', icon: 'ball', fields: [field('team_id', 'Time beneficiado'), field('payload.origin', 'Origem')] },
+      { type: 'stoppage_time', label: 'Acréscimos', kind: 'game', icon: 'clock', fields: [] },
+      { type: 'clock_adjust', label: 'Relógio do jogo', kind: 'game', icon: 'clock', fields: [field('payload.origin', 'Origem')] },
+    ],
+    status_actions: [{ action: 'postpone', label: 'Adiar' }, { action: 'cancel', label: 'Cancelar' }],
+  };
+  const out = operatorCatalog(catalog);
+  assert.deepEqual(out.events[0].fields.map((f) => f.label), ['Time beneficiado', 'Tipo do gol']);
+  assert.equal(out.events[2].fields[0].label, 'Origem'); // só o campo do gol muda de nome
+  assert.deepEqual(out.events.map((s) => s.icon), ['ball', 'clock', 'stopwatch']);
+  assert.deepEqual(out.status_actions.map((s) => s.label), ['Adiar', 'Cancelar partida']);
+  assert.equal(catalog.events[0].fields[1].label, 'Origem'); // não mexe no original
+  assert.deepEqual(operatorCatalog(null), { events: [], status_actions: [] });
+});
+
+test('ícones do operador: uma ação, um desenho (status e linha do tempo combinam)', () => {
+  const icons = Object.values(STATUS_ICON);
+  assert.equal(new Set(icons).size, icons.length);
+  for (const name of ['flag', 'x-circle', 'clock']) assert.ok(!icons.includes(name), name); // Fim de jogo, Pênalti perdido, Acréscimos
+  assert.equal(operatorEventIcon({ type: 'clock_adjust', icon: 'clock' }), 'stopwatch');
+  assert.equal(operatorEventIcon({ type: 'walkover', icon: 'flag' }), STATUS_ICON.walkover);
+  assert.equal(operatorEventIcon({ type: 'rescheduled', icon: 'calendar' }), STATUS_ICON.reschedule);
+  assert.equal(operatorEventIcon({ type: 'cancelled', icon: 'x-circle' }), STATUS_ICON.cancel);
+  assert.equal(operatorEventIcon({ type: 'stoppage_time', icon: 'clock' }), 'clock'); // como no site
+  assert.equal(operatorEventIcon({ type: 'goal', payload: { origin: 'own_goal' } }), 'ball-own');
+});
+
+test('dica do minuto: coerente com o campo preenchido pelo relógio, digitado ou em branco', () => {
+  assert.equal(minuteHint('optional', { filled: true, suggested: true }), 'Sugerido pelo relógio; apague para usar o minuto padrão do lance.');
+  assert.equal(minuteHint('optional', { filled: true, suggested: false }), 'Apague para usar o minuto padrão do lance.');
+  assert.equal(minuteHint('optional'), 'Em branco, vale o minuto padrão do lance.');
+  assert.match(minuteHint('required', { filled: true, suggested: true }), /^Sugerido pelo relógio do jogo\./);
+});
+
+test('gol contra: a dica diz que o jogador é do adversário do time beneficiado', () => {
+  const match = { home: { id: 1, name: 'Sport' }, away: { id: 2, name: 'Náutico' } };
+  assert.equal(ownGoalPlayerHint(match, 1), 'Gol contra: jogador do adversário (Náutico).');
+  assert.equal(ownGoalPlayerHint(match, 2), 'Gol contra: jogador do adversário (Sport).');
+  assert.equal(ownGoalPlayerHint(match, null), 'Gol contra: jogador do adversário do time beneficiado.');
+  assert.equal(ownGoalPlayerHint(match, 99), 'Gol contra: jogador do adversário do time beneficiado.');
 });

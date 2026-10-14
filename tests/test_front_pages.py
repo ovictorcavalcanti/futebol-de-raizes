@@ -1506,6 +1506,157 @@ def test_operador_lances_primeiro_e_andamento_do_jogo_a_parte_com_confirmacao(op
     assert not errors, errors
 
 
+PICKER_STATE_JS = """() => {
+  const sw = document.getElementById('picker-switch'), panel = document.getElementById('op-panel');
+  const r = sw.getBoundingClientRect(), p = panel.getBoundingClientRect();
+  return { expanded: sw.getAttribute('aria-expanded'), switchShown: r.height > 0, switchHeight: r.height,
+    listShown: document.getElementById('picker-list').getBoundingClientRect().height > 0,
+    text: sw.textContent.replace(/\\s+/g, ' ').trim(), above: r.bottom <= p.top, panelTop: p.top,
+    viewport: innerHeight, focusOnSwitch: document.activeElement === sw };
+}"""
+PANEL_ON_SCREEN_JS = "() => { const t = document.getElementById('op-panel').getBoundingClientRect().top; return t >= 0 && t < innerHeight * 0.6; }"
+
+
+def test_operador_celular_lista_recolhe_em_trocar_partida(open_page):
+    """Celular (< 960 px): com a partida escolhida (?match= ou toque na lista), a lista recolhe em
+    "Trocar partida", que mostra a partida atual logo acima do painel, já na tela; aberto, mostra a
+    lista. No desktop, nada muda: a lista continua na coluna lateral."""
+    page, _, errors = open_page("/operator.html?match=12", width=390, prepare=lambda api: setattr(api, "me", api.fx["ME"]))
+    page.wait_for_selector('#action-grid [data-type="goal"]')
+    out = page.evaluate(PICKER_STATE_JS)
+    assert out["switchShown"] and not out["listShown"] and out["expanded"] == "false", out
+    assert out["text"].startswith("Trocar partida") and "SPT" in out["text"] and "NAU" in out["text"], out
+    assert out["above"] and out["switchHeight"] >= 44, out
+    assert page.evaluate(PANEL_ON_SCREEN_JS), out  # aberto/recarregado com ?match=: o painel já está na tela
+    # aberto, mostra a lista; tocar noutra partida recolhe de novo, com o foco no botão e o placar na tela
+    page.click("#picker-switch")
+    out = page.evaluate(PICKER_STATE_JS)
+    assert out["listShown"] and out["expanded"] == "true", out
+    page.click('#picker-list li[data-match-id="14"] .pick-item')
+    page.wait_for_function("() => document.getElementById('op-scoreboard').textContent.includes('Central')")
+    page.wait_for_function(PANEL_ON_SCREEN_JS)
+    out = page.evaluate(PICKER_STATE_JS)
+    assert not out["listShown"] and out["expanded"] == "false" and out["focusOnSwitch"], out
+    assert "CEN" in out["text"] and "SAL" in out["text"] and "match=14" in page.url, out
+    # desktop: sem o botão, lista na coluna lateral
+    page.set_viewport_size({"width": 1280, "height": 900})
+    out = page.evaluate(PICKER_STATE_JS)
+    assert not out["switchShown"] and out["listShown"], out
+    assert len(page.evaluate("getComputedStyle(document.querySelector('.op-layout')).gridTemplateColumns").split()) == 2
+    assert not errors, errors
+
+
+def test_operador_rotulos_distintos_e_um_icone_por_acao(open_page):
+    """Fechar (formulário) × Desfazer (lance) × Cancelar partida (status), também nos diálogos;
+    "Tipo do gol", dica do gol contra e do minuto; o efeito das informações parciais; e nenhum
+    ícone repetido entre ações (Acréscimos × Relógio do jogo, Fim de jogo × W.O. etc.)."""
+
+    def prepare(api):
+        api.me = api.fx["ME"]
+        events = [*api.fx["AVAILABLE"]["events"], "clock_adjust"]
+        api.fx = {**api.fx, "AVAILABLE": {"events": events, "status": ["suspend", "cancel"]}}
+
+    page, _, errors = open_page("/operator.html?match=12", prepare=prepare)
+    page.wait_for_selector('#action-grid [data-type="clock_adjust"]')
+    icons = page.evaluate("""() => {
+      const href = (el) => el.querySelector('use').getAttribute('href');
+      return {
+        actions: [...document.querySelectorAll('#action-grid .action-btn, #flow-actions .action-btn')].map((b) => [b.dataset.type, href(b)]),
+        status: [...document.querySelectorAll('#status-actions button')].map((b) => [b.dataset.action, href(b), b.textContent.trim()]),
+        title: href(document.getElementById('status-actions-title')),
+      };
+    }""")
+    actions = dict(icons["actions"])
+    assert actions["stoppage_time"] != actions["clock_adjust"]
+    assert len(set(actions.values())) == len(actions), icons["actions"]
+    status = [href for _, href, _ in icons["status"]]
+    assert len(set(status)) == len(status), icons["status"]
+    assert not set(status) & set(actions.values()), icons  # W.O. × Fim de jogo, Cancelar × Pênalti perdido
+    assert icons["title"] not in status
+    assert {action: text for action, _, text in icons["status"]}["cancel"] == "Cancelar partida"
+    partial = "() => { const i = document.getElementById('op-partial-info'); return document.getElementById(i.getAttribute('aria-describedby')).textContent; }"
+    assert page.evaluate(partial) == "No site, o jogo aparece sem minuto."
+
+    # formulário do gol: "Tipo do gol", minuto sugerido com dica coerente, "Fechar"
+    page.click('#action-grid [data-type="goal"]')
+    described = "(sel) => { const i = document.querySelector(sel); const h = document.getElementById(i.getAttribute('aria-describedby') || ''); return h && !h.hidden ? h.textContent : null; }"
+    minute = '#event-form input[name="minute"]'
+    player = '#event-form input[name="payload.player"]'
+    assert page.evaluate("() => { const s = document.querySelector('#event-form select[name=\"payload.origin\"]'); return document.querySelector(`label[for='${s.id}']`).textContent; }") == "Tipo do gol"
+    assert page.text_content('[data-hook="event-cancel"]').strip() == "Fechar"
+    assert page.input_value(minute) != ""
+    assert page.evaluate(described, minute) == "Sugerido pelo relógio; apague para usar o minuto padrão do lance."
+    page.fill(minute, "")
+    assert page.evaluate(described, minute) == "Em branco, vale o minuto padrão do lance."
+    # gol contra: a dica diz de que time é o jogador
+    assert page.evaluate(described, player) is None
+    page.select_option('#event-form select[name="payload.origin"]', "own_goal")
+    assert page.evaluate(described, player) == "Gol contra: jogador do adversário do time beneficiado."
+    page.check("#event-form [data-field=team] input[type=radio] >> nth=0", force=True)
+    assert page.evaluate(described, player) == "Gol contra: jogador do adversário (Náutico)."
+    page.click('[data-hook="event-cancel"]')
+    page.wait_for_selector("#event-form-card[hidden]", state="attached")
+
+    # lance: "Desfazer" (o nome acessível contém o texto visível) e o diálogo com "Manter"
+    void = page.locator("#op-timeline [data-hook=void]").first
+    assert void.text_content().strip() == "Desfazer"
+    assert void.get_attribute("aria-label").startswith("Desfazer lançamento: ")
+    void.click()
+    page.wait_for_selector("#void-dialog[open]")
+    assert page.text_content("#void-title") == "Desfazer este lançamento?"
+    assert [t.strip() for t in page.locator("#void-dialog .dialog__foot button").all_text_contents()] == ["Manter", "Desfazer lançamento"]
+    page.click('#void-dialog button[value="cancel"]')
+    page.wait_for_selector("#void-dialog:not([open])", state="attached")
+
+    # partida: "Cancelar partida", com título próprio
+    page.click('#status-actions button[data-action="cancel"]')
+    page.wait_for_selector("#status-dialog[open]")
+    assert page.text_content("#status-dialog [data-hook=status-title]") == "Cancelar a partida?"
+    assert page.text_content("#status-dialog [data-hook=status-ok]") == "Cancelar partida"
+    assert page.text_content('#status-dialog button[value="cancel"]') == "Voltar"
+    page.click('#status-dialog button[value="cancel"]')
+    assert not errors, errors
+
+
+HIT_AREA_JS = """(selectors) => selectors.map((sel) => {
+  const el = document.querySelector(sel);
+  if (!el) return [sel, null, null];
+  el.scrollIntoView({ block: 'center' });
+  const r = el.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  const hit = (x, y) => el.contains(document.elementFromPoint(x, y));
+  let h = 0, w = 0;
+  for (let y = Math.floor(r.top) - 12; y <= r.bottom + 12; y++) if (hit(cx, y)) h++;
+  for (let x = Math.floor(r.left) - 12; x <= r.right + 12; x++) if (hit(x, cy)) w++;
+  return [sel, w, h];
+})"""
+
+
+def test_operador_celular_alvos_de_toque_de_44px(open_page):
+    """Celular: Editar/Desfazer de cada lance, Sair, Administração, Atualizar lista, atalhos e
+    "Informações parciais" com área de toque de 44 px; Editar e Desfazer afastados."""
+
+    def prepare(api):
+        me = copy.deepcopy(api.fx["ME"])
+        me["user"]["permissions"]["admin_site"] = True
+        api.me = me
+
+    page, _, errors = open_page("/operator.html?match=12", width=390, prepare=prepare)
+    page.wait_for_selector("#op-timeline [data-hook=void]")
+    page.click("#picker-switch")  # abre a lista para medir o "Atualizar lista"
+    sizes = page.evaluate(HIT_AREA_JS, [
+        "#logout-button", '[data-hook="admin-link"]', "#picker-refresh", "#op-match-tools a.btn",
+        ".op-tools__switch", "#op-timeline [data-hook=edit]", "#op-timeline [data-hook=void]",
+    ])
+    small = [s for s in sizes if s[1] is None or s[1] < 44 or s[2] < 44]
+    assert not small, sizes
+    gap = page.evaluate("""() => {
+      const li = [...document.querySelectorAll('#op-timeline li')].find((l) => l.querySelector('[data-hook=edit]') && l.querySelector('[data-hook=void]'));
+      return li.querySelector('[data-hook=void]').getBoundingClientRect().left - li.querySelector('[data-hook=edit]').getBoundingClientRect().right;
+    }""")
+    assert gap >= 8, gap
+    assert not errors, errors
+
+
 NAMES_JS = """() => [...document.querySelectorAll('.match .team__name')].map((name) => {
   const shown = [...name.children].find((c) => getComputedStyle(c).display !== 'none');
   const lh = parseFloat(getComputedStyle(name).lineHeight);

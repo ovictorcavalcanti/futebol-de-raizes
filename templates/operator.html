@@ -75,6 +75,13 @@
     <div class="op-layout">
       {# região nomeada (não <aside>): fica dentro da seção do painel, não é complementar ao topo #}
       <div class="card match-picker" role="region" aria-labelledby="picker-title" data-hook="picker">
+        {# celular (< 960 px): escolhida a partida, a lista recolhe neste botão, que mostra a partida #}
+        {# atual logo acima do painel; aberto, mostra a lista de novo. No desktop, não aparece.      #}
+        <button id="picker-switch" type="button" class="match-picker__switch" data-hook="picker-switch" aria-expanded="true" aria-controls="picker-list" hidden>
+          <span class="match-picker__switch-label">Trocar partida</span>
+          <span class="match-picker__current" data-hook="picker-current"></span>
+          <svg class="icon match-picker__chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+        </button>
         <div class="card__head">
           <h2 id="picker-title" class="card__title"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>Partidas</h2>
           <button id="picker-refresh" type="button" class="btn btn--ghost btn--icon btn--sm" data-hook="picker-refresh" aria-label="Atualizar lista">
@@ -116,7 +123,7 @@
                 </div>
               </div>
               <div class="op-actions__status" data-hook="status-block">
-                <h3 id="status-actions-title" class="op-section-title"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>Status da partida</h3>
+                <h3 id="status-actions-title" class="op-section-title"><svg class="icon" aria-hidden="true"><use href="#i-clipboard"/></svg>Status da partida</h3>
                 <div id="status-actions" class="status-actions" data-hook="status-actions" role="group" aria-labelledby="status-actions-title"></div>
               </div>
             </section>
@@ -143,7 +150,8 @@
                 </div>
                 <div class="event-form__fields" data-hook="event-fields"></div>
                 <div class="event-form__actions">
-                  <button type="button" class="btn btn--ghost" data-hook="event-cancel">Cancelar</button>
+                  {# "Fechar": só fecha o formulário, sem lançar (não confundir com desfazer um lance ou cancelar a partida) #}
+                  <button type="button" class="btn btn--ghost" data-hook="event-cancel">Fechar</button>
                   <button type="submit" class="btn btn--primary" data-hook="event-submit"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg><span data-hook="event-submit-label">Lançar</span></button>
                 </div>
               </form>
@@ -222,10 +230,10 @@
   </form>
 </dialog>
 
-{# Cancelar lançamento (void): motivo opcional. #}
+{# Desfazer lançamento (void): motivo opcional. #}
 <dialog id="void-dialog" class="dialog" aria-labelledby="void-title">
   <form method="dialog" class="dialog__form">
-    <div class="dialog__head"><h2 id="void-title" class="dialog__title">Cancelar lançamento?</h2></div>
+    <div class="dialog__head"><h2 id="void-title" class="dialog__title">Desfazer este lançamento?</h2></div>
     <div class="dialog__body">
       <p data-hook="void-text">O lance sai do placar, da tabela e dos últimos gols.</p>
       <div class="field">
@@ -235,7 +243,7 @@
     </div>
     <div class="dialog__foot">
       <button type="submit" value="cancel" class="btn btn--ghost" formnovalidate>Manter</button>
-      <button type="submit" value="confirm" class="btn btn--danger" data-hook="void-ok"><svg class="icon" aria-hidden="true"><use href="#i-undo"/></svg>Cancelar lançamento</button>
+      <button type="submit" value="confirm" class="btn btn--danger" data-hook="void-ok"><svg class="icon" aria-hidden="true"><use href="#i-undo"/></svg>Desfazer lançamento</button>
     </div>
   </form>
 </dialog>

@@ -1788,6 +1788,11 @@
   .op-bar__user { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
   .op-bar__user .icon { color: var(--ink-3); }
   .op-bar__name { font-weight: 600; }
+  /* toque: os botões de 32 px da barra, da lista e dos atalhos têm área de 44 px (::after: 6 px
+     além da borda de 1,5 px, que fica fora da caixa de referência do ::after) */
+  .op-bar .btn--sm, .match-picker .card__head .btn--sm, .op-tools .btn--sm { position: relative; }
+  .op-bar .btn--sm::after, .op-tools .btn--sm::after { content: ""; position: absolute; inset: -7.5px 0; }
+  .match-picker .card__head .btn--icon::after { content: ""; position: absolute; inset: -7.5px; }
   .op-layout { display: grid; gap: var(--s-4); align-items: start; }
   .op-panel { display: grid; gap: var(--s-4); min-width: 0; }
   .op-work { display: grid; gap: var(--s-4); align-items: start; }
@@ -1808,6 +1813,33 @@
   .match-picker__group:not(:first-child) { margin-top: var(--s-2); border-top: 1px solid var(--line); padding-top: var(--s-1); }
   .match-picker__group-title { padding: var(--s-2) var(--s-3) 2px; font-family: var(--font-num); font-weight: 700; font-size: 0.8125rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
   .match-picker__sublist { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+  /* celular (< 960 px): escolhida a partida, a lista recolhe em "Trocar partida" (a partida atual
+     e a seta), logo acima do painel; aberto, a lista aparece embaixo. No desktop, não aparece. */
+  .match-picker__switch { display: none; }
+  @media (max-width: 959px) {
+    .match-picker__switch {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 4px var(--s-3);
+      width: 100%;
+      min-height: 56px;
+      padding: var(--s-2) var(--s-4);
+      border: 0;
+      border-radius: var(--radius-l);
+      background: none;
+      color: var(--ink);
+      text-align: left;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .match-picker__switch:hover { background: var(--hover); }
+    .match-picker__switch[aria-expanded="true"] { border-bottom: 1px solid var(--line); border-radius: var(--radius-l) var(--radius-l) 0 0; }
+    .match-picker[data-collapsed="true"] > :not(.match-picker__switch) { display: none; }
+  }
+  .match-picker__switch-label { grid-column: 1; font-family: var(--font-num); font-weight: 700; font-size: 0.8125rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--azul); }
+  .match-picker__current { grid-column: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--s-2); min-width: 0; }
+  .match-picker__chevron { grid-column: 2; grid-row: 1 / span 2; width: 22px; height: 22px; color: var(--ink-3); transition: transform 0.2s var(--ease); }
+  .match-picker__switch[aria-expanded="true"] .match-picker__chevron { transform: rotate(180deg); }
   .pick-item {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -1892,17 +1924,19 @@
 
   .op-timeline { display: grid; margin: 0; padding: 0; list-style: none; container-type: inline-size; }
   /* Lançamento: minuto, ícone e texto na 1ª linha. Lista estreita (celular, coluna do painel):
-     Editar/Cancelar numa linha própria embaixo do texto, que fica com a largura toda e não
-     quebra palavra por palavra. Lista larga: os botões voltam para a direita, na mesma linha. */
+     Editar/Desfazer numa linha própria embaixo do texto, que fica com a largura toda e não
+     quebra palavra por palavra. Lista larga: os botões voltam para a direita, na mesma linha.
+     Toque: botão de 32 px com área de 44 px (::after, 6 px acima e abaixo) e 12 px entre eles. */
   .op-event { display: grid; grid-template-columns: 44px 22px minmax(0, 1fr); align-items: start; gap: 2px var(--s-2); padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--line); }
   .op-event__min, .op-event__icon { margin-top: 1px; }
-  .op-event__actions { grid-column: 3; display: flex; flex-wrap: wrap; gap: var(--s-1); margin-left: calc(-1 * var(--s-3)); }
-  .op-event__actions .btn { min-height: 28px; }
+  .op-event__actions { grid-column: 3; display: flex; flex-wrap: wrap; gap: var(--s-3); margin: var(--s-1) 0 0 calc(-1 * var(--s-3)); }
+  .op-event__actions .btn { position: relative; min-height: 32px; }
+  .op-event__actions .btn::after { content: ""; position: absolute; inset: -7.5px 0; }
   .op-event__actions:not(:has(.btn)) { display: none; }
   @container (min-width: 560px) {
     .op-event { grid-template-columns: 44px 22px minmax(0, 1fr) auto; align-items: center; }
     .op-event__min, .op-event__icon { margin-top: 0; }
-    .op-event__actions { grid-column: 4; grid-row: 1; flex-wrap: nowrap; margin-left: 0; }
+    .op-event__actions { grid-column: 4; grid-row: 1; flex-wrap: nowrap; margin: 0; }
   }
   .op-event:last-child { border-bottom: 0; }
   .op-event__min { font-family: var(--font-num); font-weight: 700; color: var(--ink-2); text-align: right; }
@@ -1914,8 +1948,11 @@
   .op-event--annulled .op-event__title { text-decoration: line-through; color: var(--ink-3); }
   .op-event--structural { background: color-mix(in srgb, var(--surface-2) 50%, transparent); }
   .op-event__void { color: var(--vermelho-ink); }
-  .op-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); margin-top: var(--s-3); }
-  .op-tools__switch { margin-right: var(--s-2); }
+  /* atalhos: 12 px entre os botões, para as áreas de toque (::after, 6 px) não se cruzarem */
+  .op-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); margin-top: var(--s-3); }
+  .op-tools__partial { display: grid; margin-right: var(--s-2); }
+  .op-tools__switch { min-height: 44px; }
+  .op-tools__hint { padding-left: calc(44px + var(--s-3)); font-size: 0.8125rem; color: var(--ink-3); }
 
   /* --- Guia de estilo (QA visual) ------------------------------------------------------- */
   .sg-section { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-4); padding-top: var(--s-6); }

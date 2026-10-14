@@ -288,9 +288,9 @@ function renderMeta(meta, match, now, opts) {
     kickoff ? h('time', { class: 'match__when', datetime: kickoff.toISOString(), text: formatWhen(kickoff, now) }) : null,
     context ? h('span', { class: 'match__round', text: context }) : null);
   const place = [match.venue, match.city].filter(Boolean).join(', ');
-  meta.replaceChildren(when, place
-    ? h('p', { class: 'match__place' }, icon('pin'), h('span', { class: 'visually-hidden', text: 'Local: ' }), h('span', { text: place }))
-    : null);
+  meta.replaceChildren(when, ...(place
+    ? [h('p', { class: 'match__place' }, icon('pin'), h('span', { class: 'visually-hidden', text: 'Local: ' }), h('span', { text: place }))]
+    : [])); // sem local nem cidade: só o "quando" (replaceChildren escreveria "null")
 }
 
 /* ==========================================================================

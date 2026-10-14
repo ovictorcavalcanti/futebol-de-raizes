@@ -112,8 +112,12 @@ export function shareResultsOnWhatsApp(title, matches, { now = Date.now(), url =
 const signed = (n) => (n > 0 ? `+${n}` : String(n));
 const pts = (n) => `${n} pt${Math.abs(n) === 1 ? '' : 's'}`;
 
-/** "Grupo A" (o nome como veio, se já diz "Grupo"; senão "Grupo <nome>"); sem nome, vazio. */
-export const groupLabel = (groupName) => (!groupName ? '' : /^grupo\b/i.test(groupName) ? groupName : `Grupo ${groupName}`);
+/** Nome do grupo para o título: "A" (só letra/número) vira "Grupo A"; os outros ficam como vieram
+ *  ("Grupo B", "Chave 1", "Zona Norte"); sem nome, vazio. */
+export const groupLabel = (groupName) => (!groupName ? '' : /^[a-z0-9]{1,3}$/i.test(groupName) ? `Grupo ${groupName}` : groupName);
+
+/** "Classificação", "Classificação do Grupo A" ou, noutro nome, "Classificação · Chave 1". */
+export const standingsHeading = (label) => (!label ? 'Classificação' : /^grupo\b/i.test(label) ? `Classificação do ${label}` : `Classificação · ${label}`);
 
 /**
  * Mensagem da classificação para o WhatsApp: `*Classificação*` (ou `*Classificação do Grupo A*`),
@@ -123,7 +127,7 @@ export const groupLabel = (groupName) => (!groupName ? '' : /^grupo\b/i.test(gro
 export function standingsShareText({ competition = '', stage = '', group: label = '' }, group, { partial = false, url = '' } = {}) {
   const rows = (group?.rows || []).map((r) =>
     `${r.rank ?? r.position}. ${name(r.team)}${partial && r.playing ? ' 🔴' : ''} — ${pts(r.points ?? 0)} · ${r.played ?? 0}J · SG ${signed(r.goal_difference ?? 0)}`);
-  const head = [`*Classificação${label ? ` do ${label}` : ''}*`, [competition, stage].filter(Boolean).join(' · ')];
+  const head = [`*${standingsHeading(label)}*`, [competition, stage].filter(Boolean).join(' · ')];
   if (partial) head.push('🔴 Parcial: há jogos em andamento');
   return [...head.filter(Boolean), '', ...rows, ...(url ? ['', `🔗 ${url}`] : [])].join('\n');
 }
@@ -373,7 +377,7 @@ export async function renderStandingsImage(standings, group, { competition = '',
   ctx.fillStyle = COLORS.ink;
   groupFont(ctx, [competition], { size: 36, family: font.brand, maxWidth: 960 });
   line(competition, SW / 2, 78, 960);
-  const heading = `Classificação${label ? ` do ${label}` : ''}`.toUpperCase();
+  const heading = standingsHeading(label).toUpperCase();
   groupFont(ctx, [heading], { weight: 700, size: 28, family: font.num, maxWidth: 960 });
   line(heading, SW / 2, 122, 960);
   const sub = [stage, partial ? 'parcial: há jogos em andamento' : ''].filter(Boolean).join(' · ').toUpperCase();
@@ -569,7 +573,7 @@ export function openMatchShare(match, { now = Date.now(), nav = globalThis.navig
  */
 export function openStandingsShare(standings, group, { competition = '', groupName = '', url = '', nav = globalThis.navigator } = {}) {
   const parts = { competition, stage: standings?.stage_name || '', group: groupLabel(groupName) };
-  const title = [`Classificação${parts.group ? ` do ${parts.group}` : ''}`, competition].filter(Boolean).join(' · ');
+  const title = [standingsHeading(parts.group), competition].filter(Boolean).join(' · ');
   // parcial: tabela ao vivo com jogo em andamento (a oficial não conta o jogo que está rolando)
   const partial = standings?.kind === 'live' && (group?.rows || []).some((row) => row.playing);
   return openShareSheet({

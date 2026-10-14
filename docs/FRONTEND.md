@@ -180,7 +180,9 @@ existe: a home de sempre.
   de grupo passam o nome da competição e o link), cada tabela tem `.standings__share` no canto do
   título, que abre a mesma janela (`openStandingsShare`): a imagem da tabela
   (`renderStandingsImage`: PNG de 1080 de largura, altura pelo número de times; competição,
-  "Classificação" ou "Classificação do Grupo A" (`groupLabel`), a fase e, na tabela ao vivo com
+  "Classificação", "Classificação do Grupo A" ou "Classificação · Chave 1" (`groupLabel`,
+  `standingsHeading`; só em fase de grupos — `opts.share.groups` ou mais de um grupo —: a
+  classificação geral/personalizada não vira grupo), a fase e, na tabela ao vivo com
   jogo em andamento, "parcial: há jogos em andamento"; faixa da zona, posição, escudo, nome —
   todos do mesmo tamanho; bolinha vermelha = em jogo agora —, P J V E D SG; legenda das zonas e
   da bolinha; o site no rodapé) e a mensagem `*Classificação do Grupo A*`, "competição · fase",

@@ -193,6 +193,7 @@ function cardFor(match, next) {
 /** Compartilhar as tabelas da fase no WhatsApp, com o link da fase na página da competição. */
 const standingsShare = (comp, stage) => ({
   title: comp.name,
+  groups: stage.format === 'groups',
   url: `${window.location.origin}/competition.html?slug=${encodeURIComponent(comp.slug)}&stage=${stage.id}`,
 });
 

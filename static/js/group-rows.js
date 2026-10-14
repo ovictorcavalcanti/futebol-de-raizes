@@ -124,7 +124,7 @@ export function createGroupRows(standings, matches, card, { only = 'all', when =
   const tables = []; // na ordem de place.order (um grupo pode aparecer duas vezes: rodada mista)
   const tableOf = (g) => {
     const [data, opts] = tableArgs(standings, place.order, tables.length);
-    const table = createStandings(data, { ...opts, share });
+    const table = createStandings(data, { ...opts, share: share && { ...share, groups: true } }); // cada tabela é de um grupo
     tables.push(table);
     return table;
   };

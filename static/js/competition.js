@@ -123,11 +123,12 @@ function groupRowsMode() {
 }
 
 /** Linhas dos grupos (createGroupRows), com os botões das classificações em cima. */
-/** Compartilhar as tabelas no WhatsApp, com o link da página como está (fase e rodada). */
-const standingsShare = (title = state.data?.competition?.name) => ({ title, url: () => window.location.href });
+/** Compartilhar as tabelas no WhatsApp, com o link da página como está (fase e rodada);
+ *  `groups`: tabela de fase de grupos (a classificação geral/personalizada não é grupo). */
+const standingsShare = (groups = false) => ({ title: state.data?.competition?.name, url: () => window.location.href, groups });
 
 function groupRows(matches, card) {
-  state.groupLayout = createGroupRows(state.standingsData, matches, card, { share: standingsShare() });
+  state.groupLayout = createGroupRows(state.standingsData, matches, card, { share: standingsShare(true) });
   const rows = state.groupLayout.rows;
   if (!els.standingsSwitch.hidden) rows.unshift(h('div', { class: 'group-row group-row--head' }, els.standingsSwitch));
   return rows;
@@ -187,7 +188,7 @@ function renderStandings(stage) {
     if (state.standingsEl && state.standingsStageId === stage.id) {
       updateStandings(state.standingsEl, stage.standings);
     } else {
-      state.standingsEl = createStandings(stage.standings, { share: standingsShare() });
+      state.standingsEl = createStandings(stage.standings, { share: standingsShare(stage.format === 'groups') });
       state.standingsStageId = stage.id;
       els.standings.replaceChildren(state.standingsEl);
     }

@@ -9,8 +9,10 @@
  * A folha nativa só abre no clique do usuário (o Safari exige), então a imagem é desenhada quando
  * a janela abre e o botão chama o share direto.
  *
- * Resultados (competição ou dia) e classificação: a mensagem com os jogos ou a tabela e o link,
- * direto no WhatsApp.
+ * Classificação: a mesma janela, com a imagem da tabela (posição, escudo, nome, P J V E D SG,
+ * faixa da zona e legenda) e a mensagem com uma linha por time.
+ *
+ * Resultados (competição ou dia): a mensagem com os jogos e o link, direto no WhatsApp.
  */
 import { h, showToast } from './render.js';
 import { icon } from './icons.js';
@@ -120,10 +122,6 @@ export function standingsShareText(title, group, { live = false, url = '' } = {}
   return [`*Classificação · ${title}*${live ? ' (ao vivo)' : ''}`, '', ...rows, ...(url ? ['', `🔗 ${url}`] : [])].join('\n');
 }
 
-/** Classificação direto no WhatsApp (a conversa abre com a mensagem pronta). */
-export function shareStandingsOnWhatsApp(title, group, { live = false, url = '', win = window } = {}) {
-  win.open(whatsappUrl(standingsShareText(title, group, { live, url })), '_blank', 'noopener');
-}
 
 /* --- Imagem ------------------------------------------------------------------------------- */
 
@@ -185,12 +183,30 @@ function drawCrest(ctx, img, cx, cy, box) {
   ctx.drawImage(img, cx - (w * scale) / 2, cy - (hgt * scale) / 2, w * scale, hgt * scale);
 }
 
-function stripe(ctx, y, height) {
+function stripe(ctx, y, height, width = W) {
   COLORS.stripe.forEach((color, i) => {
     ctx.fillStyle = color;
-    ctx.fillRect((W / 4) * i, y, W / 4, height);
+    ctx.fillRect((width / 4) * i, y, width / 4, height);
   });
 }
+
+/** As famílias do site (tokens do CSS), já carregadas para o canvas. */
+async function siteFonts() {
+  const root = getComputedStyle(document.documentElement);
+  const font = {
+    brand: root.getPropertyValue('--font-brand').trim() || 'Georgia, serif',
+    ui: root.getPropertyValue('--font-ui').trim() || 'system-ui, sans-serif',
+    num: root.getPropertyValue('--font-num').trim() || 'system-ui, sans-serif',
+  };
+  try {
+    await Promise.all([`400 40px ${font.brand}`, `600 40px ${font.num}`, `700 40px ${font.num}`, `500 40px ${font.ui}`, `600 40px ${font.ui}`].map((f) => document.fonts.load(f)));
+  } catch {
+    // sem as fontes do site, o canvas usa as do sistema
+  }
+  return font;
+}
+
+const toBlob = (canvas) => new Promise((resolve, reject) => canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('toBlob'))), 'image/png'));
 
 /**
  * Imagem do jogo (PNG 1200 × 800): competição e situação, escudos, times, placar e autores dos
@@ -200,17 +216,7 @@ function stripe(ctx, y, height) {
  * @returns {Promise<Blob>}
  */
 export async function renderMatchImage(match, { now = Date.now(), brand = '', host = globalThis.location?.host || '' } = {}) {
-  const root = getComputedStyle(document.documentElement);
-  const font = {
-    brand: root.getPropertyValue('--font-brand').trim() || 'Georgia, serif',
-    ui: root.getPropertyValue('--font-ui').trim() || 'system-ui, sans-serif',
-    num: root.getPropertyValue('--font-num').trim() || 'system-ui, sans-serif',
-  };
-  try {
-    await Promise.all([`400 40px ${font.brand}`, `700 40px ${font.num}`, `500 40px ${font.ui}`, `600 40px ${font.ui}`].map((f) => document.fonts.load(f)));
-  } catch {
-    // sem as fontes do site, o canvas usa as do sistema
-  }
+  const font = await siteFonts();
   const [homeCrest, awayCrest] = await Promise.all([crestImage(match.home), crestImage(match.away)]);
 
   const canvas = document.createElement('canvas');
@@ -300,7 +306,128 @@ export async function renderMatchImage(match, { now = Date.now(), brand = '', ho
   groupFont(ctx, [host], { weight: 600, size: 17, family: font.ui, maxWidth: 1000 });
   line(host, middle, H - 42, 1000);
 
-  return new Promise((resolve, reject) => canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('toBlob'))), 'image/png'));
+  return toBlob(canvas);
+}
+
+const HEX = /^#[0-9a-f]{6}$/i;
+const SW = 1080; // largura da imagem da classificação; a altura cresce com o número de times
+const ROW = 54;
+
+/**
+ * Imagem da classificação de um grupo (PNG 1080 de largura): competição; fase e grupo (e "ao
+ * vivo", com jogo rolando); uma linha por time — faixa da zona, posição, escudo, nome (todos do
+ * mesmo tamanho), P J V E D SG —, a legenda das zonas e o site no rodapé.
+ * @returns {Promise<Blob>}
+ */
+export async function renderStandingsImage(standings, group, { competition = '', subtitle = '', live = false, brand = '', host = globalThis.location?.host || '' } = {}) {
+  const font = await siteFonts();
+  const rows = group?.rows || [];
+  const crests = await Promise.all(rows.map((row) => crestImage(row.team)));
+  const legend = (standings?.legend || []).filter((zone) => zone?.name);
+  const top = 196; // topo da 1ª linha
+  const height = top + rows.length * ROW + (legend.length ? 76 : 24) + 110;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = SW;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = COLORS.paper;
+  ctx.fillRect(0, 0, SW, height);
+  stripe(ctx, 0, 10, SW);
+  stripe(ctx, height - 10, 10, SW);
+  ctx.textBaseline = 'alphabetic';
+  const line = (text, x, y, maxWidth) => ctx.fillText(clip(ctx, text, maxWidth), x, y);
+
+  // competição; fase · grupo (· ao vivo)
+  ctx.textAlign = 'center';
+  ctx.fillStyle = COLORS.ink;
+  groupFont(ctx, [competition], { size: 36, family: font.brand, maxWidth: 960 });
+  line(competition, SW / 2, 80, 960);
+  const sub = [subtitle, live ? 'ao vivo' : ''].filter(Boolean).join(' · ').toUpperCase();
+  ctx.fillStyle = live ? '#A50D26' : COLORS.ink3;
+  groupFont(ctx, [sub], { weight: 700, size: 22, family: font.num, maxWidth: 960 });
+  line(sub, SW / 2, 116, 960);
+
+  // cabeçalho das colunas
+  const X = { pos: 96, crest: 142, name: 172, P: 724, J: 784, V: 838, E: 892, D: 946, SG: 1006 };
+  const stats = [['P', 'points'], ['J', 'played'], ['V', 'won'], ['E', 'drawn'], ['D', 'lost'], ['SG', 'goal_difference']];
+  ctx.fillStyle = COLORS.ink3;
+  ctx.font = `700 20px ${font.num}`;
+  ctx.fillText('#', X.pos, 172);
+  for (const [label] of stats) ctx.fillText(label, X[label], 172);
+  ctx.textAlign = 'left';
+  ctx.fillText('TIME', X.name, 172);
+
+  // linhas: faixa da zona, posição, escudo, nome (um tamanho para todos) e os números
+  const names = rows.map((row) => name(row.team));
+  const nameMax = X.P - 40 - X.name;
+  const namePx = groupFont(ctx, names, { weight: 600, size: 25, family: font.ui, maxWidth: nameMax, min: 18 });
+  rows.forEach((row, i) => {
+    const y = top + i * ROW;
+    const base = y + 35;
+    if (i % 2 === 0) {
+      ctx.fillStyle = 'rgba(27, 23, 18, 0.045)';
+      ctx.fillRect(48, y, SW - 96, ROW);
+    }
+    if (HEX.test(row.zone?.color || '')) {
+      ctx.fillStyle = row.zone.color;
+      ctx.fillRect(48, y + 6, 6, ROW - 12);
+    }
+    ctx.fillStyle = COLORS.ink;
+    ctx.textAlign = 'center';
+    ctx.font = `700 25px ${font.num}`;
+    ctx.fillText(String(row.rank ?? row.position ?? i + 1), X.pos, base);
+    drawCrest(ctx, crests[i], X.crest, y + ROW / 2, 34);
+    ctx.textAlign = 'left';
+    ctx.font = `600 ${namePx}px ${font.ui}`;
+    const shown = clip(ctx, names[i], nameMax);
+    ctx.fillText(shown, X.name, base);
+    if (row.playing) { // em jogo agora
+      ctx.fillStyle = '#C8102E';
+      ctx.beginPath();
+      ctx.arc(X.name + ctx.measureText(shown).width + 16, y + ROW / 2, 6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.textAlign = 'center';
+    for (const [label, key] of stats) {
+      ctx.fillStyle = label === 'P' ? COLORS.ink : '#3D372F';
+      ctx.font = `${label === 'P' ? 700 : 600} 24px ${font.num}`;
+      const value = row[key] ?? 0;
+      ctx.fillText(key === 'goal_difference' ? signed(value) : String(value), X[label], base);
+    }
+  });
+
+  // legenda das zonas, centrada: "■ Semifinal 1º–4º   ■ Rebaixamento 7º–8º"
+  if (legend.length) {
+    ctx.font = `500 20px ${font.ui}`;
+    const items = legend.map((zone) => {
+      const range = zone.from == null ? '' : zone.to != null && zone.to !== zone.from ? ` ${zone.from}º–${zone.to}º` : ` ${zone.from}º`;
+      const text = `${zone.name}${range}`;
+      return { color: HEX.test(zone.color || '') ? zone.color : COLORS.ink3, text, width: 26 + ctx.measureText(text).width };
+    });
+    const gap = 34;
+    let x = (SW - items.reduce((sum, item) => sum + item.width, 0) - gap * (items.length - 1)) / 2;
+    const y = top + rows.length * ROW + 48;
+    ctx.textAlign = 'left';
+    for (const item of items) {
+      ctx.fillStyle = item.color;
+      ctx.fillRect(x, y - 15, 16, 16);
+      ctx.fillStyle = COLORS.ink3;
+      ctx.fillText(item.text, x + 26, y);
+      x += item.width + gap;
+    }
+  }
+
+  // rodapé: site
+  ctx.textAlign = 'center';
+  ctx.fillStyle = COLORS.azul;
+  groupFont(ctx, [brand], { size: 24, family: font.brand, maxWidth: 960 });
+  line(brand, SW / 2, height - 66, 960);
+  ctx.fillStyle = COLORS.ink3;
+  groupFont(ctx, [host], { weight: 600, size: 17, family: font.ui, maxWidth: 960 });
+  line(host, SW / 2, height - 38, 960);
+
+  return toBlob(canvas);
 }
 
 /* --- Janela de compartilhar o jogo -------------------------------------------------------- */
@@ -317,30 +444,25 @@ async function copyImage(blob, nav) {
 }
 
 /**
- * Abre a janela de compartilhar o jogo: a prévia da imagem e "Compartilhar no WhatsApp".
- * Com Web Share de arquivos (celular), a imagem vai como arquivo com a mensagem na legenda;
- * sem ela, o botão é o link do WhatsApp com a mensagem e copia a imagem para colar.
- * @param {object} match MatchOut
- * @param {{now?: number, nav?: Navigator}} [opts]
+ * Janela de compartilhar: a prévia da imagem e "Compartilhar no WhatsApp". Com Web Share de
+ * arquivos (celular), a imagem vai como arquivo com a mensagem na legenda; sem ela, o botão é o
+ * link do WhatsApp com a mensagem e copia a imagem para colar. Nunca há "baixar".
  * @returns {HTMLDialogElement}
  */
-export function openMatchShare(match, { now = Date.now(), nav = globalThis.navigator } = {}) {
-  const brand = document.querySelector('meta[name="application-name"]')?.content || '';
-  const title = scoreline(match);
-  const text = matchShareText(match, now, matchUrl(match));
-  const filename = `jogo-${match.id}.png`;
+function openShareSheet({ heading, title, text, filename, alt, size: [width, height], render, nav }) {
   const probe = typeof File === 'function' ? new File([''], filename, { type: 'image/png' }) : null;
   const canShareFiles = !!(nav?.share && nav.canShare && probe && nav.canShare({ files: [probe] }));
 
-  const preview = h('img', { class: 'share-sheet__img', alt: `Imagem do jogo: ${title}`, width: 600, height: 400, hidden: true });
+  const preview = h('img', { class: 'share-sheet__img', alt, width, height, hidden: true });
   const status = h('p', { class: 'share-sheet__status', text: 'Gerando a imagem…' });
-  const label = [icon('share'), 'Compartilhar no WhatsApp'];
+  const label = () => [icon('share'), 'Compartilhar no WhatsApp'];
+  const link = () => h('a', { class: 'btn btn--primary', href: whatsappUrl(text), target: '_blank', rel: 'noopener', 'data-hook': 'share-whatsapp' }, ...label());
   const send = canShareFiles
-    ? h('button', { type: 'button', class: 'btn btn--primary', disabled: true, 'data-hook': 'share-whatsapp' }, ...label)
-    : h('a', { class: 'btn btn--primary', href: whatsappUrl(text), target: '_blank', rel: 'noopener', 'data-hook': 'share-whatsapp' }, ...label);
+    ? h('button', { type: 'button', class: 'btn btn--primary', disabled: true, 'data-hook': 'share-whatsapp' }, ...label())
+    : link();
   const dialog = h('dialog', { class: 'dialog share-sheet', 'aria-labelledby': 'share-title' },
     h('form', { method: 'dialog', class: 'dialog__form' },
-      h('div', { class: 'dialog__head' }, h('h2', { id: 'share-title', class: 'dialog__title', text: 'Compartilhar jogo' })),
+      h('div', { class: 'dialog__head' }, h('h2', { id: 'share-title', class: 'dialog__title', text: heading })),
       h('div', { class: 'dialog__body' },
         h('p', { class: 'share-sheet__title', text: title }),
         h('figure', { class: 'share-sheet__preview' }, preview, status),
@@ -375,7 +497,7 @@ export function openMatchShare(match, { now = Date.now(), nav = globalThis.navig
   document.body.append(dialog);
   dialog.showModal();
 
-  renderMatchImage(match, { now, brand }).then((png) => {
+  render().then((png) => {
     blob = png;
     objectUrl = URL.createObjectURL(png);
     preview.src = objectUrl;
@@ -384,7 +506,42 @@ export function openMatchShare(match, { now = Date.now(), nav = globalThis.navig
     send.disabled = false;
   }, () => {
     status.textContent = 'Não deu para gerar a imagem. A mensagem continua valendo.';
-    if (canShareFiles) send.replaceWith(h('a', { class: 'btn btn--primary', href: whatsappUrl(text), target: '_blank', rel: 'noopener', 'data-hook': 'share-whatsapp' }, ...label));
+    if (canShareFiles) send.replaceWith(link());
   });
   return dialog;
+}
+
+const brandName = () => document.querySelector('meta[name="application-name"]')?.content || '';
+
+/**
+ * Compartilhar o jogo: imagem (renderMatchImage) e mensagem (matchShareText, com o link).
+ * @param {object} match MatchOut
+ * @param {{now?: number, nav?: Navigator}} [opts]
+ */
+export function openMatchShare(match, { now = Date.now(), nav = globalThis.navigator } = {}) {
+  const title = scoreline(match);
+  return openShareSheet({
+    heading: 'Compartilhar jogo', title, text: matchShareText(match, now, matchUrl(match)),
+    filename: `jogo-${match.id}.png`, alt: `Imagem do jogo: ${title}`, size: [600, 400], nav,
+    render: () => renderMatchImage(match, { now, brand: brandName() }),
+  });
+}
+
+/**
+ * Compartilhar a classificação de um grupo: imagem (renderStandingsImage) e mensagem
+ * (standingsShareText: "competição · fase · grupo", uma linha por time, o link).
+ * @param {object} standings StageStandingsOut (legenda, fase, ao vivo)
+ * @param {object} group o grupo da tabela
+ * @param {{competition?: string, groupName?: string, url?: string, nav?: Navigator}} [opts]
+ */
+export function openStandingsShare(standings, group, { competition = '', groupName = '', url = '', nav = globalThis.navigator } = {}) {
+  const subtitle = [standings?.stage_name, groupName].filter(Boolean).join(' · ');
+  const title = [competition, subtitle].filter(Boolean).join(' · ');
+  const live = standings?.kind === 'live' && (group?.rows || []).some((row) => row.playing);
+  return openShareSheet({
+    heading: 'Compartilhar classificação', title, text: standingsShareText(title, group, { live, url }),
+    filename: `classificacao-${standings?.stage_id ?? ''}${group?.id ? `-${group.id}` : ''}.png`, alt: `Imagem da classificação: ${title}`,
+    size: [600, 600], nav,
+    render: () => renderStandingsImage(standings, group, { competition, subtitle, live, brand: brandName() }),
+  });
 }

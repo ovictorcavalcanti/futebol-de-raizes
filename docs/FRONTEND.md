@@ -178,15 +178,19 @@ existe: a home de sempre.
 * `matchUrl(match)` → `/?jogo=<id>`.
 * Classificação: com `opts.share = {title, url}` em `createStandings` (home, competição e linhas
   de grupo passam o nome da competição e o link), cada tabela tem `.standings__share` no canto do
-  título: a mensagem `*Classificação · competição · fase · grupo*` (ao vivo, se há jogo rolando)
-  com uma linha por time ("1. Sport — 13 pts · 5J · SG +8") e o link, direto no WhatsApp
-  (`standingsShareText`, `shareStandingsOnWhatsApp`).
+  título, que abre a mesma janela (`openStandingsShare`): a imagem da tabela
+  (`renderStandingsImage`: PNG de 1080 de largura, altura pelo número de times; competição, fase
+  e grupo, "ao vivo" com jogo rolando, faixa da zona, posição, escudo, nome — todos do mesmo
+  tamanho —, P J V E D SG, legenda das zonas, o site no rodapé) e a mensagem
+  `*Classificação · competição · fase · grupo*` com uma linha por time ("1. Sport — 13 pts · 5J ·
+  SG +8") e o link (`standingsShareText`).
 
-Faixa de informações do card (`.match__meta`): na 1ª linha o status — o agendado traz dia e hora
-juntos no selo ("Hoje · 19:00", "sáb, 18/10 · 16:00"); os outros, o selo e o dia e a hora do
-início (`.match__when`) —; na 2ª, a rodada/competição (quando pedidas) e o local numa linha só,
-com um ícone (`.match__place`: "Lacerdão · Caruaru, PE"). No contêiner largo, tudo numa linha,
-com o local à direita. O botão de compartilhar tem borda (é botão, não ícone de informação).
+Faixa de informações do card (`.match__meta`): o selo é sempre o status ("Agendado", "Ao vivo"
+com o minuto, "Encerrado"...) e, logo depois, uma frase só, alinhada à esquerda (`.match__info`):
+rodada/competição (quando pedidas) · dia e hora do início (`.match__when`) · local
+(`.match__place`, "Lacerdão, Caruaru, PE"). No celular a frase desce para a 2ª linha; no
+contêiner largo, tudo numa linha. O botão de compartilhar tem borda (é botão, não ícone de
+informação).
 
 ### Operador (`operator.html`)
 

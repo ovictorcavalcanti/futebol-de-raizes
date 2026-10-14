@@ -9,7 +9,7 @@
 import { h, s } from './render.js';
 import { createCrest } from './crest.js';
 import { icon } from './icons.js';
-import { shareStandingsOnWhatsApp } from './share.js';
+import { openStandingsShare } from './share.js';
 
 const HEX = /^#[0-9a-f]{6}$/i;
 const COLUMNS = [
@@ -94,12 +94,10 @@ function teamCell(row) {
   );
 }
 
-/** A tabela de um grupo no WhatsApp: "competição · fase · grupo", ao vivo se há jogo rolando. */
+/** A tabela de um grupo no WhatsApp (imagem e mensagem): "competição · fase · grupo". */
 function shareGroup(standings, group, share, multiple) {
   const groupName = !multiple && (group.name === 'Tabela' || !group.name) ? '' : group.name;
-  const title = [share.title, standings.stage_name, groupName].filter(Boolean).join(' · ');
-  const live = standings.kind === 'live' && (group.rows || []).some((r) => r.playing);
-  shareStandingsOnWhatsApp(title, group, { live, url: typeof share.url === 'function' ? share.url() : share.url || '' });
+  openStandingsShare(standings, group, { competition: share.title, groupName, url: typeof share.url === 'function' ? share.url() : share.url || '' });
 }
 
 function groupTable(standings, group, opts, multiple, last) {

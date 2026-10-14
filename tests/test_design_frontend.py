@@ -748,16 +748,17 @@ META_JS = """async () => {
     const card = M.createMatchCard(match, {});
     root.append(card);
     const meta = card.querySelector('.match__meta');
-    return [meta.querySelector('.pill').textContent.replace('Agendado para ', '').trim(), !!meta.querySelector('.match__when'),
-      meta.querySelector('.match__when')?.textContent.trim() ?? null, meta.querySelector('.match__place-text')?.textContent ?? null,
-      meta.querySelectorAll('.match__place .icon').length];
+    return [meta.querySelector('.pill').textContent.trim(), meta.querySelector('.match__info')?.textContent ?? null];
   };
   const later = F.MATCHES.scheduledToday;
   const standings = { stage_name: '1ª fase', kind: 'live', groups: [{ name: 'Grupo A', rows: [
     { rank: 1, position: 1, team: { name: 'Sport' }, points: 13, played: 5, goal_difference: 8, playing: true },
     { rank: 2, position: 2, team: { name: 'Náutico' }, points: 1, played: 5, goal_difference: -3 },
   ] }] };
+  const blob = await S.renderStandingsImage(F.STANDINGS, F.STANDINGS.groups[0], { competition: 'PE Raiz', subtitle: '1ª fase', live: true, brand: 'Futebol de Raízes', host: 'x.test' });
+  const bitmap = await createImageBitmap(blob);
   return {
+    standingsImage: [blob.type, bitmap.width, bitmap.height === 196 + F.STANDINGS.groups[0].rows.length * 54 + 76 + 110],
     scheduled: read(later), finished: read(F.MATCHES.finished),
     names: [later.venue, later.city, F.MATCHES.finished.venue, F.MATCHES.finished.city],
     standings: S.standingsShareText('PE Raiz · 1ª fase · Grupo A', standings.groups[0], { live: true, url: 'https://x.test/c' }).split('\\n'),
@@ -765,16 +766,16 @@ META_JS = """async () => {
 }"""
 
 
-def test_faixa_do_card_dia_e_hora_no_selo_e_local_numa_linha(browser_page):
+def test_faixa_do_card_status_no_selo_e_uma_frase_de_informacao(browser_page):
     page, errors = browser_page
     out = page.evaluate(META_JS)
     assert not errors, errors
     venue, city, fin_venue, fin_city = out["names"]
-    pill, has_when, _, place, icons = out["scheduled"]
-    assert re.fullmatch(r"Hoje · \d\d:\d\d", pill) and not has_when  # agendado: dia e hora juntos no selo
-    assert place == f"{venue} · {city}" and icons == 1  # local numa linha, um ícone
-    pill, has_when, when, place, _ = out["finished"]
-    assert pill == "Encerrado" and has_when and re.fullmatch(r"Hoje · \d\d:\d\d", when) and place == f"{fin_venue} · {fin_city}"
+    pill, info = out["scheduled"]  # o selo é o status; dia, hora e local numa frase só
+    assert pill == "Agendado" and re.fullmatch(rf"Hoje · \d\d:\d\d · {re.escape(venue)}, {re.escape(city)}", info)
+    pill, info = out["finished"]
+    assert pill == "Encerrado" and re.fullmatch(rf"Hoje · \d\d:\d\d · {re.escape(fin_venue)}, {re.escape(fin_city)}", info)
+    assert out["standingsImage"] == ["image/png", 1080, True]  # 1080 de largura, altura pelo número de times
     assert out["standings"] == [
         "*Classificação · PE Raiz · 1ª fase · Grupo A* (ao vivo)", "",
         "1. Sport — 13 pts · 5J · SG +8", "2. Náutico — 1 pt · 5J · SG -3", "", "🔗 https://x.test/c",

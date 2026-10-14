@@ -13,7 +13,7 @@ import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, unquote
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -1501,11 +1501,13 @@ def test_resultados_no_whatsapp_da_rodada_e_do_dia(open_page, fixtures):
     # grupo, uma linha por time, com o link da página
     page, api, errors_groups = open_page("/competition.html?slug=x&stage=6")
     page.wait_for_selector("#round-matches .group-row__table .standings__share")
-    page.evaluate(WHATSAPP_SPY)
     table = page.locator("#round-matches .group-row__table .standings__group").first
-    table.locator(".standings__share").click()
-    page.wait_for_function("() => window.__opened")
-    lines = page.evaluate("window.__opened").split("\n")
+    table.locator(".standings__share").click()  # a janela com a imagem da tabela
+    page.wait_for_selector("dialog.share-sheet .share-sheet__img:not([hidden])")
+    assert page.text_content("dialog.share-sheet .dialog__title") == "Compartilhar classificação"
+    href = page.get_attribute("dialog.share-sheet [data-hook=share-whatsapp]", "href")  # sem Web Share: o link do WhatsApp
+    assert href.startswith("https://api.whatsapp.com/send?text=")
+    lines = unquote(href.split("?text=", 1)[1]).split("\n")
     group = table.locator("caption").text_content().replace("Ao vivo", "").strip()
     assert lines[0].startswith(f"*Classificação · {title} · Fase de grupos · ") and group.lower() in lines[0].lower()
     assert len(lines) == table.locator("tbody tr").count() + 4

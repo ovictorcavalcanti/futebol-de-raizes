@@ -244,14 +244,9 @@ export function setMatchCardError(el) {
    Faixa de meta
    ========================================================================== */
 
-function statusPill(match, now) {
+function statusPill(match) {
   const { status } = match;
-  if (status === 'scheduled') {
-    // dia e hora juntos, na ordem em que se fala: "Hoje · 19:00", "sáb, 18/10 · 16:00"
-    const kickoff = toDate(match.kickoff_at);
-    return h('span', { class: 'pill pill--scheduled' }, icon('clock'), h('span', { class: 'visually-hidden', text: 'Agendado para ' }),
-      kickoff ? h('time', { datetime: kickoff.toISOString(), text: formatWhen(kickoff, now) }) : 'A definir');
-  }
+  if (status === 'scheduled') return h('span', { class: 'pill pill--scheduled', text: match.status_label || 'Agendado' });
   if (status === 'live') {
     if (match.partial_info) return h('span', { class: 'pill pill--partial', text: 'Informações parciais' });
     if (INTERVALS.has(match.period)) return h('span', { class: 'pill pill--interval', text: 'Intervalo' });
@@ -275,9 +270,10 @@ function roundLabel(match) {
 
 function renderMeta(meta, match, now, opts) {
   const parts = [];
-  // 1ª linha: status (o agendado traz dia e hora no selo) e, nos outros, o dia e a hora do início;
-  // 2ª linha: rodada/competição (quando pedidas) e o local numa linha só ("Lacerdão · Caruaru, PE")
-  const status = h('span', { class: 'match__status' }, statusPill(match, now));
+  // o selo é sempre o status (com o minuto, ao vivo); logo depois, uma frase só, alinhada à
+  // esquerda: rodada/competição (quando pedidas) · dia e hora do início · local
+  // ("Hoje · 19:00 · Lacerdão, Caruaru, PE"). No celular, a frase desce para a 2ª linha.
+  const status = h('span', { class: 'match__status' }, statusPill(match));
   if (match.status === 'live' && !match.partial_info && !INTERVALS.has(match.period) && match.period !== 'penalties') {
     status.append(h('span', { class: 'match__minute' },
       // no formato por tempo o período já vai no rótulo ("27' 2T")
@@ -290,17 +286,14 @@ function renderMeta(meta, match, now, opts) {
   parts.push(status);
 
   const kickoff = toDate(match.kickoff_at);
-  if (kickoff && match.status !== 'scheduled') {
-    parts.push(h('time', { class: 'match__when', datetime: kickoff.toISOString() }, icon('calendar', { className: 'icon--sm' }), formatWhen(kickoff, now)));
-  }
-
-  const context = [opts.showCompetition && (match.competition?.short_name || match.competition?.name), opts.showRound && roundLabel(match)].filter(Boolean);
-  if (context.length) parts.push(h('span', { class: 'match__round', text: context.join(' · ') }));
-
-  const place = [match.venue, match.city].filter(Boolean).join(' · ');
-  if (place) {
-    parts.push(h('span', { class: 'match__place' }, icon('pin'), h('span', { class: 'visually-hidden', text: 'Local: ' }), h('span', { class: 'match__place-text', text: place })));
-  }
+  const context = [opts.showCompetition && (match.competition?.short_name || match.competition?.name), opts.showRound && roundLabel(match)].filter(Boolean).join(' · ');
+  const place = [match.venue, match.city].filter(Boolean).join(', ');
+  const info = [
+    context,
+    kickoff ? h('time', { class: 'match__when', datetime: kickoff.toISOString(), text: formatWhen(kickoff, now) }) : null,
+    place ? h('span', { class: 'match__place', text: place }) : null,
+  ].filter(Boolean);
+  if (info.length) parts.push(h('p', { class: 'match__info' }, ...info.flatMap((item, i) => (i ? [' · ', item] : [item]))));
   meta.replaceChildren(...parts);
 }
 

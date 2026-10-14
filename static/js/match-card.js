@@ -118,7 +118,8 @@ const displayName = (team) => team?.name || team?.short_name || '';
  * @property {(matchId: number) => (void|Promise<any>)} [onExpand] chamado ao abrir o acordeão sem match.events
  * @property {boolean} [flash] (só no update) pisca o placar e destaca lances novos
  * @property {boolean} [details=true] false = sem acordeão (ex.: placar do operador)
- * @property {boolean} [showRound] mostra rodada/fase na faixa de meta
+ * @property {boolean|'leg'} [showRound] mostra rodada/fase na faixa de meta ('leg': no mata-mata, só
+ *   "Ida", "Volta" ou "Jogo único", para a página que já mostra a fase na navegação)
  * @property {boolean} [showCompetition] mostra a competição na faixa de meta
  * @property {boolean} [share=true] botão de compartilhar no canto (link, texto e imagem do jogo);
  *   sem acordeão (operador), não há botão
@@ -290,10 +291,11 @@ function statusPill(match) {
   return h('span', { class: `pill pill--${cls}`, text: match.status_label || status });
 }
 
-function roundLabel(match) {
+function roundLabel(match, mode) {
   const tie = match.tie;
   if (tie) {
     const leg = tie.legs === 2 ? (tie.leg === 2 ? 'Volta' : 'Ida') : 'Jogo único';
+    if (mode === 'leg') return leg;
     return `${tie.round?.name || match.round?.name || ''} · ${leg}`.replace(/^ · /, '');
   }
   return match.round?.name || '';
@@ -334,7 +336,7 @@ function renderMeta(meta, match, now, opts) {
     status.append(h('span', { class: 'match__round', text: `parou no ${match.period_label}` }));
   }
   const kickoff = toDate(match.kickoff_at);
-  const context = [opts.showCompetition && (match.competition?.short_name || match.competition?.name), opts.showRound && roundLabel(match)].filter(Boolean).join(' · ');
+  const context = [opts.showCompetition && (match.competition?.short_name || match.competition?.name), opts.showRound && roundLabel(match, opts.showRound)].filter(Boolean).join(' · ');
   const prefix = whenPrefix(match)?.[0];
   const whenLabel = kickoff ? formatWhen(kickoff, now) : '';
   const when = h('div', { class: 'match__lead' }, status,

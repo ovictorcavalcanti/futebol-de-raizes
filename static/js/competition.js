@@ -115,7 +115,7 @@ function loadDetail(matchId) {
 function cardFor(match, next) {
   let card = state.cards.get(match.id);
   if (card) updateMatchCard(card, match);
-  else card = createMatchCard(match, { now, onExpand: loadDetail, showRound: !!match.tie }); // mata-mata: "Semifinal · Ida"
+  else card = createMatchCard(match, { now, onExpand: loadDetail, showRound: match.tie ? 'leg' : false }); // mata-mata: a navegação já diz a fase; o card, "Ida"
   next.set(match.id, card);
   return card;
 }
@@ -408,22 +408,6 @@ function liveOnMatch(message) {
   else state.liveMatches.delete(match.id);
   paintNav();
 }
-
-/* --- Mata-mata: a faixa do card sem a fase da navegação ------------------------------------- */
-
-/** A navegação da rodada já diz a fase ("Final", "Semifinal"): a faixa do card fica só com o que
- *  ela acrescenta ("Jogo único", "Ida", "Volta"). O card (match-card.js) escreve "Final · Jogo
- *  único" e redesenha a faixa a cada mudança: aqui sobra a última parte, sem mexer no jogo que
- *  ele guarda (a imagem e o texto de compartilhar o jogo continuam com a fase). */
-const LEGS = new Set(['Jogo único', 'Ida', 'Volta']);
-function trimTieContext() {
-  if (state.stage?.format !== 'knockout') return;
-  for (const el of els.matches.querySelectorAll('.tie-group .match__lead > .match__round')) {
-    const leg = el.textContent.split(' · ').at(-1);
-    if (LEGS.has(leg) && el.textContent !== leg) el.textContent = leg;
-  }
-}
-new MutationObserver(trimTieContext).observe(els.matches, { childList: true, subtree: true });
 
 /* --- Navegação ----------------------------------------------------------------------------- */
 

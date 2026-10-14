@@ -1379,9 +1379,11 @@ def test_operador_lanca_gol_com_confirmacao(open_page):
         and second["headers"]["idempotency-key"] == key
     )  # mesma chave na confirmação
     assert first["headers"]["x-csrftoken"] == "tok-csrf"
+    # voltar ao gol sugere o minuto de novo: o relógio pode ter virado o minuto no meio do teste
+    assert first["body"]["minute"] in (minute, minute + 1)
     assert first["body"] == {
         "type": "goal",
-        "minute": minute,
+        "minute": first["body"]["minute"],
         "team_id": 1,
         "payload": {"player": "Romarinho"},
         "confirm": False,

@@ -1107,11 +1107,10 @@ def test_competicao_classificacao_geral_atualiza_com_partida_do_mata_mata(open_p
 
 
 def test_competicao_classificacao_geral_nao_perde_gol_anulado(open_page, fixtures):
-    """A classificação do seletor é buscada antes (escolher é instantâneo) e guardada; a cópia fica
-    velha quando muda uma fase somada e é buscada de novo ao ser escolhida. O último visto de cada
-    partida não pode ficar velho: segue sendo gravado com a tabela da fase na tela e é esquecido no
-    reload (as mensagens perdidas não voltam). Senão um gol anulado (a partida volta ao placar já
-    visto) não buscava a classificação de novo. Nem a mudança que chega no meio da carga pode se perder."""
+    """O último visto de cada partida não pode ficar velho: segue sendo gravado com a tabela
+    da fase na tela e é esquecido no reload (as mensagens perdidas não voltam). Senão um gol
+    anulado (a partida volta ao placar já visto) não buscava a classificação de novo. Nem a
+    mudança que chega no meio da carga da classificação pode se perder."""
     final = fixtures["MATCHES"]["knockoutPenalties"]  # fase 7 (mata-mata)
 
     def score(goals):
@@ -1145,29 +1144,19 @@ def test_competicao_classificacao_geral_nao_perde_gol_anulado(open_page, fixture
         assert api.streams == [ping]
         page.wait_for_timeout(300)
 
-    # buscada antes de ser escolhida; escolher mostra na hora, sem pedir de novo
-    for _ in range(50):
-        if ranking_gets() == 1:
-            break
-        page.wait_for_timeout(100)
-    assert ranking_gets() == 1
-    page.select_option("#standings-select", label="Geral")
-    assert page.evaluate("!!document.querySelector('#ranking-standings:not([hidden]) table')")  # na hora
-    assert ranking_gets() == 1
+    with refetches_ranking():
+        page.select_option("#standings-select", label="Geral")
     # classificação geral na lateral: os jogos por grupo, e o jogo entre grupos à parte
     assert page.evaluate("[...document.querySelectorAll('#round-matches .match-group')].map((g) => [g.querySelector('.match-group__title').textContent, g.querySelectorAll('.match').length])") == [["Grupo A", 1], ["Grupo B", 1], ["Jogos entre grupos", 1]]
-    with refetches_ranking():  # na tela: o lance da fase somada busca de novo
+    with refetches_ranking():
         deliver(score(1), 4183)
     assert ranking_gets() == 2
 
-    # com a tabela da fase na tela chega o 2x0: a cópia fica velha, sem pedido; ao escolher,
-    # aparece na hora e é buscada de novo
+    # com a tabela da fase na tela chega o 2x0; de volta à classificação, ela mostra o 2x0
     page.select_option("#standings-select", label="Fase de grupos")
     deliver(score(2), 4184)
-    assert ranking_gets() == 2
     with refetches_ranking():
         page.select_option("#standings-select", label="Geral")
-        assert page.evaluate("!!document.querySelector('#ranking-standings:not([hidden]) table')")
     assert ranking_gets() == 3
     with refetches_ranking():  # gol anulado: volta ao 1x0 (já visto antes da troca)
         deliver(score(1), 4185)
@@ -1181,10 +1170,9 @@ def test_competicao_classificacao_geral_nao_perde_gol_anulado(open_page, fixture
         deliver(score(1), 4187)
     assert ranking_gets() == 6
 
-    # o 1x0 chega no meio da carga (cópia velha pelo 2x0 com a tabela da fase na tela): a resposta
-    # pode vir velha; ao fim da carga, busca de novo
+    # o 2x0 chega no meio da carga (da tabela da fase para "Geral"): as fases somadas ainda
+    # não chegaram e a resposta pode vir velha; ao fim da carga, busca de novo
     page.select_option("#standings-select", label="Fase de grupos")
-    deliver(score(2), 4188)
     held = []  # segura a primeira resposta da classificação
     page.route(lambda url: "/api/rankings/5" in url, lambda route: route.fallback() if held else held.append(route))
     page.select_option("#standings-select", label="Geral")
@@ -1193,7 +1181,7 @@ def test_competicao_classificacao_geral_nao_perde_gol_anulado(open_page, fixture
             break
         page.wait_for_timeout(100)
     assert held  # a carga está a caminho
-    deliver(score(1), 4189)
+    deliver(score(2), 4188)
     with refetches_ranking():
         held[0].fallback()
     assert ranking_gets() == 7

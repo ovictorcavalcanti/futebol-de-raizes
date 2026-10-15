@@ -64,9 +64,6 @@ const state = {
   rankingTimer: 0,
   rankingToken: 0,
   rankingPending: null, // fases que mudaram durante a carga da classificação (null: sem carga)
-  // classificações do seletor buscadas antes de escolhidas (aparecem na hora): id → cópia; `version`
-  // sobe a cada mudança numa fase somada, e a cópia está em dia se veio dessa versão
-  rankingCache: new Map(),
   pending: null, // troca de rodada/fase em andamento: mensagens do stream recebidas no meio
   rankingMatchKeys: new Map(), // match id → {key, stageId}: o que conta na classificação (último visto pelo stream)
   seq: 0, // ignora respostas fora de ordem (troca rápida de rodada/fase)
@@ -227,59 +224,19 @@ function paintStandingsSelect() {
   if (state.view !== 'stage') loadRanking(state.view);
   else state.rankingStageIds = [];
   updateAside();
-  prefetchRankings();
-}
-
-function rankingEntry(id) {
-  let entry = state.rankingCache.get(id);
-  if (!entry) state.rankingCache.set(id, (entry = { data: null, dataVersion: -1, version: 0, promise: null, promiseVersion: -1 }));
-  return entry;
-}
-const rankingFresh = (entry) => !!entry.data && entry.dataVersion === entry.version;
-
-/** Busca a classificação `id` e guarda a cópia (reaproveita a busca em andamento, se nada
- *  mudou desde que ela saiu). */
-function fetchRanking(id) {
-  const entry = rankingEntry(id);
-  if (entry.promise && entry.promiseVersion === entry.version) return entry.promise;
-  const version = entry.version;
-  const promise = getRanking(id).then((data) => {
-    if (version >= entry.dataVersion) { entry.data = data; entry.dataVersion = version; } // a mais nova fica
-    return data;
-  }).finally(() => { if (entry.promise === promise) entry.promise = null; });
-  entry.promise = promise;
-  entry.promiseVersion = version;
-  return promise;
-}
-
-/** Busca antes as classificações do seletor que ainda não vieram: escolher uma é instantâneo. */
-function prefetchRankings() {
-  for (const ref of rankingRefs(state.data || {})) {
-    if (!state.rankingCache.get(ref.id)?.data) fetchRanking(ref.id).catch(() => {}); // falhou: busca ao escolher
-  }
-}
-
-function showRanking(data) {
-  state.rankingStageIds = data.stage_ids || [];
-  els.rankingStandings.replaceChildren(createStandings(data));
 }
 
 async function loadRanking(id) {
   const token = ++state.rankingToken;
-  const entry = rankingEntry(id);
-  if (entry.data) showRanking(entry.data); // buscada antes: aparece na hora
-  if (rankingFresh(entry)) { // e está em dia: nada a buscar
-    state.rankingPending = null;
-    return;
-  }
   const pending = new Set();
   state.rankingPending = pending;
   try {
-    const data = await fetchRanking(id); // velha (mudou uma fase somada) ou ainda não veio
-    if (token !== state.rankingToken || state.view !== id) return; // trocou de classificação no meio
-    showRanking(data);
+    const data = await getRanking(id);
+    if (token !== state.rankingToken || state.view !== id) return; // trocou de botão no meio
+    state.rankingStageIds = data.stage_ids || [];
+    els.rankingStandings.replaceChildren(createStandings(data));
   } catch {
-    if (token === state.rankingToken && !entry.data) showToast('Não deu para carregar a classificação agora.', { kind: 'error' });
+    if (token === state.rankingToken) showToast('Não deu para carregar a classificação agora.', { kind: 'error' });
   } finally {
     // a resposta pode ter vindo antes do que mudou no meio da carga: busca de novo
     if (token === state.rankingToken) {
@@ -455,7 +412,6 @@ async function goToStage(stageId) {
 /** Estado inteiro de novo (5 min sem stream): mesma fase e rodada; devolve o cursor. */
 async function reload() {
   state.rankingMatchKeys.clear(); // as mensagens perdidas não voltam: o último visto pode estar velho
-  for (const entry of state.rankingCache.values()) entry.version += 1; // e as cópias guardadas também
   const round = state.rounds[state.roundIndex];
   const seq = ++state.seq;
   const data = await fetchCompetition({ stage: state.stage?.id ?? null, round: round?.id ?? null });
@@ -487,10 +443,6 @@ function scheduleRanking() {
 /** Mudou o que conta nestas fases. Com a carga em andamento, as fases somadas ainda não
  *  chegaram (ou são as da classificação anterior): guarda e confere ao fim da carga. */
 function rankingChanged(stageIds) {
-  // as cópias guardadas que somam estas fases ficam velhas (sem dados ainda: na dúvida, também)
-  for (const entry of state.rankingCache.values()) {
-    if (!entry.data || stageIds.some((s) => (entry.data.stage_ids || []).includes(s))) entry.version += 1;
-  }
   if (state.rankingPending) stageIds.forEach((id) => state.rankingPending.add(id));
   else if (stageIds.some(rankingHas)) scheduleRanking();
 }

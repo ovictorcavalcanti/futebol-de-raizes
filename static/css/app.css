@@ -272,7 +272,8 @@
     gap: var(--s-5);
     align-items: start;
   }
-  /* empilhado (celular/tablet): o aside sobe quando é o resumo (confrontos do mata-mata) */
+  /* empilhado (celular/tablet): o aside sobe quando é o resumo (confrontos do mata-mata) ou,
+     na fase de grupos, quando outra classificação está na tela (os botões não saem do lugar) */
   @media (max-width: 959.98px) {
     .split--aside-first > .split__aside { order: -1; }
   }

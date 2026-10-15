@@ -320,11 +320,17 @@ function whenPrefix(match) {
 /** "Hoje · 16:00" depois de um prefixo vira "hoje · 16:00" ("sáb, 03/10" já é minúsculo). */
 const lowerFirst = (text) => text.charAt(0).toLowerCase() + text.slice(1);
 
+/** "Caruaru, PE" → ["Caruaru", ", PE"]; sem a UF no fim, ["Caruaru", ""]. */
+function splitCity(city) {
+  const m = /^(.*\S)(,\s*[A-Z]{2})$/.exec(city || '');
+  return m ? [m[1], m[2]] : [city || '', ''];
+}
+
 function renderMeta(meta, match, now, opts) {
   // dois blocos: "quando" (o selo do status, o minuto ao vivo, o dia e a hora do início e a
   // rodada/competição, quando pedidas) e "onde" (local e cidade). No desktop, um à esquerda e o
   // outro à direita; no celular, duas linhas centradas, como o placar ("onde" numa linha só:
-  // o nome do estádio corta com reticências e a cidade fica inteira).
+  // o estádio tem a prioridade; a cidade perde a UF e corta com reticências antes dele).
   const status = h('span', { class: 'match__status' }, statusPill(match));
   if (match.status === 'live' && !match.partial_info && !INTERVALS.has(match.period) && match.period !== 'penalties') {
     status.append(h('span', { class: 'match__minute' },
@@ -344,11 +350,14 @@ function renderMeta(meta, match, now, opts) {
       prefix ? h('span', { class: 'match__when-tag', text: `${prefix} ` }) : null,
       prefix ? lowerFirst(whenLabel) : whenLabel) : null,
     context ? h('span', { class: 'match__round match__context', title: context, text: context }) : null);
-  // "onde": o estádio com o ícone de estádio e a cidade com o pino; o nome completo do estádio
-  // fica no title (no celular ele pode aparecer cortado)
+  // "onde": o estádio com o ícone de estádio e a cidade com o pino. No celular os dois podem
+  // aparecer cortados: o nome completo fica no title e na aba Ficha ("Local"); a UF (", PE") vai
+  // num trecho à parte, que some da tela no card estreito (o leitor de tela continua lendo)
+  const [cityName, uf] = splitCity(match.city);
   const place = [
     match.venue ? h('span', { class: 'match__place-item match__place-item--venue', title: match.venue }, icon('stadium'), h('span', { class: 'visually-hidden', text: 'Estádio: ' }), h('span', { class: 'match__place-text', text: match.venue })) : null,
-    match.city ? h('span', { class: 'match__place-item match__place-item--city' }, icon('pin'), h('span', { class: 'visually-hidden', text: 'Cidade: ' }), match.city) : null,
+    match.city ? h('span', { class: 'match__place-item match__place-item--city', title: match.city }, icon('pin'), h('span', { class: 'visually-hidden', text: 'Cidade: ' }),
+      h('span', { class: 'match__place-text' }, cityName, uf ? h('span', { class: 'match__place-uf', text: uf }) : null)) : null,
   ].filter(Boolean);
   // sem estádio nem cidade: só o "quando" (replaceChildren escreveria "null")
   meta.replaceChildren(when, ...(place.length ? [h('p', { class: 'match__place' }, ...place)] : []));
@@ -583,11 +592,16 @@ function requestDetail(el, st) {
   }
 }
 
+const hasPlace = (match) => Boolean(match.venue || match.city);
+
 function availableTabs(match) {
   const tabs = [];
   if (Array.isArray(match.events) && match.events.length) tabs.push('events');
   if (match.lineups && (match.lineups.home || match.lineups.away)) tabs.push('lineups');
-  if (match.officials?.length || match.broadcasts?.length || match.stats?.length || match.attendance != null || match.revenue_cents != null) tabs.push('facts');
+  // a ficha também mostra o local (no celular, o único lugar com o nome inteiro do estádio); sem
+  // lances nem escalações, o local vai abaixo do aviso, sem aba (renderBody)
+  if (match.officials?.length || match.broadcasts?.length || match.stats?.length || match.attendance != null || match.revenue_cents != null
+    || (tabs.length && hasPlace(match))) tabs.push('facts');
   return tabs;
 }
 
@@ -617,7 +631,8 @@ function renderBody(el, st, flash) {
   const tabs = availableTabs(match);
   if (!tabs.length) {
     const text = match.status === 'scheduled' ? 'Os lances aparecem aqui quando a bola rolar.' : 'Nenhum lance registrado ainda.';
-    body.replaceChildren(h('p', { class: 'match__empty', text }));
+    body.replaceChildren(h('p', { class: 'match__empty', text }),
+      ...(hasPlace(match) ? [h('div', { class: 'tabpanel', 'data-tab': 'facts' }, renderFacts(match))] : []));
     return;
   }
   if (!tabs.includes(st.activeTab)) st.activeTab = tabs[0];
@@ -973,11 +988,22 @@ function renderLineups(match) {
 }
 
 /* ==========================================================================
-   Ficha: arbitragem, público e renda, transmissões, estatísticas
+   Ficha: local, arbitragem, público e renda, transmissões, estatísticas
    ========================================================================== */
+
+/** "Local": estádio e cidade inteiros (na faixa do card, no celular, eles podem cortar). */
+function placeFact(match) {
+  if (!hasPlace(match)) return null;
+  const dl = h('dl', { class: 'fact__list' });
+  if (match.venue) dl.append(h('dt', { text: 'Estádio' }), h('dd', { text: match.venue }));
+  if (match.city) dl.append(h('dt', { text: 'Cidade' }), h('dd', { text: match.city }));
+  return h('section', { class: 'fact fact--place' }, icon('stadium', { className: 'fact__icon' }), h('h4', { class: 'fact__title', text: 'Local' }), dl);
+}
 
 function renderFacts(match) {
   const wrap = h('div');
+  const place = placeFact(match);
+  if (place) wrap.append(place);
   const blocks = [];
   if (match.officials?.length) {
     const byRole = new Map();
@@ -1005,14 +1031,15 @@ function renderFacts(match) {
       const li = h('li', null, href
         ? h('a', { href, target: '_blank', rel: 'noopener noreferrer' }, b.name, icon('external', { label: '(abre em nova aba)' }))
         : b.name);
-      if (b.kind_label) li.append(h('span', { class: 'fact__kind', text: ` · ${b.kind_label}` }));
+      // o tipo numa linha própria, abaixo do nome (sem o "·", que sobrava no começo da linha)
+      if (b.kind_label) li.append(h('span', { class: 'fact__kind', text: b.kind_label }));
       ul.append(li);
     }
     blocks.push(h('section', { class: 'fact' }, icon(match.broadcasts.some((b) => b.kind === 'radio') && match.broadcasts.every((b) => b.kind === 'radio') ? 'radio' : 'tv', { className: 'fact__icon' }), h('h4', { class: 'fact__title', text: 'Transmissões' }), ul));
   }
   if (blocks.length) wrap.append(h('div', { class: 'facts' }, ...blocks));
   if (match.stats?.length) wrap.append(renderStats(match));
-  if (!blocks.length && match.stats?.length) wrap.lastChild.style.cssText = 'margin-top:0;border-top:0;padding-top:0';
+  if (!place && !blocks.length && match.stats?.length) wrap.lastChild.style.cssText = 'margin-top:0;border-top:0;padding-top:0';
   return wrap;
 }
 

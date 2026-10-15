@@ -503,8 +503,13 @@ COMPONENTS_JS = """async () => {
   // outras rodadas: "avança" com a seta dupla para cima no fim (sem o check antes)
   const semiAdv = koCard.querySelector('.match__tie .tie__adv');
   // atraso: linha nas observações abaixo do placar (como a do jogo de ida), com o alerta na
-  // frente; nem no placar nem na faixa do horário; some quando o jogo começa
-  const late = { ...F.MATCHES.scheduledToday, id: 559, status: 'delayed', status_label: 'Atrasado', status_note: 'Chuva forte' };
+  // frente; nem no placar nem na faixa do horário; some quando o jogo começa.
+  // Início ao meio-dia de hoje (e de amanhã) em Brasília: "hoje"/"amanhã" não dependem da hora
+  // em que o teste roda (o scheduledToday das fixtures, depois das 21h, cai no dia seguinte)
+  const { TIME_ZONE } = await import('/static/js/format.js');
+  const todayNoon = `${new Intl.DateTimeFormat('en-CA', { timeZone: TIME_ZONE }).format(new Date())}T15:00:00Z`; // 12:00 em Brasília (UTC-3)
+  const tomorrowNoon = new Date(Date.parse(todayNoon) + 24 * 3600e3).toISOString();
+  const late = { ...F.MATCHES.scheduledToday, id: 559, kickoff_at: todayNoon, status: 'delayed', status_label: 'Atrasado', status_note: 'Chuva forte' };
   const lateCard = M.createMatchCard(late, {});
   root.append(lateCard);
   const notes = lateCard.querySelector('.match__tie');
@@ -524,7 +529,7 @@ COMPONENTS_JS = """async () => {
   out.suspended = noteRows();
   out.suspendedWhen = whenShown();
   // reagendado depois da suspensão: o kickoff_at já é o da volta (igual a resumes_at)
-  const tomorrow = F.MATCHES.scheduledTomorrow.kickoff_at;
+  const tomorrow = tomorrowNoon;
   M.updateMatchCard(lateCard, { ...stopped, kickoff_at: tomorrow, resumes_at: tomorrow });
   out.suspendedMoved = noteRows();
   out.suspendedMovedWhen = whenShown();
@@ -585,6 +590,26 @@ COMPONENTS_JS = """async () => {
   out.statsTeams = [sideNames(factsPanel.querySelector('.stats > .stats__teams')), factsPanel.querySelector('.stats__teams')?.previousElementSibling?.className];
   out.timelineTeams = [sideNames(facts.querySelector('.tabpanel[data-tab="events"] > .tl-sides')), facts.querySelector('.tl-sides')?.nextElementSibling?.className];
   out.teamNames = [live.home.name, live.away.name];
+  // "Local" no começo da ficha (estádio e cidade inteiros); o tipo da transmissão numa linha
+  // própria, sem o "·" na frente
+  out.place = [factsPanel.firstElementChild?.firstElementChild?.classList.contains('fact--place'),
+    [...factsPanel.querySelectorAll('.fact--place dt, .fact--place dd')].map((x) => x.textContent), [live.venue, live.city]];
+  out.kinds = [...facts.querySelectorAll('.fact__links li')].map((li) => [li.querySelector('.fact__kind')?.textContent, getComputedStyle(li.querySelector('.fact__kind')).display]);
+  // sem nada da ficha além do local: a aba aparece se houver lances ou escalações; sem nenhum
+  // dos dois, o local vem abaixo do aviso, sem abas; sem local, nada muda
+  const opened = async (match) => {
+    const el = M.createMatchCard(match, {});
+    root.append(el);
+    el.querySelector('details').open = true;
+    await new Promise((r) => setTimeout(r, 30));
+    return [[...el.querySelectorAll('[role="tab"]')].map((t) => t.dataset.tab), el.querySelector('.match__empty')?.textContent || null,
+      [...el.querySelectorAll('.fact--place dd')].map((dd) => dd.textContent)];
+  };
+  const bare = { officials: [], broadcasts: [], stats: [], attendance: null, revenue_cents: null };
+  out.placeOnly = await opened({ ...live, ...bare, id: 561 });
+  out.noPlace = await opened({ ...live, ...bare, id: 562, venue: '', city: null });
+  out.waiting = await opened({ ...F.MATCHES.scheduledToday, id: 563, events: [], lineups: null });
+  out.waitingPlace = [F.MATCHES.scheduledToday.venue, F.MATCHES.scheduledToday.city];
 
   // 6) aviso de correção: placar do gol que caiu riscado
   const alert = M.createGoalAlert(F.LATEST_GOALS[0], { kind: 'correction', reason: 'annulled' });
@@ -649,17 +674,18 @@ def test_componentes_no_navegador(browser_page):
     assert out["delay"] == [False, "Início atrasado — Chuva forte", "#i-alert", False, False] and out["delayGone"]
     # adiado: a data da faixa é a original ("Era ..."), e a observação diz que a nova não saiu
     assert out["postponed"] == [["Jogo adiado — Falta de energia", "#i-alert"], ["Nova data a definir", "#i-calendar"]]
+    # (início fixo ao meio-dia de hoje/amanhã em Brasília: vale a qualquer hora do dia)
     when, tag, label = out["postponedWhen"]
-    assert re.fullmatch(r"Era hoje · \d\d:\d\d", when) and tag == "Era "
-    assert re.search(r" contra .+, marcado para hoje às \d\d:\d\d\. Adiado: Falta de energia$", label), label
-    assert re.fullmatch(r"Previsto hoje · \d\d:\d\d", out["delayWhen"])
+    assert when == "Era hoje · 12:00" and tag == "Era "
+    assert re.search(r" contra .+, marcado para hoje às 12:00\. Adiado: Falta de energia$", label), label
+    assert out["delayWhen"] == "Previsto hoje · 12:00"
     assert out["suspended"] == [["Jogo suspenso — Chuva forte", "#i-alert"]]
-    assert re.fullmatch(r"Início hoje · \d\d:\d\d", out["suspendedWhen"])
+    assert out["suspendedWhen"] == "Início hoje · 12:00"
     assert out["suspendedMoved"][0] == ["Jogo suspenso — Chuva forte", "#i-alert"]
-    assert out["suspendedMoved"][1][0].startswith("Retomada: amanhã às ") and out["suspendedMoved"][1][1] == "#i-calendar"
-    assert re.fullmatch(r"Retomada amanhã · \d\d:\d\d", out["suspendedMovedWhen"])
+    assert out["suspendedMoved"][1] == ["Retomada: amanhã às 12:00", "#i-calendar"]
+    assert out["suspendedMovedWhen"] == "Retomada amanhã · 12:00"
     assert out["cancelled"] == [["Jogo cancelado — Sem condições de jogo", "#i-alert"]]
-    assert re.fullmatch(r"Era hoje · \d\d:\d\d", out["cancelledWhen"])
+    assert out["cancelledWhen"] == "Era hoje · 12:00"
     assert out["walkover"][0] == [[out["walkover"][1], "#i-alert"]]
     assert out["varMinute"] == "31'"
     # 1º amarelo + o vermelho do 2º; o tipo vai no nome acessível do ícone, sem legenda repetida
@@ -676,6 +702,14 @@ def test_componentes_no_navegador(browser_page):
     home_name, away_name = out["teamNames"]
     assert out["statsTeams"] == [[home_name, away_name, "true", 2], "stats__title"]  # logo abaixo do título
     assert out["timelineTeams"] == [[home_name, away_name, "true", 2], "timeline"]  # logo acima da linha do tempo
+    # ficha: "Local" primeiro, com estádio e cidade/UF inteiros; tipo da transmissão sem "·"
+    first, place, (venue, city) = out["place"]
+    assert first and place == ["Estádio", venue, "Cidade", city] and city.endswith(", PE")
+    assert out["kinds"] == [["Streaming", "block"], ["TV aberta", "block"]]
+    tabs, empty, place = out["placeOnly"]
+    assert tabs[-1] == "facts" and "events" in tabs and empty is None and place == [venue, city]
+    assert "facts" not in out["noPlace"][0] and out["noPlace"][2] == []
+    assert out["waiting"] == [[], "Os lances aparecem aqui quando a bola rolar.", out["waitingPlace"]]
     assert (
         out["correctionStruck"]
         and out["correctionTitle"] == "Oxe! Gol anulado."
@@ -805,7 +839,16 @@ META_JS = """async () => {
     return [meta.querySelector('.pill').textContent.trim(), meta.querySelector('.match__lead time')?.textContent ?? null,
       [...meta.querySelectorAll('.match__place-item')].map((item) => [item.querySelector('use').getAttribute('href'), item.lastChild.textContent])];
   };
-  const later = F.MATCHES.scheduledToday;
+  // início fixo ao meio-dia de hoje em Brasília ("Hoje" a qualquer hora em que o teste rode)
+  const { TIME_ZONE } = await import('/static/js/format.js');
+  const todayNoon = `${new Intl.DateTimeFormat('en-CA', { timeZone: TIME_ZONE }).format(new Date())}T15:00:00Z`;
+  const later = { ...F.MATCHES.scheduledToday, kickoff_at: todayNoon };
+  const finishedToday = { ...F.MATCHES.finished, kickoff_at: todayNoon };
+  // a UF fica num trecho à parte (some da tela no card estreito)
+  const ufCard = M.createMatchCard({ ...later, id: 9302, city: 'Jaboatão dos Guararapes, PE' }, {});
+  const ufText = ufCard.querySelector('.match__place-item--city .match__place-text');
+  const uf = [ufText.firstChild.textContent, ufText.querySelector('.match__place-uf')?.textContent,
+    M.createMatchCard({ ...later, id: 9303, city: 'Exterior' }, {}).querySelectorAll('.match__place-uf').length];
   const standings = { stage_name: '1ª fase', kind: 'live', groups: [{ name: 'Grupo A', rows: [
     { rank: 1, position: 1, team: { name: 'Sport' }, points: 13, played: 5, goals_for: 11, goal_difference: 8, playing: true },
     { rank: 2, position: 2, team: { name: 'Náutico' }, points: 1, played: 5, goals_for: 3, goal_difference: -3 },
@@ -834,7 +877,7 @@ META_JS = """async () => {
     standingsImage: [blob.type, bitmap.width, bitmap.height > 236 + F.STANDINGS.groups[0].rows.length * 54 + 110],
     playingBadges: [drawn.filter((t) => t === 'JOGANDO AGORA').length, F.STANDINGS.groups[0].rows.filter((r) => r.playing).length],
     subtitle: drawn.includes('1ª FASE · RODADA 5'), noPartial: !drawn.some((t) => /parcial|em jogo agora/i.test(t)),
-    scheduled: read(later), finished: read(F.MATCHES.finished),
+    scheduled: read(later), finished: read(finishedToday), uf,
     names: [later.venue, later.city, F.MATCHES.finished.venue, F.MATCHES.finished.city],
     standings: S.standingsShareText({ competition: 'PE Raiz', stage: '1ª fase', round: 'Rodada 5', group: S.groupLabel('A') }, standings.groups[0], { url: 'https://x.test/c' }).split('\\n'),
     labels: [S.groupLabel('Grupo B'), S.groupLabel(''), S.groupLabel('A'), S.groupLabel('Chave 1')],
@@ -851,9 +894,11 @@ def test_faixa_do_card_quando_e_onde_e_classificacao_parcial(browser_page):
     assert not errors, errors
     venue, city, fin_venue, fin_city = out["names"]
     pill, when, place = out["scheduled"]  # "quando" (status, dia e hora) e "onde" (estádio e cidade, cada um com o seu ícone)
-    assert pill == "Agendado" and re.fullmatch(r"Hoje · \d\d:\d\d", when) and place == [["#i-stadium", venue], ["#i-pin", city]]
+    # (início fixo ao meio-dia de hoje em Brasília: "Hoje" a qualquer hora)
+    assert pill == "Agendado" and when == "Hoje · 12:00" and place == [["#i-stadium", venue], ["#i-pin", city]]
     pill, when, place = out["finished"]
-    assert pill == "Encerrado" and re.fullmatch(r"Hoje · \d\d:\d\d", when) and place == [["#i-stadium", fin_venue], ["#i-pin", fin_city]]
+    assert pill == "Encerrado" and when == "Hoje · 12:00" and place == [["#i-stadium", fin_venue], ["#i-pin", fin_city]]
+    assert out["uf"] == ["Jaboatão dos Guararapes", ", PE", 0]  # sem UF no fim: sem o trecho
     assert out["standingsImage"] == ["image/png", 1080, True]  # 1080 de largura, altura pelo número de times
     assert out["labels"] == ["Grupo B", "", "Grupo A", "Chave 1"]
     assert out["headings"] == ["Classificação do Grupo A", "Classificação · Chave 1", "Classificação"]
@@ -1067,19 +1112,35 @@ CARD_LAYOUT_JS = """async () => {
   const metaLines = (card) => [lines(card.querySelector('.match__lead')), lines(card.querySelector('.match__place'))];
   const out = {};
 
-  // 1) faixa no celular (card de 358 px): "quando" e "onde" numa linha cada; o estádio longo corta,
-  // a cidade fica inteira; com a rodada, no máximo 3 linhas. Desktop (700 px): sem corte.
-  const longVenue = { ...F.MATCHES.postponed, id: 9401, venue: 'Estádio Municipal Governador Paulo Guerra', city: 'São Lourenço da Mata, PE' };
+  // 1) faixa no celular (card de 358 px): "quando" e "onde" numa linha cada; com a rodada, no
+  // máximo 3 linhas. O estádio tem a prioridade: a cidade perde a UF e corta antes dele
+  // (358 px = iPhone 13; 328 px = tela de 360). Desktop (700 px): sem corte e com a UF.
+  await Promise.all(['400 14px Barlow', '600 16px "Barlow Condensed"', '700 16px "Barlow Condensed"'].map((f) => document.fonts.load(f)));
+  const longVenue = { ...F.MATCHES.postponed, id: 9401, venue: 'Estádio Municipal de Jaboatão', city: 'Jaboatão dos Guararapes, PE' };
   const kinds = { live: F.MATCHES.live, finished: F.MATCHES.finished, postponed: longVenue, cancelled: F.MATCHES.cancelled, scheduled: F.MATCHES.scheduledToday, suspended: F.MATCHES.suspended };
   out.mobile = Object.fromEntries(Object.entries(kinds).map(([k, m]) => [k, metaLines(make(m, 358))]));
   out.mobileRound = Object.fromEntries(Object.entries(kinds).map(([k, m]) => [k, metaLines(make(m, 358, { showRound: true })).reduce((a, b) => a + b)]));
+  const place = (card) => {
+    const [venue, city] = ['venue', 'city'].map((k) => card.querySelector(`.match__place-item--${k}`));
+    const [vt, ct] = [venue, city].map((item) => item.querySelector('.match__place-text'));
+    return { venueCut: vt.scrollWidth > vt.clientWidth + 1, venueShown: Math.round((100 * vt.clientWidth) / vt.scrollWidth),
+      cityCut: ct.scrollWidth > ct.clientWidth + 1, cityShown: Math.round(ct.clientWidth), ufShown: city.querySelector('.match__place-uf').getBoundingClientRect().width > 1,
+      inside: card.querySelector('.match__place').getBoundingClientRect().right <= card.getBoundingClientRect().right + 0.5 };
+  };
+  out.place = Object.fromEntries([328, 358, 700].map((width) => [width, place(make(longVenue, width))]));
   const cut = make(longVenue, 358);
-  const text = cut.querySelector('.match__place-text');
-  const city = cut.querySelector('.match__place-item--city');
-  out.cut = [text.scrollWidth > text.clientWidth, city.scrollWidth <= city.clientWidth + 1, city.textContent, cut.querySelector('.match__place-item--venue').title,
-    cut.querySelector('.match__place').getBoundingClientRect().right <= cut.getBoundingClientRect().right];
-  const wide = make(longVenue, 700).querySelector('.match__place-text');
-  out.desktopUncut = wide.scrollWidth <= wide.clientWidth + 1;
+  out.placeText = [cut.querySelector('.match__place-item--city').textContent, cut.querySelector('.match__place-item--venue').title, cut.querySelector('.match__place-item--city').title];
+  // o "onde" fica fora da área de toque do botão de compartilhar (o ::after de 44 px)
+  const touchFree = (card) => {
+    const share = card.querySelector('.match__share');
+    const s = share.getBoundingClientRect();
+    const ext = -parseFloat(getComputedStyle(share, '::after').top);
+    return [ext, [...card.querySelectorAll('.match__place-item')].every((item) => {
+      const r = item.getBoundingClientRect();
+      return r.right <= s.left - ext || r.left >= s.right + ext || r.top >= s.bottom + ext || r.bottom <= s.top - ext;
+    })];
+  };
+  out.touchFree = Object.fromEntries([328, 358, 400, 540].map((width) => [width, touchFree(make(longVenue, width))]));
 
   // 2) lances no celular: faixa dos times no topo, presa ao rolar; lados mais largos
   const live = make(F.MATCHES.live, 358);
@@ -1104,14 +1165,22 @@ CARD_LAYOUT_JS = """async () => {
     { role: 'var', role_label: 'VAR', name: 'Everton Freitas Monteiro', state: 'CE' }],
     attendance: 24339, revenue_cents: 126572600 };
   const facts = {};
+  // o tipo de cada transmissão numa linha própria, abaixo do nome (sem "·" abrindo a linha)
+  const nameRect = (li) => { const r = document.createRange(); r.selectNode(li.firstChild); return r.getBoundingClientRect(); };
   for (const width of [358, 768]) {
     const card = make(long, width);
     await open(card, 'facts');
-    const [officials, other] = [...card.querySelectorAll('.fact')].map((f) => f.getBoundingClientRect());
+    const [officials, other] = [...card.querySelectorAll('.facts > .fact')].map((f) => f.getBoundingClientRect());
     facts[width] = { oneLine: [...card.querySelectorAll('.fact__person')].every((p) => p.getClientRects().length === 1 && p.getBoundingClientRect().height < 30),
-      officialsWider: officials.width > other.width, sideBySide: Math.round(officials.top) === Math.round(other.top) };
+      officialsWider: officials.width > other.width, sideBySide: Math.round(officials.top) === Math.round(other.top),
+      kindBelow: [...card.querySelectorAll('.fact__links li')].map((li) => { const k = li.querySelector('.fact__kind'); return !!k && !k.textContent.includes('·') && k.getBoundingClientRect().top >= nameRect(li).bottom - 1; }) };
   }
   out.facts = facts;
+  // sem arbitragem: duas colunas iguais (a coluna larga é só da arbitragem)
+  const noRef = make({ ...long, id: 9403, officials: [] }, 768);
+  await open(noRef, 'facts');
+  const [attendance, broadcasts] = [...noRef.querySelectorAll('.facts > .fact')].map((f) => f.getBoundingClientRect());
+  out.factsNoOfficials = [Math.abs(attendance.width - broadcasts.width) <= 1, Math.round(attendance.top) === Math.round(broadcasts.top)];
 
   // 4) selo "Encerrado" discreto (tonal) e legível nos dois temas; "Ao vivo" continua o destaque
   const rgb = (c) => (c.startsWith('#') ? [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16)) : c.match(/[\\d.]+/g).slice(0, 3).map(Number));
@@ -1144,12 +1213,22 @@ def test_card_faixa_lances_ficha_e_selo_no_celular_e_no_desktop(browser_page):
     }, out["mobile"]
     assert out["mobile"]["suspended"][1] == 1 and sum(out["mobile"]["suspended"]) <= 3
     assert all(total <= 3 for total in out["mobileRound"].values()), out["mobileRound"]  # com a rodada
-    assert out["cut"] == [True, True, "Cidade: São Lourenço da Mata, PE", "Estádio Municipal Governador Paulo Guerra", True]
-    assert out["desktopUncut"]
+    # celular: o estádio inteiro (358) ou quase (328); a cidade, sem a UF na tela, corta antes;
+    # leitor de tela e title com tudo. Desktop: nada cortado, com a UF
+    p328, p358, p700 = (out["place"][w] for w in ("328", "358", "700"))
+    assert not p358["venueCut"] and p358["cityCut"] and not p358["ufShown"] and p358["inside"], p358
+    assert p328["venueShown"] >= 85 and p328["cityCut"] and p328["cityShown"] >= 50 and not p328["ufShown"] and p328["inside"], p328
+    assert not p700["venueCut"] and not p700["cityCut"] and p700["ufShown"], p700
+    assert out["placeText"] == ["Cidade: Jaboatão dos Guararapes, PE", "Estádio Municipal de Jaboatão", "Jaboatão dos Guararapes, PE"]
+    # o "onde" não fica sob a área de toque (44 px) do botão de compartilhar
+    assert all(v == [6, True] for v in out["touchFree"].values()), out["touchFree"]
     # lances: lados com mais largura no celular; faixa dos times presa no topo ao rolar
     assert out["sideWidth"] >= 145, out["sideWidth"]
     assert out["sticky"] == "sticky" and out["stuckTop"] == 0 and out["coversItems"]
     # ficha: no desktop, a arbitragem ao lado de público e renda, mais larga; nomes sem quebrar
+    kinds = out["facts"]["768"].pop("kindBelow")
     assert out["facts"]["768"] == {"oneLine": True, "officialsWider": True, "sideBySide": True}
     assert out["facts"]["358"]["oneLine"] and not out["facts"]["358"]["sideBySide"]
+    assert kinds and all(kinds) and all(out["facts"]["358"]["kindBelow"]), out["facts"]
+    assert out["factsNoOfficials"] == [True, True]  # sem arbitragem: colunas iguais, lado a lado
     assert out["pills"] == {t: {"text": True, "quiet": True, "liveLoud": True} for t in ("light", "dark")}

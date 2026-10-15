@@ -794,16 +794,27 @@
   /* compartilhar: no canto de cima, a faixa de meta deixa o espaço do botão */
   .match--shareable > .match__meta { padding-inline: 46px; } /* centrado, longe do botão */
   .match__lead { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px var(--s-3); min-width: 0; max-width: 100%; }
-  /* no celular, "onde" numa linha só: o estádio corta com reticências (nome completo no title),
-     a cidade fica inteira */
+  /* no celular, "onde" numa linha só, com o estádio em primeiro: a cidade perde a UF e corta com
+     reticências antes dele (nome completo no title e na aba Ficha) */
   .match__place { display: flex; flex-wrap: nowrap; justify-content: center; align-items: center; gap: 2px var(--s-3); min-width: 0; max-width: 100%; margin: 0; color: var(--ink-3); font-size: 0.875rem; }
   .match__place-item { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
   .match__place-item--venue { flex: 0 1 auto; }
   .match__place-item--city { flex: none; white-space: nowrap; }
   .match__place-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   @container match (max-width: 559px) {
-    /* "onde" fica abaixo do botão de compartilhar: usa a largura do card, sem o recuo do botão */
+    /* "onde" usa a largura do card, sem o recuo do botão de compartilhar, mas abaixo da área de
+       toque dele (7 + 32 + 6 px do topo): a linha do "quando" tem pelo menos a altura do botão
+       (e fica centrada com ele) */
+    .match--shareable > .match__meta { grid-template-rows: minmax(32px, auto); }
     .match--shareable > .match__meta > .match__place { margin: 2px -30px 0; max-width: calc(100% + 60px); }
+    /* o estádio fica inteiro enquanto sobrarem 5,5em para a cidade; a cidade encolhe primeiro
+       (a linha ocupa a largura toda, para o limite não depender do próprio conteúdo) */
+    .match__place { justify-self: stretch; }
+    .match__place-item--venue { flex: none; }
+    .match__place-item--venue:not(:only-child) { max-width: calc(100% - var(--s-3) - 5.5em); }
+    .match__place-item--city { flex: 0 1 auto; }
+    /* a UF (", PE") sai da tela, mas não do leitor de tela */
+    .match__place-uf { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   }
   .match__place .icon { flex: none; width: 15px; height: 15px; color: var(--ink-3); }
   .match__share { position: absolute; top: 7px; right: 8px; }
@@ -1344,15 +1355,21 @@
   .fact__list { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px var(--s-3); font-size: 0.875rem; }
   .fact__list dt { color: var(--ink-3); }
   .fact__list dd { color: var(--ink); overflow-wrap: anywhere; }
-  .fact__links { display: flex; flex-wrap: wrap; gap: 4px var(--s-3); margin: 0; padding: 0; list-style: none; font-size: 0.875rem; }
+  .fact__links { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: 0.875rem; }
   .fact__links a { display: inline-flex; align-items: center; gap: 4px; }
   .fact__links .icon { width: 14px; height: 14px; }
-  .fact__kind { color: var(--ink-3); font-size: 0.75rem; white-space: nowrap; }
+  .fact__kind { display: block; color: var(--ink-3); font-size: 0.75rem; } /* o tipo na linha de baixo */
   .fact__person { display: inline-block; } /* o nome quebra inteiro para a linha de baixo */
+  /* "Local" (estádio e cidade inteiros) antes dos outros blocos, na largura toda; sem lances nem
+     escalações, vem logo abaixo do aviso */
+  .fact--place + .facts { margin-top: var(--s-4); }
+  .match__body > .match__empty + .tabpanel { padding-top: 0; }
   /* tela larga: a arbitragem (nomes longos) na coluna larga; público e renda e transmissões
-     empilhados ao lado (em três colunas iguais, os nomes quebravam em três linhas) */
+     empilhados ao lado (em três colunas iguais, os nomes quebravam em três linhas). Sem a
+     arbitragem, duas colunas iguais */
   @container match (min-width: 640px) {
-    .facts { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 0; }
+    .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; }
+    .facts:has(> .fact--officials) { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
     .fact { padding: 0 var(--s-4); }
     .fact:first-child { padding-left: 0; }
     .fact:only-child { grid-column: 1 / -1; }

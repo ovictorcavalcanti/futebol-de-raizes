@@ -1798,7 +1798,15 @@ META_LINES_JS = """() => [...document.querySelectorAll('article.match')].map((ca
   // linhas de um bloco flex: centros verticais distintos dos filhos (alinhados ao centro)
   const lines = (el) => (el ? new Set([...el.children].map((c) => c.getBoundingClientRect()).filter((r) => r.height > 1)
     .map((r) => Math.round((r.top + r.bottom) / 2))).size : 0);
-  return { id: card.dataset.matchId, status: card.dataset.status,
+  // o "onde" fora da área de toque do botão de compartilhar (o ::after de 44 px)
+  const share = card.querySelector(':scope > .match__share');
+  const s = share?.getBoundingClientRect();
+  const ext = share ? -parseFloat(getComputedStyle(share, '::after').top) : 0;
+  const touched = share ? [...card.querySelectorAll('.match__place-item')].some((item) => {
+    const r = item.getBoundingClientRect();
+    return r.right > s.left - ext && r.left < s.right + ext && r.top < s.bottom + ext && r.bottom > s.top - ext;
+  }) : false;
+  return { id: card.dataset.matchId, status: card.dataset.status, touched,
     when: lines(card.querySelector('.match__lead')), where: lines(card.querySelector('.match__place')) };
 }).filter((c) => c.when)"""
 
@@ -1806,14 +1814,15 @@ META_LINES_JS = """() => [...document.querySelectorAll('article.match')].map((ca
 @pytest.mark.parametrize("width", [360, 390])
 @pytest.mark.parametrize("url", ["/", "/competition.html?slug=copa-pernambuco"])
 def test_faixa_do_card_no_celular_em_ate_tres_linhas(open_page, url, width):
-    """Celular: "onde" numa linha só (o estádio corta com reticências, a cidade fica inteira) e a
-    faixa toda em até 3 linhas (normalmente 2: "quando" e "onde"; rodada/fase cabe numa a mais)."""
+    """Celular: "onde" numa linha só (o estádio tem a prioridade; a cidade perde a UF e corta com
+    reticências antes dele), fora da área de toque do botão de compartilhar, e a faixa toda em
+    até 3 linhas (normalmente 2: "quando" e "onde"; rodada/fase cabe numa a mais)."""
     page, _, errors = open_page(url, width=width)
     page.wait_for_selector("article.match .match__meta")
     page.wait_for_timeout(200)
     cards = page.evaluate(META_LINES_JS)
     assert cards
-    bad = [c for c in cards if c["where"] > 1 or c["when"] + c["where"] > 3]
+    bad = [c for c in cards if c["where"] > 1 or c["when"] + c["where"] > 3 or c["touched"]]
     assert not bad, bad
     assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
     assert not errors, errors

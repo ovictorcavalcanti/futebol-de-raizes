@@ -120,6 +120,15 @@ linha do tempo de dois lados, escalações, ficha — com ganhos de UX:
 6. **Acessibilidade**: `aria-label` no placar ("Sport 2 a 1 Náutico"), status em
    texto, foco visível, cor nunca é o único sinal.
 
+**Imagem da classificação** (botão de ícone de compartilhar no canto do card de cada grupo):
+PNG de 1080 px de largura, alto o bastante para a tabela toda (até uns 8 times cabe em 4:5,
+o formato do feed do Instagram). Cabeçalho azul com a logo, o título da competição e a temporada em
+Alfa Slab One e a fase e o grupo em Barlow Condensed amarelo (com "AO VIVO" quando há jogo em
+andamento); faixa de frevo; a tabela completa num card branco (#, Time, P, J, V, E, D, GP, GC,
+SG, %), com faixa de zona, escudo, `*` de punição e `=` de empate; embaixo, as legendas (zonas,
+punições, empate e o significado das siglas) e o rodapé azul com a fonte ("Fonte: Futebol de
+Raízes · futebolderaizes.com") e a hora da atualização (Brasília).
+
 ## 7. Layout
 
 * Mobile first; quebras em 640, 960 e 1200 px; conteúdo até 1200 px; margem

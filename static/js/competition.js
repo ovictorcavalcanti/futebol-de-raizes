@@ -11,7 +11,7 @@
 import { renderCompetitionNav, showToast } from './render.js';
 import { ServerClock, mountClock } from './clock.js';
 import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createTieGroup, tiesFromMatches, syncTieCards, refreshMatchCards, sortMatchesForDisplay } from './match-card.js';
-import { createStandings, updateStandings } from './standings.js';
+import { createStandings, updateStandings, setStandingsShare } from './standings.js';
 import { createGroupRows, updateGroupRows, createMatchGroupBlocks } from './group-rows.js';
 import { getCompetitions, getCompetition, listMatches, getMatch, getRanking } from './api.js';
 import { createStream, liveStatusIndicator } from './stream.js';
@@ -68,6 +68,11 @@ const state = {
   seq: 0, // ignora respostas fora de ordem (troca rápida de rodada/fase)
 };
 let stream = null;
+// imagem da classificação: o título leva o nome da competição e a temporada
+setStandingsShare(() => {
+  const { competition, season } = state.data || {};
+  return { competition: competition?.name || '', season: season ? season.label || String(season.year || '') : '' };
+});
 let clockMounted = false;
 
 const toInt = (value) => (value != null && /^\d+$/.test(String(value)) ? Number(value) : null);

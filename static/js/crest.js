@@ -5,7 +5,7 @@
 import { s } from './render.js';
 
 const HEX = /^#[0-9a-f]{6}$/i;
-const SHIELD = 'M20 2.5 37 7.5V21c0 10.6-6.8 18.6-17 22.5C9.8 39.6 3 31.6 3 21V7.5Z';
+export const SHIELD = 'M20 2.5 37 7.5V21c0 10.6-6.8 18.6-17 22.5C9.8 39.6 3 31.6 3 21V7.5Z';
 let uid = 0;
 
 function luminance(hex) {

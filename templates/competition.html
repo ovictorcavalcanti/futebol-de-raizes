@@ -26,12 +26,22 @@
       <span class="frevo frevo--short" aria-hidden="true"></span>
     </div>
     <div class="controls">
-      <div class="field controls__stage">
-        <label class="field__label" for="stage-select">Fase</label>
-        <span class="select">
-          <select id="stage-select" data-hook="stage-select" disabled></select>
-          <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg>
-        </span>
+      <div class="controls__fields">
+        <div class="field controls__stage">
+          <label class="field__label" for="stage-select">Fase</label>
+          <span class="select">
+            <select id="stage-select" data-hook="stage-select" disabled></select>
+            <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+          </span>
+        </div>
+        {# mais de uma classificação pública (a da fase e as gerais/personalizadas): troca só a tabela (competition.js) #}
+        <div id="standings-field" class="field controls__stage" data-hook="standings-field" hidden>
+          <label class="field__label" for="standings-select">Classificação</label>
+          <span class="select">
+            <select id="standings-select" data-hook="standings-select"></select>
+            <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+          </span>
+        </div>
       </div>
       <nav class="round-nav" aria-label="Rodadas" data-hook="round-nav">
         <button id="round-prev" type="button" class="btn btn--secondary btn--icon" data-hook="round-prev" aria-label="Rodada anterior" disabled>
@@ -58,8 +68,6 @@
       </div>
     </section>
     <aside class="split__aside stack" aria-label="Classificação e confrontos" data-hook="aside">
-      {# botões: tabela da fase × classificações gerais/personalizadas (competition.js) #}
-      <div id="standings-switch" class="cluster standings-switch" role="group" aria-label="Classificação exibida" data-hook="standings-switch" hidden></div>
       <div id="stage-standings" data-hook="standings"></div>
       <div id="ranking-standings" data-hook="ranking-standings" aria-live="polite" hidden></div>
       <section id="stage-ties" class="ties" data-hook="ties" aria-labelledby="ties-title" hidden>

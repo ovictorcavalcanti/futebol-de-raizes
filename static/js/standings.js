@@ -83,8 +83,6 @@ function teamCell(row) {
         h('span', { class: 'team-cell__name', title: team.name, text: team.name || team.short_name || '' }),
         h('abbr', { class: 'team-cell__short', title: team.name, text: team.short_name || team.name || '' }),
         zoneName ? h('span', { class: 'visually-hidden', text: `, zona: ${zoneName}` }) : null,
-        // classificação "posição nos grupos": de que grupo é cada time
-        row.group ? h('span', { class: 'team-cell__group', text: row.group }) : null,
       ),
       row.playing ? h('span', { class: 'live-dot', title: 'Em jogo agora' }) : null,
       row.playing ? h('span', { class: 'visually-hidden', text: ', em jogo agora' }) : null,

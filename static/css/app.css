@@ -272,8 +272,7 @@
     gap: var(--s-5);
     align-items: start;
   }
-  /* empilhado (celular/tablet): o aside sobe quando é o resumo (confrontos do mata-mata) ou,
-     na fase de grupos, quando outra classificação está na tela (os botões não saem do lugar) */
+  /* empilhado (celular/tablet): o aside sobe quando é o resumo (confrontos do mata-mata) */
   @media (max-width: 959.98px) {
     .split--aside-first > .split__aside { order: -1; }
   }
@@ -1486,7 +1485,7 @@
   /* Fase de grupos: os jogos separados por grupo, com o nome do grupo em cima. */
   .matches.match-groups { gap: var(--s-6); }
   .match-group { display: grid; gap: var(--s-3); }
-  .match-group__title { margin: 0; font-family: var(--font-num); font-weight: 700; font-size: 0.875rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+  .match-group__title { margin: 0; font-family: var(--font-num); font-weight: 700; font-size: 0.875rem; line-height: 1.25rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
   .match-group__games { display: grid; gap: var(--s-5); }
   /* Competição, fase de grupos com a tabela: uma linha por grupo — jogos à esquerda, tabela
      do grupo à direita, alinhada com o primeiro jogo; mesmas colunas de .split. */
@@ -1497,7 +1496,6 @@
     .group-row { grid-template-columns: minmax(0, 1fr) minmax(320px, 380px); column-gap: var(--s-5); }
     .group-row > * { grid-column: 1; }
     .group-row > .group-row__table { grid-column: 2; grid-row: 2; }
-    .group-row--head > * { grid-column: 2; }
   }
   @media (min-width: 1200px) {
     .group-row { grid-template-columns: minmax(0, 1fr) 400px; column-gap: var(--s-6); }
@@ -1632,8 +1630,11 @@
   .dialog__foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s-2); padding: var(--s-3) var(--s-5) var(--s-4); border-top: 1px solid var(--line); background: color-mix(in srgb, var(--surface-2) 45%, var(--surface)); }
 
   /* --- Segmentado, interruptor ---------------------------------------------------- */
-  .standings-switch { gap: var(--s-2); flex-wrap: wrap; }
-  .team-cell__group { margin-left: var(--s-2); font-size: 0.75rem; font-weight: 600; color: var(--ink-3); white-space: nowrap; }
+  @media (min-width: 960px) {
+    /* fase de grupos com outra classificação: a tabela começa junto do primeiro jogo (desce o título do
+       grupo e o respiro até o card, como .group-row__table) */
+    .split--groups-ranking > .split__aside { margin-top: calc(1.25rem + var(--s-3)); }
+  }
   .segmented { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: var(--s-2); }
   .segmented__option { position: relative; }
   .segmented__option input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
@@ -1705,6 +1706,8 @@
   .comp-hero { display: grid; gap: var(--s-4); }
   .comp-hero__title { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-2) var(--s-3); }
   .comp-hero__season { font-family: var(--font-num); font-weight: 700; font-size: 1.375rem; color: var(--ink-3); }
+  /* fase e classificação lado a lado (no celular, uma abaixo da outra); a rodada à direita */
+  .controls__fields { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s-3); flex: 1 1 auto; min-width: 0; }
   .controls__stage { min-width: min(260px, 100%); flex: 1 1 220px; max-width: 360px; }
 
   /* --- Operador ----------------------------------------------------------------------- */

@@ -5,8 +5,9 @@
  * critérios de desempate na ordem configurada e punições em pontos (marca "*" nos
  * pontos ajustados e a lista com o motivo embaixo da legenda).
  *
- * As mesmas colunas em todas as larguras: # Time P J V E D GP SG (GC fica só na imagem
- * compartilhada). No contêiner estreito, o nome do time vira a sigla (CSS).
+ * As mesmas colunas em todas as larguras: # Time P J V E D GP SG; com `full` (a classificação
+ * em largura toda da página da competição), todas as da linha: # Time P J V E D GP GC SG. No
+ * contêiner estreito, o nome do time vira a sigla (CSS).
  *
  * Nada de regra aqui: ordem, zonas, cores e critérios chegam prontos do back.
  */
@@ -25,6 +26,8 @@ const COLUMNS = [
   { key: 'goals_for', label: 'GP', title: 'Gols pró', cls: 'col-gp' },
   { key: 'goal_difference', label: 'SG', title: 'Saldo de gols', cls: 'col-sg' },
 ];
+/** `full`: os gols contra entre os pró e o saldo (# Time P J V E D GP GC SG). */
+const FULL_COLUMNS = [...COLUMNS.slice(0, 6), { key: 'goals_against', label: 'GC', title: 'Gols contra', cls: 'col-gc' }, COLUMNS[6]];
 /** O ponto vermelho de quem está em campo: o mesmo nome no título, no leitor de tela e na legenda. */
 const PLAYING = 'Jogando agora';
 const TIED = 'Empatados em todos os critérios de desempate';
@@ -98,8 +101,13 @@ function captionText(standings, group, multiple, opts) {
   return withStage && standings.stage_name ? `Classificação · ${standings.stage_name}` : 'Classificação';
 }
 
+/** `opts.heading` ({level, id}): o título é um cabeçalho dentro do <caption> (a classificação em
+ *  largura toda, que é o conteúdo da página: o nome aparece uma vez, no alto do card). */
 function groupCaption(standings, group, multiple, anyPlaying, opts) {
-  return h('caption', null, captionText(standings, group, multiple, opts),
+  const text = captionText(standings, group, multiple, opts);
+  const heading = opts.heading && !multiple ? opts.heading : null;
+  return h('caption', null,
+    heading ? h(`h${heading.level || 2}`, { class: 'standings__heading', id: heading.id || null, text }) : text,
     standings.kind === 'live' && anyPlaying ? h('span', { class: 'badge badge--live', text: 'Ao vivo' }) : null,
   );
 }
@@ -137,10 +145,11 @@ function groupTable(standings, group, opts, multiple, last) {
   const rows = group.rows || [];
   const anyPlaying = rows.some((r) => r.playing);
   const highlight = opts.highlightTeamIds;
+  const columns = opts.full ? FULL_COLUMNS : COLUMNS;
   const thead = h('thead', null, h('tr', null,
     h('th', { scope: 'col', class: 'col-pos' }, h('abbr', { title: 'Posição', text: '#' })),
     h('th', { scope: 'col', class: 'col-team', text: 'Time' }),
-    ...COLUMNS.map((c) => h('th', { scope: 'col', class: c.cls }, h('abbr', { title: c.title, text: c.label }))),
+    ...columns.map((c) => h('th', { scope: 'col', class: c.cls }, h('abbr', { title: c.title, text: c.label }))),
   ));
   const tbody = h('tbody', null, ...rows.map((row) => {
     const zone = row.zone && HEX.test(row.zone.color || '') ? row.zone.color : null;
@@ -154,7 +163,7 @@ function groupTable(standings, group, opts, multiple, last) {
         row.tied ? h('abbr', { class: 'tied-mark', title: 'Empatado em todos os critérios de desempate', text: '=' }) : null,
       ),
       teamCell(row),
-      ...COLUMNS.map((c) => (c.key === 'points'
+      ...columns.map((c) => (c.key === 'points'
         ? pointsCell(row, c)
         : h('td', { class: c.cls, text: c.key === 'goal_difference' ? signed(row[c.key] ?? 0) : (row[c.key] ?? 0) }))),
     );
@@ -223,13 +232,15 @@ function footer(standings, opts, { adjustments = [], criteria = true, rows = [] 
 /**
  * Classificação de uma fase (StageStandingsOut, CONTRACT §3).
  * @param {object} standings StageStandingsOut
- * @param {{compact?: boolean, legend?: boolean, criteria?: boolean, stageTitle?: boolean, highlightTeamIds?: Set<number>, share?: object}} [opts]
+ * @param {{compact?: boolean, full?: boolean, heading?: {level?: number, id?: string}, legend?: boolean, criteria?: boolean, stageTitle?: boolean, highlightTeamIds?: Set<number>, share?: object}} [opts]
  *   compact: classe standings--compact (as colunas são as mesmas: # Time P J V E D GP SG);
+ *   full: classe standings--full e todas as colunas da linha (# Time P J V E D GP GC SG);
+ *   heading: {level, id} — o título da tabela de grupo único vira um cabeçalho (<h2 id> no <caption>);
  *   stageTitle: o título diz a fase ("Classificação · 2º turno"; padrão: temporada com mais de uma fase).
  * @returns {HTMLElement} <div class="standings">
  */
 export function createStandings(standings, opts = {}) {
-  const el = h('div', { class: ['standings', opts.compact && 'standings--compact'], 'data-stage-id': standings?.stage_id });
+  const el = h('div', { class: ['standings', opts.compact && 'standings--compact', opts.full && 'standings--full'], 'data-stage-id': standings?.stage_id });
   updateStandings(el, standings, opts);
   return el;
 }
@@ -245,6 +256,7 @@ export function updateStandings(el, standings, opts = undefined) {
   opts = { ...(OPTIONS.get(el) || {}), ...(opts || {}) };
   OPTIONS.set(el, opts);
   el.classList.toggle('standings--compact', !!opts.compact);
+  el.classList.toggle('standings--full', !!opts.full);
   const groups = standings?.groups || [];
   const multiple = groups.length > 1;
   const parts = groups.map((g, i) => groupTable(standings, g, opts, multiple, i === groups.length - 1));

@@ -93,9 +93,15 @@ def test_competicao_ganchos_e_modulos(client):
         'id="round-prev"',
         'id="round-next"',
         'id="competition-missing"',
+        'id="rankings-menu"',
+        'aria-controls="rankings-list"',
+        'id="round-bar"',
+        'id="round-share"',
+        'id="ranking-view"',
         "js/competition.js",
     ):
         assert hook in html, hook
+    assert 'id="standings-switch"' not in html  # o alternador de tabela saiu: as outras no menu
     for module in ("api.js", "stream.js"):
         assert f'rel="modulepreload" href="/static/js/{module}"' in html, module
 
@@ -346,6 +352,7 @@ class FakeApi:
         self.status_posts = []  # POST /api/ops/matches/:id/status
         self.rankings = []  # RankingRef da competição (botões ao lado da tabela)
         self.ranking_stage_ids = []  # fases somadas por GET /api/rankings/{id}
+        self.ranking_rows = None  # linhas de GET /api/rankings/{id} (padrão: as de STANDINGS)
         self.round_matches = None  # MatchOut de GET /api/matches?roundId= (padrão: scheduledToday)
         self.competition = None  # CompetitionOut de GET /api/competitions/:slug (padrão: COMPETITION)
         self.home = None  # HomeOut de GET /api/home (padrão: HOME)
@@ -464,7 +471,8 @@ class FakeApi:
                     "scope": ref["scope"],
                     "stage_ids": self.ranking_stage_ids,
                     # a classificação é um "grupo" com o nome dela (standings/services.py)
-                    "groups": [{**copy.deepcopy(self.fx["STANDINGS"]["groups"][0]), "id": None, "name": ref["name"]}],
+                    "groups": [{**copy.deepcopy(self.fx["STANDINGS"]["groups"][0]), "id": None, "name": ref["name"],
+                                **({"rows": copy.deepcopy(self.ranking_rows)} if self.ranking_rows is not None else {})}],
                 },
             )
         if path == "/api/matches":
@@ -976,7 +984,7 @@ def test_competicao_rodadas_fase_e_slug_inexistente(open_page, fixtures):
     assert first["url"] == "?slug=copa-pernambuco&stage=7&round=30"
     # compartilhar os resultados: o mesmo botão da home ("Compartilhar" no celular, 44 px de altura)
     share = page.locator("#round-share")
-    assert share.get_attribute("class") == "btn btn--ghost btn--sm controls__share"
+    assert share.get_attribute("class") == "btn btn--ghost btn--sm round-bar__share"
     assert share.inner_text().strip() == "Compartilhar" and share.bounding_box()["height"] >= 44
     assert share.get_attribute("aria-label") == "Compartilhar os resultados no WhatsApp"
     page.click("#round-next")
@@ -1003,7 +1011,7 @@ def test_competicao_rodadas_fase_e_slug_inexistente(open_page, fixtures):
     )
     # fase de grupos: uma linha por grupo (na ordem da tabela), com os jogos e a tabela dele; o
     # jogo entre grupos (pelos times da tabela) numa seção à parte, sem tabela
-    rows = "() => [...document.querySelectorAll('#round-matches .group-row:not(.group-row--head)')].map((g) => [g.querySelector('.match-group__title').textContent, g.querySelectorAll('.match').length, g.querySelector('.group-row__empty')?.textContent || '', g.querySelector('.group-row__table caption')?.textContent || ''])"
+    rows = "() => [...document.querySelectorAll('#round-matches .group-row')].map((g) => [g.querySelector('.match-group__title').textContent, g.querySelectorAll('.match').length, g.querySelector('.group-row__empty')?.textContent || '', g.querySelector('.group-row__table caption')?.textContent || ''])"
     # rodada mista (caso raro): a seção entre grupos traz também as tabelas dos dois grupos
     assert page.evaluate(rows) == [["Grupo A", 1, "", "Grupo A"], ["Grupo B", 1, "", "Grupo B"], ["Jogos entre grupos", 1, "", "Grupo A"]]
     assert page.evaluate("[...document.querySelectorAll('#round-matches .group-row--cross caption')].map((c) => c.firstChild.textContent)") == ["Grupo A", "Grupo B"]
@@ -1110,8 +1118,8 @@ def test_competicao_classificacao_geral_atualiza_com_partida_do_mata_mata(open_p
         api.rankings = [{"id": 5, "name": "Geral", "scope": "overall"}]
         api.ranking_stage_ids = [6, 7]
 
-    page, api, errors = open_page("/competition.html?slug=copa-pernambuco", prepare=prepare)
-    page.wait_for_selector("#ranking-standings:not([hidden]) .standings")
+    page, api, errors = open_page("/competition.html?slug=copa-pernambuco&tabela=5", prepare=prepare)
+    page.wait_for_selector("#ranking-view:not([hidden]) #ranking-standings .standings")
 
     def ranking_gets():
         return sum(1 for r in api.requests if r[0] == "GET" and r[1] == "/api/rankings/5")
@@ -1168,10 +1176,9 @@ def test_competicao_classificacao_geral_nao_perde_gol_anulado(open_page, fixture
         api.ranking_stage_ids = [6, 7]
 
     page, api, errors = open_page("/competition.html?slug=copa-pernambuco&stage=6", prepare=prepare)
-    page.wait_for_selector("#standings-switch button")
+    page.wait_for_selector("#rankings-menu:not([hidden])")
     ping = _sse([("ping", {"server_time": _now_iso()}, None)])
     api.streams = [ping]
-    switch = page.locator("#standings-switch")
 
     def ranking_gets():
         return sum(1 for r in api.requests if r[0] == "GET" and r[1] == "/api/rankings/5")
@@ -1189,18 +1196,18 @@ def test_competicao_classificacao_geral_nao_perde_gol_anulado(open_page, fixture
         page.wait_for_timeout(300)
 
     with refetches_ranking():
-        switch.get_by_role("button", name="Geral").click()
-    # classificação geral na lateral: os jogos por grupo, e o jogo entre grupos à parte
-    assert page.evaluate("[...document.querySelectorAll('#round-matches .match-group')].map((g) => [g.querySelector('.match-group__title').textContent, g.querySelectorAll('.match').length])") == [["Grupo A", 1], ["Grupo B", 1], ["Jogos entre grupos", 1]]
+        _choose_ranking(page, "Geral")
+    # a classificação no lugar dos jogos (os cards continuam montados, escondidos)
+    assert page.evaluate("[document.getElementById('competition-grid').hidden, document.getElementById('ranking-view').hidden, document.querySelectorAll('#round-matches .match').length]") == [True, False, 3]
     with refetches_ranking():
         deliver(score(1), 4183)
     assert ranking_gets() == 2
 
-    # com a tabela da fase na tela chega o 2x0; de volta à classificação, ela mostra o 2x0
-    switch.get_by_role("button", name="Por grupo").click()
+    # com os jogos na tela chega o 2x0; de volta à classificação, ela mostra o 2x0
+    page.click("#ranking-back")
     deliver(score(2), 4184)
     with refetches_ranking():
-        switch.get_by_role("button", name="Geral").click()
+        _choose_ranking(page, "Geral")
     assert ranking_gets() == 3
     with refetches_ranking():  # gol anulado: volta ao 1x0 (já visto antes da troca)
         deliver(score(1), 4185)
@@ -1214,12 +1221,12 @@ def test_competicao_classificacao_geral_nao_perde_gol_anulado(open_page, fixture
         deliver(score(1), 4187)
     assert ranking_gets() == 6
 
-    # o 2x0 chega no meio da carga (da tabela da fase para "Geral"): as fases somadas ainda
-    # não chegaram e a resposta pode vir velha; ao fim da carga, busca de novo
-    switch.get_by_role("button", name="Por grupo").click()
+    # o 2x0 chega no meio da carga (dos jogos para "Geral"): as fases somadas ainda não
+    # chegaram e a resposta pode vir velha; ao fim da carga, busca de novo
+    page.click("#ranking-back")
     held = []  # segura a primeira resposta da classificação
     page.route(lambda url: "/api/rankings/5" in url, lambda route: route.fallback() if held else held.append(route))
-    switch.get_by_role("button", name="Geral").click()
+    _choose_ranking(page, "Geral")
     for _ in range(50):
         if held:
             break
@@ -1235,113 +1242,283 @@ def test_competicao_classificacao_geral_nao_perde_gol_anulado(open_page, fixture
     assert not errors, errors
 
 
-def test_competicao_melhores_segundos_troca_no_lugar_dos_botoes(open_page, fixtures):
-    """Fase de grupos com outra classificação: os botões dizem o tipo de tabela ("Por grupo", não
-    o nome da fase, que é o do seletor "Fase"). No celular, tocar não tira os botões do lugar: a
-    tabela escolhida aparece logo abaixo deles, antes dos jogos, e o foco fica no botão tocado; os
-    botões têm alvo de 44 px. A ordem do DOM é a da tela (o aside vai antes dos jogos, não por
-    `order`): o Tab segue da tabela para os jogos. No desktop, a troca é no alto da coluna da
-    direita, como antes; mudar a largura da janela leva o aside para o lugar, sem perder o foco."""
+def _serie_a2(fixtures, *, matches=None):
+    """Série A2 no 2º turno (liga), rodada 3: a tabela da fase ao lado dos jogos da rodada."""
+    comp = copy.deepcopy(fixtures["COMPETITION"])
+    comp["competition"] = fixtures["COMPETITIONS"][2]  # Série A2
+    rounds = [{"id": 40 + i, "number": i + 1, "name": f"Rodada {i + 1}"} for i in range(3)]
+    comp["stages"] = [
+        {"id": 2, "name": "1º turno", "format": "league", "position": 1, "rounds": [{"id": 39, "number": 1, "name": "Rodada 1"}]},
+        {"id": 3, "name": "2º turno", "format": "league", "position": 2, "rounds": rounds},
+    ]
+    comp["current_stage_id"], comp["current_round_id"] = 3, 42
+    games = [_summary(fixtures["MATCHES"][k]) for k in ("live", "scheduledToday")] if matches is None else matches
+    comp["stage"] = {"id": 3, "name": "2º turno", "format": "league", "standings": {**fixtures["STANDINGS"], "stage_name": "2º turno"}, "matches": games, "ties": []}
+    return comp
+
+
+def _choose_ranking(page, name):
+    """Abre o menu "Classificações" e escolhe a classificação `name`."""
+    page.click("#rankings-toggle")
+    page.locator("#rankings-list").get_by_role("link", name=name, exact=True).click()
+
+
+TOPS_JS = """() => {
+  const box = (el) => el.getBoundingClientRect();
+  const table = document.querySelector('#stage-standings .standings__group');
+  const games = [...document.querySelectorAll('#round-matches .match')];
+  const bar = box(document.getElementById('round-bar'));
+  return { table: box(table).top, game: box(games[0]).top, lastGame: box(games[games.length - 1]).bottom, tableBottom: box(table).bottom,
+    right: box(table).left > box(games[0]).right, bar: bar.bottom, barWidth: [Math.round(bar.left), Math.round(bar.right)],
+    grid: [Math.round(box(document.getElementById('competition-grid')).left), Math.round(box(document.getElementById('competition-grid')).right)],
+    asideFirst: document.querySelector('#competition-grid > aside').firstElementChild.id,
+    domOrder: document.querySelector('#competition-grid').firstElementChild.tagName,
+    switch: !!document.getElementById('standings-switch') };
+}"""
+
+
+def test_competicao_tabela_alinhada_ao_topo_dos_jogos(open_page, fixtures):
+    """A classificação lateral começa sempre na altura do primeiro jogo: a partir de 960 px, o
+    topo do card da tabela = o topo do 1º card de jogo (±1 px) na liga e, na fase de grupos, o de
+    cada tabela = o do 1º jogo do grupo; nada (alternador de tabela) acima dela. A faixa do
+    WhatsApp fica acima dos dois, na largura toda. Empilhado: os jogos e depois a tabela."""
 
     def prepare(api):
-        api.rankings = [{"id": 9, "name": "Melhores segundos", "scope": "position"}]
-        api.ranking_stage_ids = [6]
+        api.competition = _serie_a2(fixtures)
+        api.rankings = [{"id": 5, "name": "Classificação geral", "scope": "overall"}]
 
-    page, api, errors = open_page("/competition.html?slug=copa-pernambuco&stage=6", width=390, prepare=prepare)
-    page.wait_for_selector("#round-matches .group-row--head #standings-switch button")
-    switch = page.locator("#standings-switch")
-    assert switch.locator("button").all_inner_texts() == ["Por grupo", "Melhores segundos"]
-    where = """() => {
-      const sw = document.getElementById('standings-switch').getBoundingClientRect();
-      const ranking = document.getElementById('ranking-standings');
-      const table = ranking.hidden ? null : ranking.querySelector('.standings')?.getBoundingClientRect();
-      const game = document.querySelector('#round-matches .match').getBoundingClientRect();
-      return { top: Math.round(sw.top + scrollY), left: Math.round(sw.left), right: sw.left > game.right,
-        below: table ? [Math.round(table.top - sw.bottom), table.bottom <= game.top] : null,
-        focus: [document.activeElement?.textContent, document.activeElement?.getAttribute('aria-pressed')],
-        caption: table ? ranking.querySelector('caption').firstChild.textContent : null,
-        asideFirst: document.getElementById('competition-grid').firstElementChild.matches('aside'),
-        heights: [...document.querySelectorAll('#standings-switch button')].map((b) => Math.round(b.getBoundingClientRect().height)) };
+    page, api, errors = open_page("/competition.html?slug=serie-a2", prepare=prepare)
+    page.wait_for_selector("#stage-standings .standings__group")
+    for width in (1280, 960):
+        page.set_viewport_size({"width": width, "height": 900})
+        out = page.evaluate(TOPS_JS)
+        assert abs(out["table"] - out["game"]) <= 1 and out["right"], (width, out)
+        assert out["bar"] <= out["game"] and out["barWidth"] == out["grid"], (width, out)  # faixa acima, na largura toda
+        assert out["asideFirst"] == "stage-standings" and not out["switch"], out
+    page.set_viewport_size({"width": 390, "height": 844})  # empilhado: jogos, depois a tabela
+    out = page.evaluate(TOPS_JS)
+    assert out["domOrder"] == "SECTION" and out["table"] >= out["lastGame"] and not out["right"], out
+
+    page, api, errors_groups = open_page("/competition.html?slug=copa-pernambuco&stage=6", prepare=prepare)
+    page.wait_for_selector("#round-matches .group-row__table .standings__group")
+    groups = """() => [...document.querySelectorAll('#round-matches .group-row')].map((row) => {
+      const table = row.querySelector('.group-row__table .standings__group').getBoundingClientRect();
+      const game = row.querySelector('.match').getBoundingClientRect();
+      return [Math.round(table.top - game.top), table.left > game.right, table.top >= game.bottom];
+    })"""
+    assert page.evaluate(groups) == [[0, True, False]] * 3  # cada tabela no topo do 1º jogo do grupo
+    assert not page.evaluate("!!document.querySelector('#standings-switch, .group-row--head')")
+    page.set_viewport_size({"width": 390, "height": 844})  # empilhado: os jogos do grupo e a tabela dele
+    assert all(not right and below for _, right, below in page.evaluate(groups))
+    assert not errors and not errors_groups, errors + errors_groups
+
+
+def test_competicao_menu_classificacoes(open_page, fixtures):
+    """"Classificações": disclosure na ponta direita da linha de controles (na altura da navegação
+    de rodada no desktop), com as classificações pelo nome; Esc fecha e devolve o foco, clique
+    fora fecha. Escolher uma mostra a tabela na largura toda, no lugar dos jogos (somem a lista,
+    a lateral, a faixa do WhatsApp e a navegação de rodada), com GC e o h2 com o nome; o botão diz
+    qual é e a lista marca `aria-current`."""
+
+    def prepare(api):
+        api.rankings = [{"id": 5, "name": "Classificação geral", "scope": "overall"}, {"id": 9, "name": "Melhores segundos", "scope": "position"}]
+        api.ranking_stage_ids = [6, 7]
+
+    page, api, errors = open_page("/competition.html?slug=copa-pernambuco&stage=6", prepare=prepare)
+    page.wait_for_selector("#rankings-menu:not([hidden])")
+    toggle = page.locator("#rankings-toggle")
+    assert toggle.inner_text().strip() == "Classificações" and "btn--secondary" in toggle.get_attribute("class")
+    assert toggle.get_attribute("aria-expanded") == "false" and toggle.get_attribute("aria-controls") == "rankings-list"
+    assert toggle.locator("svg use").first.get_attribute("href") == "#i-list"
+    place = """() => {
+      const box = (el) => el.getBoundingClientRect();
+      const nav = box(document.querySelector('.round-nav')), btn = box(document.getElementById('rankings-toggle'));
+      return { nav: (nav.top + nav.bottom) / 2, btn: (btn.top + btn.bottom) / 2, height: btn.height,
+        right: Math.round(box(document.querySelector('.controls')).right - btn.right) };
     }"""
-    before = page.evaluate(where)
-    assert before["heights"] == [44, 44] and not before["asideFirst"]  # alvo de toque no celular
-    switch.get_by_role("button", name="Melhores segundos").click()
-    page.wait_for_selector("#ranking-standings:not([hidden]) .standings")
-    after = page.evaluate(where)
-    assert (after["top"], after["left"]) == (before["top"], before["left"])  # os botões não saem do lugar
-    assert 0 <= after["below"][0] <= 24 and after["below"][1]  # a tabela logo abaixo, antes dos jogos
-    assert after["focus"] == ["Melhores segundos", "true"] and after["caption"] == "Melhores segundos"
-    assert after["asideFirst"] and after["heights"] == [44, 44]  # no DOM, antes dos jogos
-    # teclado e leitor de tela na ordem da tela: do botão, o Tab passa pela tabela e chega ao 1º
-    # jogo (não pula para o rodapé)
-    in_aside = "() => document.querySelector('#competition-grid > aside').contains(document.activeElement)"
-    for _ in range(10):
-        page.keyboard.press("Tab")
-        if not page.evaluate(in_aside):
-            break
-    assert page.evaluate("() => document.activeElement.closest('#round-matches .match') !== null")
-    switch.get_by_role("button", name="Por grupo").click()
-    page.wait_for_selector("#round-matches .group-row--head #standings-switch")
-    back = page.evaluate(where)
-    assert (back["top"], back["left"]) == (before["top"], before["left"]) and back["focus"] == ["Por grupo", "true"]
-    assert not back["asideFirst"]
-    # desktop: no alto da coluna da direita, nas duas tabelas (o aside depois dos jogos no DOM)
+    for width in (1280, 960, 768):  # na ponta direita, na altura da navegação de rodada
+        page.set_viewport_size({"width": width, "height": 900})
+        out = page.evaluate(place)
+        assert abs(out["nav"] - out["btn"]) <= 0.5 and out["height"] == 40 and out["right"] == 0, (width, out)
     page.set_viewport_size({"width": 1280, "height": 900})
-    wide = page.evaluate(where)
-    switch.get_by_role("button", name="Melhores segundos").click()
-    page.wait_for_selector("#ranking-standings:not([hidden]) .standings")
-    ranking = page.evaluate(where)
-    assert wide["right"] and ranking["right"] and abs(ranking["top"] - wide["top"]) <= 1 and ranking["below"][0] <= 24
-    assert ranking["focus"] == ["Melhores segundos", "true"] and not ranking["asideFirst"]
-    assert wide["heights"] == [32, 32]  # o desktop fica como era
+
+    listed = "() => [...document.querySelectorAll('#rankings-list a')].map((a) => [a.textContent, a.getAttribute('aria-current')])"
+    toggle.click()
+    page.wait_for_selector("#rankings-list:not([hidden])")
+    assert toggle.get_attribute("aria-expanded") == "true"
+    assert page.evaluate(listed) == [["Classificação geral", None], ["Melhores segundos", None]]
+    page.keyboard.press("Escape")  # Esc fecha e o foco volta ao botão
+    assert page.evaluate("[document.getElementById('rankings-list').hidden, document.activeElement.id]") == [True, "rankings-toggle"]
+    assert toggle.get_attribute("aria-expanded") == "false"
+    toggle.click()
+    page.click("#competition-title")  # clique fora fecha
+    assert page.evaluate("document.getElementById('rankings-list').hidden") and toggle.get_attribute("aria-expanded") == "false"
+
+    _choose_ranking(page, "Melhores segundos")
+    page.wait_for_selector("#ranking-view:not([hidden]) #ranking-title")
+    view = page.evaluate("""() => {
+      const box = (el) => el.getBoundingClientRect();
+      const standings = document.querySelector('#ranking-standings .standings');
+      const title = document.getElementById('ranking-title');
+      return { hidden: ['competition-grid', 'round-bar'].map((id) => document.getElementById(id).hidden).concat(document.querySelector('.round-nav').hidden),
+        title: [title.tagName, title.textContent, !!title.closest('caption'), document.getElementById('ranking-view').getAttribute('aria-labelledby')],
+        columns: [...standings.querySelectorAll('thead th')].map((th) => th.textContent),
+        gc: [...standings.querySelectorAll('tbody td.col-gc')].map((td) => Number(td.textContent)),
+        width: [Math.round(box(standings).width), Math.round(box(document.querySelector('.comp-hero')).width)],
+        parts: [!!standings.querySelector('.legend'), !!standings.querySelector('.criteria'), !!standings.querySelector('.standings__share'), !!standings.querySelector('.adjustments')],
+        names: [...standings.querySelectorAll('.team-cell__name')].map((n) => getComputedStyle(n).display !== 'none'),
+        focus: document.activeElement.id, toggle: document.getElementById('rankings-toggle').textContent.replace(/\s+/g, ' ').trim() };
+    }""")
+    assert view["hidden"] == [True, True, True]  # a lista de jogos, a faixa do WhatsApp e a navegação de rodada
+    assert view["title"] == ["H2", "Melhores segundos", True, "ranking-title"]
+    assert view["columns"] == ["#", "Time", "P", "J", "V", "E", "D", "GP", "GC", "SG"]
+    assert view["gc"] == [r["goals_against"] for r in fixtures["STANDINGS"]["groups"][0]["rows"]]
+    assert view["width"][0] == view["width"][1]  # 100% da largura do conteúdo
+    assert view["parts"] == [True, True, True, True] and all(view["names"])  # nome completo no desktop
+    assert view["focus"] == "ranking-back" and view["toggle"] == "Classificações · Melhores segundos"
+    assert "btn--secondary" in page.get_attribute("#ranking-back", "class") and page.inner_text("#ranking-back").strip() == "Voltar aos jogos"
+    toggle.click()
+    assert page.evaluate(listed) == [["Classificação geral", None], ["Melhores segundos", "page"]]
+    page.keyboard.press("Escape")
+    assert "tabela=9" in page.evaluate("location.search")
     assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
-    # a janela estreita de novo, com a classificação na tela: o aside volta para antes dos jogos
-    # e o botão continua com o foco
-    page.set_viewport_size({"width": 390, "height": 900})
-    page.wait_for_function("() => document.getElementById('competition-grid').firstElementChild.matches('aside')")
-    narrow = page.evaluate(where)
-    assert narrow["focus"] == ["Melhores segundos", "true"] and narrow["below"][1] and not narrow["right"]
-    page.set_viewport_size({"width": 1280, "height": 900})
-    page.wait_for_function("() => document.getElementById('competition-grid').lastElementChild.matches('aside')")
-    assert page.evaluate(where)["focus"] == ["Melhores segundos", "true"]
+    assert not errors, errors
+
+
+def test_competicao_classificacao_na_url_voltar_e_trocar_de_fase(open_page, fixtures):
+    """A visão está na URL (&tabela=<id>): recarregar abre nela; voltar e avançar do navegador
+    restauram; "Voltar aos jogos" mostra a rodada que estava na tela; trocar de fase volta aos
+    jogos."""
+
+    def prepare(api):
+        api.rankings = [{"id": 5, "name": "Classificação geral", "scope": "overall"}]
+        api.ranking_stage_ids = [6, 7]
+
+    page, api, errors = open_page("/competition.html?slug=copa-pernambuco&stage=6", prepare=prepare)
+    page.wait_for_selector("#rankings-menu:not([hidden])")
+    api.round_matches = [{**_summary(fixtures["MATCHES"]["finished"]), "group": {"id": 11, "name": "Grupo A"}, "home": _team(fixtures, 0, 2), "away": _team(fixtures, 0, 3)}]
+    page.click("#round-prev")  # Rodada 1, depois a classificação
+    page.wait_for_function("() => new URLSearchParams(location.search).get('round') === '25' && !document.getElementById('round-matches').hasAttribute('aria-busy')")
+    games = "() => ({ search: location.search, view: !document.getElementById('ranking-view').hidden, grid: !document.getElementById('competition-grid').hidden, round: document.getElementById('round-label').textContent, bar: document.getElementById('round-bar-label').textContent })"
+    _choose_ranking(page, "Classificação geral")
+    page.wait_for_selector("#ranking-view:not([hidden]) #ranking-title")
+    assert page.evaluate(games) == {"search": "?slug=copa-pernambuco&stage=6&round=25&tabela=5", "view": True, "grid": False, "round": "Rodada 1", "bar": "Jogos da rodada 1"}
+    page.go_back()  # o passo anterior: os jogos da rodada 1
+    page.wait_for_function("() => !document.getElementById('competition-grid').hidden")
+    assert page.evaluate(games) == {"search": "?slug=copa-pernambuco&stage=6&round=25", "view": False, "grid": True, "round": "Rodada 1", "bar": "Jogos da rodada 1"}
+    page.go_forward()
+    page.wait_for_function("() => !document.getElementById('ranking-view').hidden")
+    assert page.evaluate(games)["search"].endswith("&tabela=5")
+    page.reload()  # recarregar abre na classificação
+    page.wait_for_selector("#ranking-view:not([hidden]) #ranking-title")
+    assert page.evaluate(games) == {"search": "?slug=copa-pernambuco&stage=6&round=25&tabela=5", "view": True, "grid": False, "round": "Rodada 1", "bar": "Jogos da rodada 1"}
+    page.click("#ranking-back")  # de volta aos jogos, na rodada que estava
+    page.wait_for_selector("#round-matches .match")
+    assert page.evaluate(games) == {"search": "?slug=copa-pernambuco&stage=6&round=25", "view": False, "grid": True, "round": "Rodada 1", "bar": "Jogos da rodada 1"}
+    assert page.evaluate("[document.activeElement.id, document.querySelector('.round-nav').hidden, document.getElementById('round-bar').hidden]") == ["rankings-toggle", False, False]
+    page.go_back()  # "Voltar aos jogos" também é um passo: voltar mostra a classificação
+    page.wait_for_function("() => !document.getElementById('ranking-view').hidden")
+    # trocar de fase na visão da classificação volta aos jogos (da fase nova)
+    page.select_option("#stage-select", "7")
+    page.wait_for_selector("#round-matches .tie-group .match")
+    out = page.evaluate(games)
+    assert out["view"] is False and out["grid"] and "tabela" not in out["search"] and out["bar"] == "Jogos da semifinal"
+    page.go_back()  # a classificação, na fase de grupos
+    page.wait_for_function("() => !document.getElementById('ranking-view').hidden && new URLSearchParams(location.search).get('stage') === '6'")
+    assert page.evaluate("document.getElementById('stage-select').value") == "6"
+    assert not errors, errors
+
+
+@pytest.mark.parametrize("width", [320, 390])
+def test_competicao_classificacao_no_celular_todas_as_colunas_sem_rolar_a_pagina(open_page, fixtures, width):
+    """Celular: o menu numa linha própria (44 px); a classificação escolhida na largura toda, com
+    todas as colunas (nenhuma some; o nome vira a sigla no contêiner estreito) e sem rolagem
+    lateral da página. Números grandes que não cabem a 320 px: a tabela rola dentro do card, com o
+    # e o time fixos."""
+
+    def prepare(api):
+        api.competition = _serie_a2(fixtures)
+        api.rankings = [{"id": 5, "name": "Classificação geral", "scope": "overall"}]
+        api.ranking_stage_ids = [2, 3]
+
+    page, api, errors = open_page("/competition.html?slug=serie-a2", width=width, prepare=prepare)
+    page.wait_for_selector("#rankings-menu:not([hidden])")
+    menu = page.evaluate("""() => {
+      const box = (el) => el.getBoundingClientRect();
+      const btn = box(document.getElementById('rankings-toggle')), nav = box(document.querySelector('.round-nav')), controls = box(document.querySelector('.controls'));
+      const share = box(document.getElementById('round-share')), label = box(document.getElementById('round-bar-label'));
+      return { height: btn.height, own: btn.top >= nav.bottom, full: Math.round(btn.width) === Math.round(controls.width),
+        share: [share.height, document.getElementById('round-share').innerText.trim(), Math.abs((share.top + share.bottom) / 2 - (label.top + label.bottom) / 2) <= 1] };
+    }""")
+    assert menu == {"height": 44, "own": True, "full": True, "share": [44, "Compartilhar", True]}, menu
+    _choose_ranking(page, "Classificação geral")
+    page.wait_for_selector("#ranking-view:not([hidden]) #ranking-title")
+    table = """() => {
+      const scroll = document.querySelector('#ranking-standings .table-scroll');
+      const cell = scroll.querySelector('tbody td.col-team');
+      return { columns: [...scroll.querySelectorAll('thead th')].map((th) => th.textContent),
+        hidden: [...scroll.querySelectorAll('th, td')].filter((c) => c.getBoundingClientRect().width < 1).length,
+        sigla: [...scroll.querySelectorAll('.team-cell__short')].every((a) => getComputedStyle(a).display !== 'none'),
+        inside: scroll.scrollWidth - scroll.clientWidth, sticky: getComputedStyle(cell).position,
+        page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        back: document.getElementById('ranking-back').getBoundingClientRect().height,
+        width: Math.round(document.querySelector('#ranking-standings .standings').getBoundingClientRect().width) === Math.round(document.querySelector('.comp-hero').getBoundingClientRect().width) };
+    }"""
+    out = page.evaluate(table)
+    assert out["columns"] == ["#", "Time", "P", "J", "V", "E", "D", "GP", "GC", "SG"] and out["hidden"] == 0, out
+    assert out["sigla"] == (width == 320) and out["inside"] <= 0 and out["page"] <= 0 and out["back"] >= 44 and out["width"], out
+    assert out["sticky"] == "sticky"
+    if width == 320:
+        # números de 3 dígitos: não cabe; rola dentro do card, com o time fixo, nunca a página
+        big = copy.deepcopy(fixtures["STANDINGS"]["groups"][0]["rows"])
+        for i, row in enumerate(big):
+            row.update(points=150 - i, played=120, won=100, drawn=110, lost=105, goals_for=210, goals_against=199, goal_difference=11)
+        api.ranking_rows = big
+        page.click("#ranking-back")
+        _choose_ranking(page, "Classificação geral")
+        page.wait_for_function("() => document.querySelector('#ranking-standings td.col-pts')?.textContent.startsWith('150')")
+        out = page.evaluate(table)
+        assert out["inside"] > 0 and out["page"] <= 0 and out["hidden"] == 0, out
+        moved = page.evaluate("""() => {
+          const scroll = document.querySelector('#ranking-standings .table-scroll');
+          const left = (sel) => scroll.querySelector(sel).getBoundingClientRect().left;
+          const before = [left('tbody td.col-pos'), left('tbody td.col-team'), left('tbody td.col-sg')];
+          scroll.scrollLeft = scroll.scrollWidth;
+          const after = [left('tbody td.col-pos'), left('tbody td.col-team'), left('tbody td.col-sg')];
+          return before.map((b, i) => Math.round(after[i] - b));
+        }""")
+        assert moved[0] == 0 and moved[1] == 0 and moved[2] < 0, moved  # # e time fixos; os números rolam
     assert not errors, errors
 
 
 def test_competicao_turno_com_classificacao_geral_e_menu_ao_vivo(open_page, fixtures):
-    """Fase de tabela única com classificação geral: "Só esta fase | Geral" (sem repetir o nome da
-    fase do seletor) e o título diz o recorte ("Classificação · 2º turno", "Classificação geral"),
-    com "Jogando agora" na legenda e a nota do "=" embaixo da tabela. O menu marca, também aqui,
-    a competição com jogo ao vivo agora (GET /api/matches?status=live, atualizado pelo stream)."""
-    comp = copy.deepcopy(fixtures["COMPETITION"])
-    comp["competition"] = fixtures["COMPETITIONS"][2]  # Série A2
-    comp["stages"] = [
-        {"id": 2, "name": "1º turno", "format": "league", "position": 1, "rounds": [{"id": 39, "number": 1, "name": "Rodada 1"}]},
-        {"id": 3, "name": "2º turno", "format": "league", "position": 2, "rounds": [{"id": 40, "number": 1, "name": "Rodada 1"}]},
-    ]
-    comp["current_stage_id"], comp["current_round_id"] = 3, 40
-    comp["stage"] = {"id": 3, "name": "2º turno", "format": "league", "standings": {**fixtures["STANDINGS"], "stage_name": "2º turno"}, "matches": [], "ties": []}
+    """Fase de tabela única com classificação geral: o título da tabela da fase diz o recorte
+    ("Classificação · 2º turno"), com "Jogando agora" na legenda e a nota do "=" embaixo; a geral
+    fica no menu "Classificações", com o próprio nome ("Classificação geral"). O menu de
+    competições marca, também aqui, a competição com jogo ao vivo agora (GET
+    /api/matches?status=live, atualizado pelo stream)."""
 
     def prepare(api):
-        api.competition = comp
+        api.competition = _serie_a2(fixtures, matches=[])
         api.rankings = [{"id": 5, "name": "Classificação geral", "scope": "overall"}]
         api.ranking_stage_ids = [2, 3]
 
     page, api, errors = open_page("/competition.html?slug=serie-a2", width=360, prepare=prepare)
     page.wait_for_selector("#stage-standings .standings caption")
-    switch = page.locator("#standings-switch")
-    assert switch.locator("button").all_inner_texts() == ["Só esta fase", "Geral"]
     table = page.evaluate("""() => {
       const group = document.querySelector('#stage-standings .standings__group');
       return { caption: group.querySelector('caption').firstChild.textContent,
         legend: [...group.querySelectorAll('.legend__item')].map((li) => li.textContent),
         note: group.querySelector('.standings__note')?.textContent,
+        columns: [...group.querySelectorAll('thead th')].map((th) => th.textContent),
         noScroll: group.querySelector('.table-scroll').scrollWidth <= group.querySelector('.table-scroll').clientWidth };
     }""")
     assert table["caption"] == "Classificação · 2º turno"
     assert table["legend"] == ["Semifinal 1º–4º", "Rebaixamento 7º–8º", "Jogando agora"]
     assert table["note"] == "= Empatados em todos os critérios de desempate" and table["noScroll"]
-    switch.get_by_role("button", name="Geral").click()
-    page.wait_for_selector("#ranking-standings:not([hidden]) .standings caption")
+    assert table["columns"] == ["#", "Time", "P", "J", "V", "E", "D", "GP", "SG"]  # a lateral como está
+    _choose_ranking(page, "Classificação geral")
+    page.wait_for_selector("#ranking-view:not([hidden]) #ranking-standings caption")
     assert page.evaluate("document.querySelector('#ranking-standings caption').firstChild.textContent") == "Classificação geral"
     # menu: o Pernambucano tem jogo ao vivo agora (o ponto e o texto para leitor de tela)
     live = "() => [...document.querySelectorAll('#competitions-nav a')].filter((a) => a.querySelector('.comp-nav__live')).map((a) => [a.getAttribute('href'), a.querySelector('.visually-hidden').textContent])"
@@ -1400,21 +1577,38 @@ def test_menu_foco_no_link_sobrevive_a_mudanca_do_ao_vivo(open_page, fixtures, u
     assert not errors, errors
 
 
-def test_competicao_compartilhar_no_meio_da_navegacao(open_page):
-    """A partir de 640 px, "Resultados no WhatsApp" fica no meio da navegação de rodada (mesma
-    altura, 40 px, no pé da linha), não 4 px abaixo."""
-    page, api, errors = open_page("/competition.html?slug=copa-pernambuco")
+def test_competicao_resultados_no_whatsapp_acima_dos_jogos(open_page):
+    """"Resultados no WhatsApp" sai da linha de controles e vai para a faixa acima dos jogos, na
+    largura toda, como o cabeçalho da competição na home: à esquerda o que está listado ("Jogos
+    da semifinal"), discreto; à direita o mesmo botão da home. Sem jogo na rodada, o botão some
+    e o rótulo fica. Sem tabela (mata-mata), os jogos ocupam a largura toda, logo abaixo."""
+    page, api, errors = open_page("/", width=1280)
+    page.wait_for_selector("[data-hook=competition] [data-hook=competition-share]")
+    button = """(el) => ({ cls: [...el.classList].filter((c) => c.startsWith('btn')), label: el.getAttribute('aria-label'), icon: el.querySelector('svg use').getAttribute('href'),
+      wide: el.querySelector('.label-wide').textContent, narrow: el.querySelector('.label-narrow').textContent })"""
+    home = page.locator("[data-hook=competition] [data-hook=competition-share]").first.evaluate(button)
+
+    page, api, errors_comp = open_page("/competition.html?slug=copa-pernambuco", width=1280)
     page.wait_for_selector("#round-share:not([hidden])")
-    center = """() => {
+    assert page.locator("#round-share").evaluate(button) == home  # o mesmo botão da home
+    bar = """() => {
       const box = (el) => el.getBoundingClientRect();
-      const nav = box(document.querySelector('.round-nav')), share = box(document.getElementById('round-share'));
-      return { nav: (nav.top + nav.bottom) / 2, share: (share.top + share.bottom) / 2, height: share.height };
+      const bar = box(document.getElementById('round-bar')), share = box(document.getElementById('round-share'));
+      const label = document.getElementById('round-bar-label'), first = document.querySelector('#round-matches > *');
+      const grid = box(document.getElementById('competition-grid'));
+      return { label: label.textContent, font: parseFloat(getComputedStyle(label).fontSize), tag: label.tagName,
+        inControls: !!document.getElementById('round-share').closest('.controls'), above: first ? bar.bottom <= box(first).top : null,
+        span: [Math.round(bar.left - grid.left), Math.round(grid.right - share.right)], text: document.getElementById('round-share').innerText.trim(),
+        shareHidden: document.getElementById('round-share').hidden };
     }"""
-    for width in (1280, 960, 768):
-        page.set_viewport_size({"width": width, "height": 900})
-        out = page.evaluate(center)
-        assert abs(out["nav"] - out["share"]) <= 0.5 and out["height"] == 40, (width, out)
-    assert not errors, errors
+    out = page.evaluate(bar)
+    assert out["label"] == "Jogos da semifinal" and out["tag"] == "P" and out["font"] <= 16  # discreto, não um 2º título
+    assert not out["inControls"] and out["above"] and out["span"] == [0, 0] and out["text"] == "Resultados no WhatsApp", out
+    page.click("#round-next")  # a final ainda sem jogo: o rótulo fica, o botão some
+    page.wait_for_selector("#round-empty:not([hidden])")
+    out = page.evaluate(bar)
+    assert out["label"] == "Jogos da final" and out["shareHidden"]
+    assert not errors and not errors_comp, errors + errors_comp
 
 
 def test_operador_lanca_gol_com_confirmacao(open_page):

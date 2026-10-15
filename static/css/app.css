@@ -272,9 +272,7 @@
     gap: var(--s-5);
     align-items: start;
   }
-  /* empilhado (celular/tablet), o aside que vem antes dos jogos (o resumo dos confrontos do
-     mata-mata; os botões da classificação e a tabela escolhida na fase de grupos) vai antes deles
-     no DOM (competition.js placeAside), sem `order`: o foco e a leitura seguem a tela */
+  /* empilhado (celular/tablet), os jogos e depois a classificação, na ordem do DOM */
 
   @media (min-width: 640px) {
     :root { --gutter: 20px; }
@@ -1411,6 +1409,13 @@
     color: var(--ink);
   }
   .table caption .badge { margin-left: var(--s-2); vertical-align: 2px; }
+  /* o título como cabeçalho (createStandings, opção heading): o desenho do <caption>; em largura
+     toda, o do título de seção (h2) */
+  .standings__heading { display: inline; font: inherit; letter-spacing: inherit; color: inherit; }
+  .standings--full .table caption { padding-block: var(--s-4) var(--s-3); }
+  .standings--full .standings__heading { font-family: var(--font-brand); font-weight: 400; font-size: clamp(1.3rem, 1.15rem + 0.7vw, 1.65rem); line-height: 1.12; letter-spacing: 0.005em; text-transform: none; }
+  .standings--full .standings__heading + .badge { vertical-align: 4px; }
+  .standings--full .standings__share { top: 14px; } /* no meio da linha do título */
   .table th {
     padding: 6px 4px;
     border-bottom: 1px solid var(--line);
@@ -1477,6 +1482,30 @@
     .table td { font-size: 0.875rem; }
     .table .col-pos { width: 30px; padding-left: 9px; }
     .team-cell { gap: 6px; }
+  }
+  /* Em largura toda (classificação do menu da competição): todas as colunas da linha
+     (# Time P J V E D GP GC SG), na mesma regra (a sigla no contêiner estreito). Se ainda não
+     couber, a tabela rola de lado dentro do card (.table-scroll), com o # e o time fixos; a
+     página nunca rola de lado. */
+  .standings--full .table { --pos-w: 38px; }
+  .standings--full .table .col-pos { width: var(--pos-w); min-width: var(--pos-w); max-width: var(--pos-w); }
+  .standings--full .table .col-team { min-width: 92px; }
+  @container standings (min-width: 600px) {
+    /* na largura toda do desktop, os números com respiro (não espremidos na ponta direita); o
+       time fica com o resto */
+    .standings--full .table :is(th, td):not(.col-pos, .col-team) { width: 3.25rem; }
+    .standings--full .table .col-team { width: auto; max-width: none; }
+  }
+  .standings--full .table :is(.col-pos, .col-team) { position: sticky; z-index: 1; background: var(--surface); }
+  .standings--full .table .col-pos { left: 0; }
+  .standings--full .table .col-team { left: var(--pos-w); }
+  /* fixas, com fundo opaco (o que rola passa por baixo), nos mesmos destaques da linha */
+  .standings--full .table tbody tr:hover :is(.col-pos, .col-team) { background: linear-gradient(var(--hover), var(--hover)), var(--surface); }
+  .standings--full .table tr.is-playing :is(.col-pos, .col-team) { background: var(--vermelho-tint); }
+  .standings--full .table tr.is-highlight :is(.col-pos, .col-team) { background: var(--amarelo-tint); }
+  @container standings (max-width: 300px) {
+    .standings--full .table { --pos-w: 30px; }
+    .standings--full .table .col-team { min-width: 80px; }
   }
 
   .legend { display: flex; flex-wrap: wrap; gap: 6px var(--s-4); margin: 0; padding: 0 var(--s-4); list-style: none; font-size: 0.8125rem; color: var(--ink-2); }
@@ -1652,7 +1681,6 @@
     .group-row { grid-template-columns: minmax(0, 1fr) minmax(320px, 380px); column-gap: var(--s-5); }
     .group-row > * { grid-column: 1; }
     .group-row > .group-row__table { grid-column: 2; grid-row: 2; }
-    .group-row--head > * { grid-column: 2; }
   }
   @media (min-width: 1200px) {
     .group-row { grid-template-columns: minmax(0, 1fr) 400px; column-gap: var(--s-6); }
@@ -1787,11 +1815,6 @@
   .dialog__foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s-2); padding: var(--s-3) var(--s-5) var(--s-4); border-top: 1px solid var(--line); background: color-mix(in srgb, var(--surface-2) 45%, var(--surface)); }
 
   /* --- Segmentado, interruptor ---------------------------------------------------- */
-  .standings-switch { gap: var(--s-2); flex-wrap: wrap; }
-  /* no celular, o alternador é o controle principal da tabela: alvo de 44 px, como o compartilhar */
-  @media (max-width: 639px) {
-    .standings-switch .btn { min-height: 44px; }
-  }
   .team-cell__group { margin-left: var(--s-2); font-size: 0.75rem; font-weight: 600; color: var(--ink-3); white-space: nowrap; }
   .segmented { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: var(--s-2); }
   .segmented__option { position: relative; }
@@ -1897,22 +1920,69 @@
   .stage-block__more:hover { text-decoration: underline; }
 
   /* --- Competição -------------------------------------------------------------------- */
-  .comp-hero { display: grid; gap: var(--s-4); }
+  .comp-hero { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-4); } /* o nome da classificação escolhida no botão não alarga a página */
   .comp-hero__title { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-2) var(--s-3); }
   .comp-hero__season { font-family: var(--font-num); font-weight: 700; font-size: 1.375rem; color: var(--ink-3); }
   .controls__stage { min-width: min(260px, 100%); flex: 1 1 220px; max-width: 360px; }
-  /* compartilhar os resultados: o mesmo botão do cabeçalho da competição na home ("Compartilhar"
-     no celular, em alvo de 44 px) */
-  .controls__share .label-narrow { display: none; }
-  @media (max-width: 639px) {
-    .controls__share { min-height: 44px; }
-    .controls__share .label-wide { display: none; }
-    .controls__share .label-narrow { display: inline; }
+  /* "Classificações": as outras classificações (geral, melhores segundos) num menu na ponta
+     direita da linha de controles, na altura da navegação de rodada (40 px, no pé da linha); no
+     celular, numa linha própria, na largura toda, em alvo de 44 px. A escolhida fica no botão. */
+  .rankings-menu { position: relative; display: flex; justify-content: flex-end; min-width: 0; }
+  .rankings-menu__toggle { max-width: 100%; }
+  .rankings-menu__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .rankings-menu__chosen { font-weight: 700; }
+  .rankings-menu__chevron { flex: none; transition: transform 0.15s var(--ease); }
+  .rankings-menu__toggle[aria-expanded="true"] .rankings-menu__chevron { transform: rotate(180deg); }
+  .rankings-menu__toggle.is-active {
+    --btn-bg: var(--azul-tint);
+    --btn-fg: var(--azul);
+    --btn-border: color-mix(in srgb, var(--azul) 55%, transparent);
   }
-  /* daí para cima, a altura da navegação de rodada (40 px): os dois no pé da linha (.controls),
-     o texto no meio dela, na altura de "RODADA 3" */
-  @media (min-width: 640px) {
-    .controls__share { min-height: 40px; }
+  .rankings-menu__list {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 30;
+    min-width: max(100%, 240px);
+    margin: 0;
+    padding: var(--s-1) 0;
+    list-style: none;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-2);
+  }
+  .rankings-menu__item { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); min-height: 40px; padding: 6px var(--s-4); color: var(--ink); font-weight: 600; text-decoration: none; }
+  .rankings-menu__item:hover { background: var(--hover); }
+  .rankings-menu__item[aria-current] { color: var(--azul); }
+  .rankings-menu__item .icon { flex: none; }
+  @media (max-width: 639px) {
+    .rankings-menu { flex-basis: 100%; }
+    .rankings-menu__toggle { width: 100%; min-height: 44px; justify-content: flex-start; }
+    .rankings-menu__chevron { margin-left: auto; }
+    .rankings-menu__list { left: 0; min-width: 0; }
+    .rankings-menu__item { min-height: 44px; }
+  }
+  /* faixa acima dos jogos e da tabela ao lado (que começam na mesma altura, logo abaixo dela):
+     à esquerda o que está listado ("Jogos da rodada 3"), discreto; à direita "Resultados no
+     WhatsApp", o mesmo botão do cabeçalho da competição na home ("Compartilhar" no celular, em
+     alvo de 44 px) */
+  .round-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-2) var(--s-4); min-height: 32px; }
+  .round-bar__label { margin: 0; font-family: var(--font-num); font-weight: 600; font-size: 0.9375rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-3); }
+  .round-bar__share .label-narrow { display: none; }
+  .site-main > .container > .round-bar:not([hidden]) + .split { margin-top: var(--s-3); }
+  @media (max-width: 639px) {
+    .round-bar { min-height: 44px; }
+    .round-bar__share { min-height: 44px; }
+    .round-bar__share .label-wide { display: none; }
+    .round-bar__share .label-narrow { display: inline; }
+  }
+  /* a classificação escolhida no menu, no lugar dos jogos, na largura toda: "Voltar aos jogos" em
+     cima e o nome dela (h2) no alto do card da tabela */
+  .ranking-view { display: grid; gap: var(--s-3); }
+  .ranking-view__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); min-height: 32px; }
+  @media (max-width: 639px) {
+    .ranking-view__back { min-height: 44px; }
   }
 
   /* --- Operador ----------------------------------------------------------------------- */

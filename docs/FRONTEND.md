@@ -142,13 +142,13 @@ for (const stage of comp.stages) {
 | --- | --- |
 | `[data-hook="competition-name"]`, `[data-hook="season"]`, `[data-hook="competition-eyebrow"]` | Título (contém um esqueleto até ser preenchido), ano da temporada, rótulo acima. |
 | `#stage-select` (`disabled`) | `<option value=stage.id>` por fase; habilite ao preencher. |
-| `#round-prev`, `#round-next` (`disabled`), `#round-label` (`aria-live="polite"`) | Navegação ‹ Rodada 5 ›. |
-| `#round-matches` (`aria-busy="true"`) | Cards da rodada (`createMatchCard`); mata-mata: um bloco por confronto (`createTieGroup`); fase de grupos com tabela: uma linha por grupo (`.group-row`: jogos do grupo ou "Não há jogos deste grupo nesta rodada." e a tabela do grupo ao lado, topo alinhado, com a legenda das cores, as punições do grupo e, se ela tem empate, a nota do "=" embaixo; a linha tem a altura do mais alto dos dois; critérios de desempate uma vez, dentro do card do último grupo; jogos entre grupos numa seção à parte, `createGroupRows`). |
+| `#round-prev`, `#round-next` (`disabled`), `#round-label` (`aria-live="polite"`) | Navegação ‹ Rodada 5 › (o `nav[data-hook="round-nav"]` fica `hidden` na visão de uma classificação). |
+| `#rankings-menu` (`hidden`) › `#rankings-toggle`, `#rankings-list` | Menu "Classificações", na ponta direita da linha de controles (no desktop, 40 px, na altura da navegação de rodada; abaixo de 640 px, numa linha própria, na largura toda, em alvo de 44 px). Só aparece com classificação secundária (as da competição e as da fase exibida, `rankings` + `stage.rankings`, sem repetir). Disclosure: botão `btn--secondary` (ícone `i-list` + "Classificações") com `aria-expanded`/`aria-controls`; a lista tem um link por classificação, pelo nome (`href` com a URL da visão, `data-ranking-id`; `aria-current="page"` e o ✓ na exibida). Esc fecha e devolve o foco ao botão; clique fora (ou o foco saindo do menu) fecha. Com uma escolhida, o botão diz qual (`[data-hook="rankings-chosen"]`: "Classificações · Melhores segundos", fundo azul claro). |
+| `#round-bar` › `#round-bar-label`, `#round-share` (`hidden`) › `.label-wide` / `.label-narrow` | Faixa logo acima dos jogos e da tabela, na largura toda (jogos e tabela começam no mesmo y, abaixo dela): à esquerda o que está listado, discreto ("Jogos da rodada 3"; no mata-mata, pelo nome da rodada: "Jogos da semifinal", "Jogos da final", "Jogos das quartas de final"); à direita "Resultados no WhatsApp": a mensagem da rodada exibida (um jogo por linha, na ordem da página) com o link dela, direto no WhatsApp; aparece com jogo na rodada. O mesmo botão do cabeçalho da competição na home (`btn btn--ghost btn--sm`, ícone `icon--sm`): "Compartilhar" abaixo de 640 px, em alvo de 44 px; nome acessível fixo ("Compartilhar os resultados no WhatsApp"). Some na visão de uma classificação. |
+| `#round-matches` (`aria-busy="true"`) | Cards da rodada (`createMatchCard`); mata-mata: um bloco por confronto (`createTieGroup`); fase de grupos com tabela: uma linha por grupo (`.group-row`: jogos do grupo ou "Não há jogos deste grupo nesta rodada." e a tabela do grupo ao lado, topo alinhado com o primeiro jogo do grupo, com a legenda das cores, as punições do grupo e, se ela tem empate, a nota do "=" embaixo; a linha tem a altura do mais alto dos dois; critérios de desempate uma vez, dentro do card do último grupo; jogos entre grupos numa seção à parte, `createGroupRows`). |
 | `#round-empty` (`hidden`) | "Nenhum jogo nesta rodada." |
-| `#round-share` (`hidden`) › `.label-wide` / `.label-narrow` | "Resultados no WhatsApp": a mensagem da rodada exibida (um jogo por linha, na ordem da página) com o link dela, direto no WhatsApp; aparece com jogo na rodada. O mesmo botão do cabeçalho da competição na home (`btn--ghost btn--sm`, ícone `icon--sm`): "Compartilhar" abaixo de 640 px, em alvo de 44 px; nome acessível fixo ("Compartilhar os resultados no WhatsApp"). |
-| `#standings-switch` (`hidden`, `role="group"`) | Botões da classificação exibida (`aria-pressed`, `data-view`), pelo tipo de tabela: a da fase é "Por grupo" (fase de grupos) ou "Só esta fase"; as classificações, pelo nome sem o "Classificação" do começo ("Classificação geral" → "Geral"; "Melhores segundos" fica). Escondido com um botão só. |
-| `#stage-standings` | `createStandings(stage.standings, {stageTitle})` (liga; na fase de grupos as tabelas vão para as linhas de `#round-matches`). |
-| `#ranking-standings` (`hidden`, `aria-live="polite"`) | A classificação escolhida no `#standings-switch` (`GET /api/rankings/{id}`), com o próprio nome no título ("Classificação geral", "Melhores segundos"). |
+| `#stage-standings` | `createStandings(stage.standings, {stageTitle})` no aside (liga), com o topo alinhado ao do primeiro card de jogo; na fase de grupos as tabelas vão para as linhas de `#round-matches`. Colunas da lateral: # Time P J V E D GP SG. |
+| `#ranking-view` (`hidden`) › `#ranking-back`, `#ranking-standings` (`aria-live="polite"`) | A classificação escolhida no menu, no lugar dos jogos (somem `#competition-grid`, `#round-bar` e a navegação de rodada), na largura toda do conteúdo: "Voltar aos jogos" (`btn--secondary`, 44 px no celular) em cima e `createStandings(ranking, {full: true, heading: {level: 2, id: 'ranking-title'}})` (`GET /api/rankings/{id}`): o nome dela é o `<h2 id="ranking-title">` no alto do card (a seção é `aria-labelledby` nele), com todas as colunas (# Time P J V E D GP GC SG), legenda, notas, critérios e o botão de compartilhar a imagem. Esqueleto enquanto carrega. |
 | `#stage-ties` (`hidden`) › `[data-hook="ties-list"]` | Sem uso (fica `hidden`): o agregado vem no card do jogo de volta. |
 | `#competition-missing` (`hidden`) | Slug inexistente. |
 | `#competition-error` (`hidden`) › `[data-hook="competition-retry"]` | Erro genérico. |
@@ -345,15 +345,15 @@ No aviso de correção (`kind: 'correction'`), o placar do gol que caiu aparece
 riscado (`<s>`), nunca como placar atual.
 
 ### `standings.js`
-* `createStandings(stageStandings, {compact?, legend = true, criteria = true, stageTitle?, highlightTeamIds?: Set, share?}) → <div class="standings">` (`stageTitle`: o título da tabela de grupo único diz a fase, "Classificação · 2º turno"; sem a opção, vale `season_stages > 1` — a home diz "Classificação · 1ª fase" quando a temporada tem outras fases; a competição passa `true` quando há outras fases ou outras classificações. Grupo com nome fica com o nome: "Grupo A", "Classificação geral", "Melhores segundos")
+* `createStandings(stageStandings, {compact?, full?, heading?, legend = true, criteria = true, stageTitle?, highlightTeamIds?: Set, share?}) → <div class="standings">` (`full`: classe `standings--full` e todas as colunas da linha, # Time P J V E D GP GC SG — a classificação em largura toda da competição; `heading: {level, id}`: na tabela de grupo único, o título vira um cabeçalho dentro do `<caption>` — `<h2 id>` com o desenho de título de seção em `full`; `stageTitle`: o título da tabela de grupo único diz a fase, "Classificação · 2º turno"; sem a opção, vale `season_stages > 1` — a home diz "Classificação · 1ª fase" quando a temporada tem outras fases; a competição passa `true` quando há outras fases ou outras classificações. Grupo com nome fica com o nome: "Grupo A", "Classificação geral", "Melhores segundos")
 * `updateStandings(el, stageStandings, opts?)` — redesenha no lugar; sem `opts`, valem as da criação (a mensagem `standings` do stream não precisa repassá-las).
-* Uma `<table>` por grupo com `<caption>`; faixa de zona (cor da API em `--zone`) + nome da zona em texto (visível no início de cada zona, e no texto acessível de toda linha); ponto pulsante em quem está `playing` ("Jogando agora" no `title` e no texto oculto); posição pelo `rank` (empatados em tudo repetem: 1, 2, 2, 4) e `=` em `tied`, com a nota "= Empatados em todos os critérios de desempate" (`.standings__note`) embaixo de cada tabela que tem empate; legenda (`aria-label` "Legenda da tabela") com `<svg><rect fill="cor da API">` e cada item como uma frase: nome e faixa sem quebrar no meio ("Classificados 1º–2º") e, na zona condicional, a condição em texto corrido ("Melhor 2º (só o 1º em “Melhores segundos”)"; a faixa que o nome já diz não se repete), mais "● Jogando agora" quando alguém da tabela está em campo; critérios em `<ol>` na ordem configurada, num bloco à parte da legenda ("Critérios de desempate", numerados em colunas). Vários grupos: legenda das cores, punições dos times e nota do "=" de cada grupo embaixo da tabela dele; critérios só no card do último (sem caixa à parte). As mesmas colunas em todas as larguras: # Time P J V E D GP SG (GC só na imagem compartilhada). Por container query, o nome do time vira a sigla com contêiner de até 340 px e, até 300 px, células, fonte e posição ficam mais justas (cabe a 320 px sem rolagem lateral); nenhuma coluna some. `compact` só acrescenta a classe `standings--compact`.
+* Uma `<table>` por grupo com `<caption>`; faixa de zona (cor da API em `--zone`) + nome da zona em texto (visível no início de cada zona, e no texto acessível de toda linha); ponto pulsante em quem está `playing` ("Jogando agora" no `title` e no texto oculto); posição pelo `rank` (empatados em tudo repetem: 1, 2, 2, 4) e `=` em `tied`, com a nota "= Empatados em todos os critérios de desempate" (`.standings__note`) embaixo de cada tabela que tem empate; legenda (`aria-label` "Legenda da tabela") com `<svg><rect fill="cor da API">` e cada item como uma frase: nome e faixa sem quebrar no meio ("Classificados 1º–2º") e, na zona condicional, a condição em texto corrido ("Melhor 2º (só o 1º em “Melhores segundos”)"; a faixa que o nome já diz não se repete), mais "● Jogando agora" quando alguém da tabela está em campo; critérios em `<ol>` na ordem configurada, num bloco à parte da legenda ("Critérios de desempate", numerados em colunas). Vários grupos: legenda das cores, punições dos times e nota do "=" de cada grupo embaixo da tabela dele; critérios só no card do último (sem caixa à parte). As mesmas colunas em todas as larguras: # Time P J V E D GP SG (com `full`, também GC; sem `full`, GC só na imagem compartilhada). Por container query, o nome do time vira a sigla com contêiner de até 340 px e, até 300 px, células, fonte e posição ficam mais justas (cabe a 320 px sem rolagem lateral); nenhuma coluna some. Em `full`, a partir de 600 px de contêiner, os números têm largura fixa (3,25 rem) e o time fica com o resto; se a tabela não couber, ela rola de lado dentro do card (`.table-scroll`), com o # e o time fixos (`position: sticky`) — a página nunca rola de lado. `compact` só acrescenta a classe `standings--compact`.
 * Punição/bonificação em pontos: linha com `points_adjustment ≠ 0` ganha `<abbr class="adj-mark">*</abbr>` nos pontos (título acessível "Punição: perdeu 3 pontos fora de campo", mais texto escondido para leitor de tela); `adjustments` vira a lista `.adjustments` embaixo da legenda ("Santa Cruz: −3 pts — escalação irregular", sempre visível, mesmo com `legend: false`). Funções puras exportadas: `adjustmentLabel(points)`, `adjustmentNote(item)`, `adjustmentTitle(points)` (tests/js/standings.test.mjs).
 
 ### `group-rows.js` (home e competição)
 * `createGroupRows(standings, matches, card, {only = 'all'|'playing', when = 'nesta rodada'}) → {rows, tables, key}` — fase de grupos em linhas (`.group-row`): jogos do grupo à esquerda e a tabela dele à direita, topo alinhado com o primeiro jogo; a linha tem a altura do mais alto dos dois. Grupo sem jogo: "Não há jogos deste grupo {when}.". `only: 'playing'` (home): só os grupos com jogo no recorte. Jogo entre times de grupos diferentes (pelos times da tabela, não pelo grupo da partida) vai para a seção "Jogos entre grupos" (`.group-row--cross`), depois dos grupos, com as tabelas de todos os grupos envolvidos uma abaixo da outra (o único lugar com mais de uma tabela ao lado dos jogos; grupo que só joga entre grupos não ganha linha própria). Critérios de desempate no card da última tabela exibida; a nota do "=" embaixo de cada tabela que tem empate.
 * `updateGroupRows(layout, standings, matches, {only}) → boolean` — mensagem `standings`: redesenha as tabelas no lugar; `false` se as linhas mudaram (quem chama refaz).
-* `createMatchGroupBlocks(matches, standings|null, card)` — os jogos por grupo sem as tabelas (competição com a classificação geral na lateral; home de fase de grupos sem tabela), com a seção "Jogos entre grupos".
+* `createMatchGroupBlocks(matches, standings|null, card)` — os jogos por grupo sem as tabelas (fase de grupos sem tabela, na home e na competição), com a seção "Jogos entre grupos".
 * `splitGroupMatches(matches, standings)` — separa os jogos de dentro de cada grupo e os entre grupos.
 
 ### `api.js`
@@ -416,9 +416,11 @@ document.addEventListener('visibilitychange', () => document.hidden || clock.che
   cursor novo.
 
 ### Competição (`competition.js`)
-* `competition.html?slug=&stage=&round=` → `GET /api/competitions/:slug?stage=&round=`
+* `competition.html?slug=&stage=&round=&tabela=` → `GET /api/competitions/:slug?stage=&round=`
   (sem os dois, fase e rodada atuais; `current_round_id` = rodada exibida). Fase/rodada
   da URL que não existe mais (404) → tenta sem elas; slug inexistente → `#competition-missing`.
+  `tabela=<id>`: abre na visão dessa classificação (id que não está no menu desta fase: os jogos,
+  e sai da URL).
 * ‹ › trocam a rodada sem recarregar (`history.replaceState`): liga/grupos com
   `GET /api/matches?roundId=`; **mata-mata com `GET /api/competitions/:slug?stage=&round=`**,
   que traz os confrontos com todos os jogos (a ida pode estar em outra rodada).
@@ -427,16 +429,29 @@ document.addEventListener('visibilitychange', () => document.hidden || clock.che
   desenhar a resposta: o card descarta a versão mais velha (`version`) e a classificação só
   recebe as mensagens depois do `cursor` da resposta. (A home não precisa: a troca de dia
   reabre o stream no cursor da resposta.)
-* Liga: cards + classificação (legenda e critérios) no aside. Grupos (com a tabela da fase
-  exibida): uma linha por grupo, jogos à esquerda e a tabela do grupo à direita, alinhada com o
-  primeiro jogo e a legenda das cores embaixo (critérios de desempate uma vez, no card do
-  último grupo); jogos entre grupos numa seção à parte, depois dos grupos; os
-  botões das classificações sobem para a primeira linha. Escolhida outra classificação
-  ("Geral", "Melhores segundos"), abaixo de 960 px o aside, com os botões e a tabela escolhida,
-  sobe para esse lugar (`split--aside-first`): os botões não saem de baixo do dedo, a tabela
-  aparece logo abaixo deles, antes dos jogos, e o foco volta ao botão tocado; no desktop a troca
-  continua no alto da coluna da direita. Com outras fases ou outras classificações, o título da
-  tabela da fase diz o recorte ("Classificação · 2º turno", `stageTitle`). Mata-mata: um bloco
+* Acima da área de jogos, na largura toda, a faixa `#round-bar` ("Jogos da rodada 3" e
+  "Resultados no WhatsApp"); logo abaixo dela, jogos e classificação começam no mesmo y.
+* Liga: cards + a tabela da fase (legenda e critérios) no aside, sempre com o topo do card da
+  tabela no topo do primeiro card de jogo (a partir de 960 px, lado a lado; nada acima da tabela
+  na coluna da direita). Grupos (com tabela): uma linha por grupo, jogos à esquerda e a tabela do
+  grupo à direita, com o topo no do primeiro jogo do grupo e a legenda das cores embaixo
+  (critérios de desempate uma vez, no card do último grupo); jogos entre grupos numa seção à
+  parte, depois dos grupos. Empilhado (abaixo de 960 px), a ordem do DOM: os jogos e depois a
+  tabela (grupos intercalados: jogos do grupo, tabela do grupo). Com outras fases ou outras
+  classificações, o título da tabela da fase diz o recorte ("Classificação · 2º turno",
+  `stageTitle`).
+* Outras classificações (as de `rankings` + `stage.rankings`: "Classificação geral", "Melhores
+  segundos"): no menu "Classificações" (`#rankings-menu`). Escolher uma troca a visão: ela
+  aparece em `#ranking-view`, na largura toda, no lugar dos jogos (some a lista de jogos, a
+  lateral, a faixa do WhatsApp e a navegação de rodada), com todas as colunas; o foco vai para
+  "Voltar aos jogos". A URL ganha `&tabela=<id>` (`history.pushState`: voltar e avançar do
+  navegador restauram a visão, a fase e a rodada; recarregar abre nela). "Voltar aos jogos"
+  também é um passo novo no histórico e mostra a mesma rodada (os cards continuam montados por
+  baixo, recebendo o stream); o foco vai para o botão "Classificações". Trocar de fase (o
+  `<select>` continua ativo) volta aos jogos; ‹ › não aparecem na visão. A visão atualiza pelo
+  stream como antes: busca de novo (`GET /api/rankings/{id}`, agrupado em 1,5 s) quando chega
+  `standings` de uma fase somada (`stage_ids`) ou `match` que muda o que conta numa delas.
+* Mata-mata: um bloco
   por confronto com os cards (a faixa de meta diz só "Ida", "Volta" ou "Jogo único",
   `showRound: 'leg'`, porque a navegação já diz a fase; na home, "Semifinal · Ida"); o card
   da ida diz "Jogo de ida", o da volta traz o agregado (parcial até o fim) e, no fim, quem

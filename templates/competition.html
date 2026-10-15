@@ -43,11 +43,24 @@
           <svg class="icon" aria-hidden="true"><use href="#i-chevron-right"/></svg>
         </button>
       </nav>
-      {# resultados da rodada exibida no WhatsApp (mensagem com os jogos e o link da rodada); o mesmo #}
-      {# botão do cabeçalho da competição na home: "Compartilhar" no celular, em alvo de 44 px #}
-      <button id="round-share" type="button" class="btn btn--ghost btn--sm controls__share" data-hook="round-share" aria-label="Compartilhar os resultados no WhatsApp" hidden><svg class="icon icon--sm" aria-hidden="true"><use href="#i-share"/></svg><span class="label-wide">Resultados no WhatsApp</span><span class="label-narrow">Compartilhar</span></button>
+      {# outras classificações (geral, melhores segundos): a escolhida ocupa o lugar dos jogos (competition.js) #}
+      <div id="rankings-menu" class="rankings-menu" data-hook="rankings-menu" hidden>
+        <button id="rankings-toggle" type="button" class="btn btn--secondary rankings-menu__toggle" data-hook="rankings-toggle" aria-expanded="false" aria-controls="rankings-list">
+          <svg class="icon" aria-hidden="true"><use href="#i-list"/></svg>
+          <span class="rankings-menu__text">Classificações<span class="rankings-menu__chosen" data-hook="rankings-chosen" hidden></span></span>
+          <svg class="icon icon--sm rankings-menu__chevron" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+        </button>
+        <ul id="rankings-list" class="rankings-menu__list" data-hook="rankings-list" aria-label="Classificações" hidden></ul>
+      </div>
     </div>
   </section>
+
+  {# acima dos jogos e da tabela (que começam na mesma altura): o que está listado e os resultados #}
+  {# da rodada exibida no WhatsApp, o mesmo botão do cabeçalho da competição na home #}
+  <div id="round-bar" class="round-bar" data-hook="round-bar">
+    <p id="round-bar-label" class="round-bar__label" data-hook="round-bar-label"><span class="skeleton skeleton--line" style="width:9em"></span></p>
+    <button id="round-share" type="button" class="btn btn--ghost btn--sm round-bar__share" data-hook="round-share" aria-label="Compartilhar os resultados no WhatsApp" hidden><svg class="icon icon--sm" aria-hidden="true"><use href="#i-share"/></svg><span class="label-wide">Resultados no WhatsApp</span><span class="label-narrow">Compartilhar</span></button>
+  </div>
 
   <div id="competition-grid" class="split" data-hook="competition-grid">
     <section aria-labelledby="round-label">
@@ -62,16 +75,22 @@
       </div>
     </section>
     <aside class="split__aside stack" aria-label="Classificação e confrontos" data-hook="aside">
-      {# botões: tabela da fase × classificações gerais/personalizadas (competition.js) #}
-      <div id="standings-switch" class="cluster standings-switch" role="group" aria-label="Classificação exibida" data-hook="standings-switch" hidden></div>
       <div id="stage-standings" data-hook="standings"></div>
-      <div id="ranking-standings" data-hook="ranking-standings" aria-live="polite" hidden></div>
       <section id="stage-ties" class="ties" data-hook="ties" aria-labelledby="ties-title" hidden>
         <h2 id="ties-title" class="stage-block__title">Confrontos</h2>
         <div class="ties" data-hook="ties-list"></div>
       </section>
     </aside>
   </div>
+
+  {# a classificação escolhida no menu "Classificações", na largura toda, no lugar dos jogos; o nome #}
+  {# dela é o <h2 id="ranking-title"> no alto do card da tabela (createStandings, opção heading) #}
+  <section id="ranking-view" class="ranking-view" data-hook="ranking-view" aria-labelledby="ranking-title" hidden>
+    <div class="ranking-view__head">
+      <button id="ranking-back" type="button" class="btn btn--secondary ranking-view__back" data-hook="ranking-back"><svg class="icon" aria-hidden="true"><use href="#i-chevron-left"/></svg>Voltar aos jogos</button>
+    </div>
+    <div id="ranking-standings" data-hook="ranking-standings" aria-live="polite"></div>
+  </section>
 
   <div id="competition-missing" class="empty azulejo" data-hook="competition-missing" hidden>
     <svg class="empty__art" viewBox="0 0 240 150" aria-hidden="true"><use href="#ill-sertao"/></svg>

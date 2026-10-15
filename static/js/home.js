@@ -11,7 +11,7 @@ import { hooks, cloneTemplate, renderCompetitionNav, showToast } from './render.
 import { ServerClock, mountClock } from './clock.js';
 import { formatDateLong, dayKey } from './format.js';
 import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createLatestGoal, createTieGroup, tiesFromMatches, syncTieCards, refreshMatchCards } from './match-card.js';
-import { createStandings, updateStandings } from './standings.js';
+import { createStandings, updateStandings, setStandingsShare } from './standings.js';
 import { createGroupRows, updateGroupRows, createMatchGroupBlocks } from './group-rows.js';
 import { getHome, getCompetitions, getMatch } from './api.js';
 import { createStream, liveStatusIndicator } from './stream.js';
@@ -70,6 +70,12 @@ const state = {
   reloadingFor: null, // dia do reload em andamento
 };
 let alerts = null;
+// imagem da classificação: o título leva o nome da competição da fase
+const stageCompetition = new Map(); // stage id → nome da competição
+setStandingsShare((standings) => {
+  const competition = stageCompetition.get(standings?.stage_id);
+  return competition ? { competition } : null;
+});
 let stream = null;
 let clockMounted = false;
 
@@ -194,6 +200,7 @@ function competitionSection(comp, nextCards, nextStandings) {
   section.dataset.competitionId = String(comp.id);
   const stages = comp.stages || [];
   for (const stage of stages) {
+    stageCompetition.set(stage.id, comp.name);
     const block = cloneTemplate('tpl-stage-block');
     const b = hooks(block);
     block.dataset.stageId = String(stage.id);

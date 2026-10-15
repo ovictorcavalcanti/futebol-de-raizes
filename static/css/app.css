@@ -752,7 +752,7 @@
   /* compartilhar: no celular, botão de ícone no canto superior direito do card, fora do fluxo */
   .match__share { position: absolute; top: 8px; right: 8px; z-index: 1; }
   @media (max-width: 639px), (pointer: coarse) {
-    .match__share::after { content: ""; position: absolute; inset: -6px; } /* toque de 44 px */
+    .match__share::after, .standings__share::after { content: ""; position: absolute; inset: -6px; } /* toque de 44 px */
   }
   .match__minute {
     font-family: var(--font-num);
@@ -1275,7 +1275,10 @@
      CLASSIFICAÇÃO
      ========================================================================= */
   .standings { container: standings / inline-size; display: grid; gap: var(--s-3); }
-  .standings__group { overflow: hidden; }
+  .standings__group { position: relative; overflow: hidden; }
+  /* imagem da classificação (standings-image.js): botão de ícone no canto do card do grupo, como o do jogo */
+  .standings__share { position: absolute; top: 6px; right: 8px; z-index: 1; }
+  .standings__group--shareable .table caption { padding-right: 52px; }
   .table-scroll { overflow-x: auto; }
   .table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.875rem; }
   .table caption {

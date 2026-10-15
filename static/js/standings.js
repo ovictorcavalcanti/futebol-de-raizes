@@ -8,9 +8,10 @@
  */
 import { h, s } from './render.js';
 import { createCrest } from './crest.js';
+import { icon } from './icons.js';
 
 const HEX = /^#[0-9a-f]{6}$/i;
-const COLUMNS = [
+export const COLUMNS = [
   { key: 'points', label: 'P', title: 'Pontos', cls: 'col-pts' },
   { key: 'played', label: 'J', title: 'Jogos', cls: 'col-j' },
   { key: 'won', label: 'V', title: 'Vitórias', cls: 'col-w' },
@@ -60,7 +61,7 @@ function swatch(color) {
     s('rect', { width: '12', height: '12', rx: '3', fill: HEX.test(color || '') ? color : 'currentColor' }));
 }
 
-function rangeLabel(item) {
+export function rangeLabel(item) {
   if (item.from == null) return '';
   return item.to != null && item.to !== item.from ? `${item.from}º–${item.to}º` : `${item.from}º`;
 }
@@ -118,8 +119,44 @@ function groupTable(standings, group, opts, multiple, last) {
     return tr;
   }));
   const table = h('table', { class: 'table' }, groupCaption(standings, group, multiple, anyPlaying), thead, tbody);
-  return h('div', { class: 'card standings__group', 'data-group-id': group.id }, h('div', { class: 'table-scroll' }, table),
-    footer(standings, opts, groupFoot(standings, group, multiple, last)));
+  const foot = groupFoot(standings, group, multiple, last);
+  const share = shareButton(standings, group, foot.adjustments);
+  return h('div', { class: ['card', 'standings__group', share && 'standings__group--shareable'], 'data-group-id': group.id },
+    share, h('div', { class: 'table-scroll' }, table), footer(standings, opts, foot));
+}
+
+/** Página que oferece a imagem da classificação (standings-image.js): `fn(standings)` devolve
+ *  {competition, season} para o título, ou null (sem botão). */
+let shareContext = null;
+export function setStandingsShare(fn) {
+  shareContext = typeof fn === 'function' ? fn : null;
+}
+
+function shareButton(standings, group, adjustments) {
+  const context = shareContext?.(standings);
+  if (!context) return null;
+  const label = group.name && group.name !== 'Tabela' ? ` (${group.name})` : '';
+  // a imagem começa no toque (pointerdown), antes do clique: o menu de compartilhar só abre logo depois do
+  // toque. Fica pronta para os toques seguintes (o botão é refeito quando a tabela muda).
+  let pending = null;
+  const prepare = () => {
+    pending ??= import('./standings-image.js')
+      .then((m) => m.standingsImageFile({ standings, group, adjustments, context }))
+      .catch((err) => { pending = null; throw err; });
+    return pending;
+  };
+  return h('button', {
+    type: 'button',
+    class: 'btn btn--primary btn--icon btn--sm standings__share',
+    'aria-label': `Compartilhar imagem da classificação${label}`,
+    title: 'Compartilhar imagem da classificação',
+    onpointerdown: () => { prepare().catch(() => {}); },
+    onclick: async () => {
+      const file = prepare();
+      const { shareStandingsImage } = await import('./standings-image.js');
+      shareStandingsImage(file);
+    },
+  }, icon('share'));
 }
 
 const teamIdsOf = (groups) => new Set(groups.flatMap((g) => (g.rows || []).map((r) => r.team?.id)).filter((id) => id != null));

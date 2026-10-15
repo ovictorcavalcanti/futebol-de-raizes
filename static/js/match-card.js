@@ -110,6 +110,9 @@ export function createMatchCard(match, opts = {}) {
     details.append(toggle, body);
     details.addEventListener('toggle', () => onToggle(el));
     el.append(details);
+    // compartilhar no canto superior direito (o placar do operador não tem)
+    el.classList.add('match--shareable');
+    el.append(shareButton(el));
   }
   STATE.set(el, { uid: id, match: null, opts: { ...opts, flash: false }, eventIds: null, requested: false, activeTab: null, failed: false });
   updateMatchCard(el, match, { flash: false });
@@ -170,6 +173,7 @@ export function updateMatchCard(el, match, opts = {}) {
   renderBoard(board, match, now);
   renderSummary(summary, match);
   renderTie(tie, match, now);
+  paintShare(el);
 
   if (flash && prev) flashScore(el, prev, match);
 
@@ -258,7 +262,7 @@ function roundLabel(match) {
 }
 
 function renderMeta(meta, match, now, opts) {
-  const parts = [];
+  const parts = []; // 1ª linha: o tempo e o horário; 2ª: estádio e cidade (as duas centralizadas)
   const status = h('span', { class: 'match__status' }, statusPill(match));
   if (match.status === 'live' && !match.partial_info && !INTERVALS.has(match.period) && match.period !== 'penalties') {
     status.append(h('span', { class: 'match__minute' },
@@ -279,15 +283,15 @@ function renderMeta(meta, match, now, opts) {
 
   const context = [opts.showCompetition && (match.competition?.short_name || match.competition?.name), opts.showRound && roundLabel(match)].filter(Boolean);
   if (context.length) parts.push(h('span', { class: 'match__round', text: context.join(' · ') }));
+  const rows = [h('span', { class: 'match__lead' }, ...parts)];
 
   if (match.venue || match.city) {
-    parts.push(h('span', { class: 'match__place' },
+    rows.push(h('span', { class: 'match__place' },
       match.venue ? h('span', { class: 'match__place-item' }, icon('stadium'), h('span', { class: 'visually-hidden', text: 'Estádio: ' }), match.venue) : null,
       match.city ? h('span', { class: 'match__place-item' }, icon('pin'), h('span', { class: 'visually-hidden', text: 'Cidade: ' }), match.city) : null,
     ));
   }
-  if (opts.details !== false) parts.push(shareLink(match)); // o placar do operador não compartilha
-  meta.replaceChildren(...parts);
+  meta.replaceChildren(...rows);
 }
 
 /**
@@ -313,19 +317,23 @@ export function whatsappText(match, now = Date.now(), url = '') {
   return [`*${title}*`, context, url].filter(Boolean).join('\n');
 }
 
-/** Link "WhatsApp" da faixa: o texto é montado no clique, com o minuto da hora. */
-function shareLink(match) {
+/** Botão de compartilhar no canto do card: abre o WhatsApp com o texto do jogo. */
+function shareButton(el) {
   const link = h('a', {
-    class: 'btn btn--ghost btn--sm match__share', target: '_blank', rel: 'noopener',
-    'aria-label': `Compartilhar no WhatsApp: ${displayName(match.home)} × ${displayName(match.away)}`,
-  }, icon('external', { className: 'icon--sm' }), 'WhatsApp');
-  const refresh = () => {
-    const url = globalThis.location ? globalThis.location.href.split('#')[0] : '';
-    link.href = `https://api.whatsapp.com/send?text=${encodeURIComponent(whatsappText(match, Date.now(), url))}`;
-  };
-  refresh();
-  link.addEventListener('click', refresh);
+    class: 'btn btn--secondary btn--icon btn--sm match__share', target: '_blank', rel: 'noopener',
+    'aria-label': 'Compartilhar no WhatsApp', title: 'Compartilhar no WhatsApp',
+  }, icon('share', { className: 'icon--sm' }));
+  link.addEventListener('click', () => paintShare(el)); // remonta no toque: o minuto sai atualizado
   return link;
+}
+
+/** Atualiza o link do botão de compartilhar com o jogo atual do card. */
+function paintShare(el) {
+  const link = el.querySelector(':scope > .match__share');
+  const match = STATE.get(el)?.match;
+  if (!link || !match) return;
+  const url = globalThis.location ? globalThis.location.href.split('#')[0] : '';
+  link.href = `https://api.whatsapp.com/send?text=${encodeURIComponent(whatsappText(match, Date.now(), url))}`;
 }
 
 /* ==========================================================================

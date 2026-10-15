@@ -1400,6 +1400,38 @@ def test_nome_do_time_completo_sem_vazar(open_page, url, width):
     assert not errors, errors
 
 
+SHARE_JS = """() => [...document.querySelectorAll('.matches > article.match')].map((card) => {
+  const c = card.getBoundingClientRect();
+  const btn = card.querySelector(':scope > .match__share');
+  const b = btn.getBoundingClientRect();
+  const meta = card.querySelector('.match__meta').getBoundingClientRect();
+  const rows = [...card.querySelectorAll('.match__lead, .match__place')].map((r) => r.getBoundingClientRect());
+  const hit = (r) => !(r.right <= b.left || r.left >= b.right || r.bottom <= b.top || r.top >= b.bottom);
+  const texts = [...card.querySelectorAll('.match__lead > *, .match__place-item')].map((e) => e.getBoundingClientRect());
+  return { right: c.right - b.right, top: b.top - c.top, size: [b.width, b.height], name: btn.getAttribute('aria-label'),
+    href: decodeURIComponent(btn.href), icon: btn.querySelector('use')?.getAttribute('href'), text: btn.textContent.trim(),
+    centers: rows.map((r) => Math.round((r.left + r.right) / 2 - (meta.left + meta.right) / 2)), overlap: texts.some(hit) };
+})"""
+
+
+@pytest.mark.parametrize("width", [390, 1280])
+def test_compartilhar_jogo_botao_no_canto_e_faixa_centralizada(open_page, width):
+    """Compartilhar: só o ícone, no canto superior direito do card; tempo/horário e estádio/cidade centralizados."""
+    page, _, errors = open_page("/", width=width)
+    page.wait_for_selector(".matches > article.match .match__share")
+    page.evaluate("document.fonts.ready")
+    cards = page.evaluate(SHARE_JS)
+    assert cards
+    for card in cards:
+        assert abs(card["right"] - 8) <= 1 and abs(card["top"] - 8) <= 1, card
+        assert card["name"] == "Compartilhar no WhatsApp" and card["icon"] == "#i-share" and card["text"] == "", card
+        assert card["href"].startswith("https://api.whatsapp.com/send?text=*"), card
+        assert all(abs(x) <= 2 for x in card["centers"]) and len(card["centers"]) == 2, card
+        assert not card["overlap"], card
+    assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
+    assert not errors, errors
+
+
 @pytest.mark.parametrize("width", [320, 390])
 def test_logo_horizontal_largo_nao_empurra_o_cabecalho(open_page, width):
     """BRAND_LOGO_URL de qualquer proporção (aqui 10:1): relógio e tema continuam na tela."""

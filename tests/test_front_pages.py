@@ -441,10 +441,14 @@ class FakeApi:
         if path.startswith("/api/rankings/"):
             ranking_id = int(path.rsplit("/", 1)[1])
             ref = next(r for r in self.rankings if r["id"] == ranking_id)
+            standings = copy.deepcopy(self.fx["STANDINGS"])
+            if ref["scope"] == "position":  # como a API: cada linha traz o nome do grupo do time
+                for i, row in enumerate(standings["groups"][0]["rows"]):
+                    row["group"] = f"Grupo {'AB'[i % 2]}"
             return self.json(
                 route,
                 {
-                    **copy.deepcopy(self.fx["STANDINGS"]),
+                    **standings,
                     "stage_id": None,
                     "stage_name": ref["name"],
                     "ranking_id": ranking_id,
@@ -1484,6 +1488,21 @@ def test_competicao_seletor_de_classificacao(open_page, width):
     page.wait_for_timeout(200)
     back = page.evaluate(SELECT_POS_JS)
     assert (back["top"], back["left"]) == (before["top"], before["left"]) and abs(back["firstMatch"] - before["firstMatch"]) <= 1, (before, back)
+    assert not errors, errors
+
+
+def test_competicao_melhores_segundos_sem_o_grupo_dos_times(open_page):
+    """Classificação por posição nos grupos ("Melhores segundos"): só o time, sem o nome do grupo."""
+    def prepare(api):
+        api.rankings = [{"id": 6, "name": "Melhores segundos", "scope": "position"}]
+        api.ranking_stage_ids = [6]
+
+    page, _, errors = open_page("/competition.html?slug=copa-pernambuco&stage=6", prepare=prepare)
+    page.wait_for_selector("#standings-field:not([hidden])")
+    page.select_option("#standings-select", label="Melhores segundos")
+    page.wait_for_selector("#ranking-standings table")
+    names = page.evaluate("[...document.querySelectorAll('#ranking-standings .team-cell__text')].map((e) => e.textContent)")
+    assert names and not any("Grupo" in n for n in names), names
     assert not errors, errors
 
 

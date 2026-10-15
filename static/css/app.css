@@ -1635,7 +1635,6 @@
        grupo e o respiro até o card, como .group-row__table) */
     .split--groups-ranking > .split__aside { margin-top: calc(1.25rem + var(--s-3)); }
   }
-  .team-cell__group { margin-left: var(--s-2); font-size: 0.75rem; font-weight: 600; color: var(--ink-3); white-space: nowrap; }
   .segmented { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: var(--s-2); }
   .segmented__option { position: relative; }
   .segmented__option input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }

@@ -98,9 +98,9 @@ linha do tempo de dois lados, escalações, ficha — com ganhos de UX:
    ADIADO/SUSPENSO/CANCELADO com hachura), minuto ao vivo calculado no cliente
    ("2T · 72'", "45+2'"), data relativa ("Hoje · 16:30", "Amanhã"), estádio e
    cidade com ícones. Em telas pequenas quebra em duas linhas sem perder o status.
-2. **Placar**: faixas laterais com a cor de cada time; nome completo no desktop e
-   sigla no celular (o nome quebra só entre palavras, em no máximo duas linhas
-   equilibradas; a sigla nunca quebra); placar grande tabular; vencedor em destaque e perdedor
+2. **Placar**: faixas laterais com a cor de cada time; nome completo no desktop e no
+   celular (menor no card estreito, quebrando entre palavras em linhas equilibradas);
+   placar grande tabular; vencedor em destaque e perdedor
    esmaecido ao fim; pênaltis "(4) × (3) pên."; no mata-mata, linha de agregado e
    quem avançou.
 3. **Resumo sem abrir**: autores dos gols sob cada time ("Pavón 18' · Reinaldo 56'")

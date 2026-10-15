@@ -1379,23 +1379,25 @@ NAMES_JS = """() => [...document.querySelectorAll('.match .team__name')].map((na
   const shown = [...name.children].find((c) => getComputedStyle(c).display !== 'none');
   const lh = parseFloat(getComputedStyle(name).lineHeight);
   return { kind: shown.classList.contains('team__short') ? 'short' : 'full', text: shown.textContent,
-    lines: shown.getBoundingClientRect().height / lh, overflow: name.scrollWidth - name.clientWidth };
+    lines: shown.getBoundingClientRect().height / lh, overflow: name.scrollWidth - name.clientWidth,
+    team: name.closest('.team').getBoundingClientRect().width, size: parseFloat(getComputedStyle(name).fontSize) };
 })"""
 
 
 @pytest.mark.parametrize("width", [320, 360, 375, 1024])
 @pytest.mark.parametrize("url", ["/", "/competition.html?slug=pernambucano-raiz"])
-def test_nome_do_time_nao_quebra_letra_a_letra(open_page, url, width):
-    """Sigla em 1 linha; nome completo em no máximo 2 linhas (quebra só entre palavras)."""
+def test_nome_do_time_completo_sem_vazar(open_page, url, width):
+    """Nome completo (nunca a sigla) em todas as larguras, sem vazar da coluna. No celular, até 3 linhas
+    (4 em 320 px, com nomes oficiais de quatro palavras como "Afogados da Ingazeira FC")."""
     page, _, errors = open_page(url, width=width)
     page.wait_for_selector("article.match .team__name")
     page.wait_for_timeout(200)
     names = page.evaluate(NAMES_JS)
     assert names
-    bad = [n for n in names if n["lines"] > (1.5 if n["kind"] == "short" else 2.5) or n["overflow"] > 1]
+    assert {n["kind"] for n in names} == {"full"}
+    max_lines = 4.5 if width <= 320 else 3.5 if width <= 375 else 2.5
+    bad = [n for n in names if n["lines"] > max_lines or n["overflow"] > 1]
     assert not bad, bad
-    if width <= 375:
-        assert {n["kind"] for n in names} == {"short"}
     assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
     assert not errors, errors
 

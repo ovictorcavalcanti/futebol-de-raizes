@@ -825,12 +825,14 @@
     line-height: 1.1;
     letter-spacing: 0.01em;
     color: var(--ink);
-    /* quebra só entre palavras (nunca "SP/T"), em linhas equilibradas */
-    overflow-wrap: normal;
+    /* quebra entre palavras, em linhas equilibradas; palavra que não cabe hifeniza (pt-BR)
+       e, só em último caso, quebra para não vazar da coluna */
+    overflow-wrap: break-word;
+    hyphens: auto;
     text-wrap: balance;
   }
-  .team__full { display: none; }
-  .team__short { letter-spacing: 0.04em; white-space: nowrap; }
+  /* o nome completo em todas as larguras; a sigla fica só no DOM (aria-hidden) */
+  .team__short { display: none; }
   .team .crest { --crest-size: 36px; }
 
   .score {
@@ -874,17 +876,20 @@
   /* fora do fluxo (no canto de cima, junto da faixa do time): não aperta o nome */
 
   /* card estreito (celular até ~400 px): escudo, vão e coluna do placar menores */
+  /* card estreito (celular): nome completo um pouco menor, para caber ao lado do escudo */
+  @container match (max-width: 519px) {
+    .team__name { font-size: 1rem; }
+  }
   @container match (max-width: 379px) {
     .match__board { gap: var(--s-2) var(--s-2); padding-inline: var(--s-3); }
     .team { gap: 6px; }
     .team .crest { --crest-size: 30px; }
+    .team__name { font-size: 0.875rem; }
     .score { min-width: 72px; }
     .score__line { font-size: 2.25rem; }
   }
 
   @container match (min-width: 520px) {
-    .team__full { display: inline; }
-    .team__short { display: none; }
     .team__name { font-size: 1.375rem; }
     .team .crest { --crest-size: 48px; }
     .score__line { font-size: 3rem; }

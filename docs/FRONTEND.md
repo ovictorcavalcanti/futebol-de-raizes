@@ -254,7 +254,8 @@ estreito é menor (32 px; 30 px abaixo de 380 px), com a coluna central mais est
 vencedor fica fora do fluxo (no canto, junto da faixa do time), sem apertar o nome; em card
 estreito (< 380 px) escudo, vão e coluna do placar diminuem. Resumo sem abrir: autores dos
 gols, um por linha, em duas colunas (mandante à direita, visitante à esquerda), também no
-desktop. Abas só com dado:
+desktop; gol sem autor (informações a confirmar) fica de fora até chegarem os dados, e na aba Lances
+aparece só com o placar, sem nome nem minuto ("Gol - Informações a confirmar" fica só nos últimos gols). Abas só com dado:
 **Lances** (linha do tempo de dois lados com trilho central e separadores de
 período; gol anulado riscado com o motivo; lance sem time, como o VAR, vai ao
 centro com o minuto junto do texto; em cards estreitos o placar parcial

@@ -697,3 +697,45 @@ def test_card_estreito_nome_quebra_por_palavra_no_tipo_da_classificacao(browser_
         assert out["split"] == [], out
     assert out["card"] == out["table"], out
     assert out["score"] <= 32 and not out["overflow"], out
+
+
+UNCONFIRMED_GOAL_JS = """async () => {
+  const M = await import('/static/js/match-card.js');
+  const F = await import('/static/js/fixtures.js');
+  const root = document.getElementById('root');
+  root.replaceChildren();
+  const live = F.MATCHES.live;
+  const side = (x) => x.team_side || x.side;
+  const model = live.events.find((e) => e.type === 'goal' && !e.annulled && side(e) === 'away');
+  const away = live.away_score + 1;
+  const event = { ...model, id: 999001, sequence: 999, minute: 80, minute_label: "80'", player: null, payload: { origin: 'open_play' },
+    score_after: { home: live.home_score, away } };
+  const goal = { ...live.goals.find((g) => side(g) === 'away'), event_id: 999001, player: null, minute: 80, minute_label: "80'" };
+  const match = { ...live, away_score: away, version: live.version + 1, events: [...live.events, event], goals: [...live.goals, goal] };
+  const card = M.createMatchCard(match, { onExpand: () => new Promise(() => {}) });
+  root.append(card);
+  card.querySelector('details').open = true;
+  await new Promise((r) => setTimeout(r, 50));
+  M.updateMatchCard(card, match);
+  const item = card.querySelector('.tl-item[data-event-id="999001"]');
+  return {
+    summary: card.querySelector('.match__summary').textContent,
+    summaryItems: card.querySelectorAll('.match__summary li').length,
+    withPlayer: live.goals.filter((g) => g.player).length,
+    item: item && [item.querySelector('.tl-item__title')?.textContent, item.querySelector('.tl-item__min').textContent.trim(),
+      item.querySelector('.tl-item__icon')?.getAttribute('aria-label')],
+    latest: M.createLatestGoal({ ...goal, match: live, team: live.away, score_after: event.score_after }).textContent,
+  };
+}"""
+
+
+def test_gol_sem_autor_fora_do_resumo_e_so_placar_nos_lances(browser_page):
+    """Gol sem autor (informações a confirmar): fora do resumo do card até chegarem os dados; nos lances,
+    só o placar, sem nome nem minuto; o "a confirmar" fica só nos últimos gols."""
+    page, errors = browser_page
+    out = page.evaluate(UNCONFIRMED_GOAL_JS)
+    assert not errors, errors
+    assert out["summaryItems"] == out["withPlayer"] and "confirmar" not in out["summary"], out
+    title, minute, icon_label = out["item"]
+    assert title == "" and "'" not in minute and "×" in minute and icon_label == "Gol", out
+    assert "Informações a confirmar" in out["latest"], out

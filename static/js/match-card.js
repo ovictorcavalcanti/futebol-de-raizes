@@ -420,8 +420,9 @@ function flashScore(el, prev, match) {
    ========================================================================== */
 
 function renderSummary(summary, match) {
-  // Fora do acordeão, só os gols; cartões ficam nos lances.
-  const goals = Array.isArray(match.goals) ? match.goals : [];
+  // Fora do acordeão, só os gols; cartões ficam nos lances. Gol sem autor (informações a
+  // confirmar) fica de fora até chegarem os dados: o placar já o conta.
+  const goals = (Array.isArray(match.goals) ? match.goals : []).filter((g) => g.player);
   if (!goals.length) {
     summary.hidden = true;
     summary.replaceChildren();
@@ -825,8 +826,12 @@ export function renderTimeline(match, newIds = null) {
               h('span', { 'aria-hidden': 'true', text: 'Assist.: ' }), e.payload.assist));
           }
         }
+        // gol sem autor (informações a confirmar): só o placar, sem nome nem minuto, até chegarem
+        // os dados (o "a confirmar" fica nos últimos gols); o ícone diz "Gol" ao leitor de tela
+        const player = eventPlayer(e);
         list.append(timelineItem(e, side, {
-          title: eventPlayer(e) || GOAL_TO_CONFIRM, sub, score: annulled ? null : (e.score_after ? formatScore(e.score_after.home, e.score_after.away) : null),
+          title: player || '', minuteText: player || annulled ? undefined : '',
+          sub, score: annulled ? null : (e.score_after ? formatScore(e.score_after.home, e.score_after.away) : null),
           extraClass: annulled ? 'tl-item--annulled' : 'tl-item--goal', isNew,
         }));
         break;

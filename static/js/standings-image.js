@@ -10,7 +10,7 @@
 import { h, showToast } from './render.js';
 import { icon } from './icons.js';
 import { SHIELD, contrastInk } from './crest.js';
-import { COLUMNS, adjustmentNote, rangeLabel } from './standings.js';
+import { COLUMNS, adjustmentNote, rangeLabel } from './standings-labels.js';
 import { LOCALE, TIME_ZONE } from './format.js';
 
 export const SITE = 'futebolderaizes.com';

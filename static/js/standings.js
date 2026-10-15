@@ -9,41 +9,14 @@
 import { h, s } from './render.js';
 import { createCrest } from './crest.js';
 import { icon } from './icons.js';
+import { COLUMNS, adjustmentLabel, adjustmentNote, adjustmentTitle, rangeLabel } from './standings-labels.js';
+
+export { adjustmentLabel, adjustmentNote, adjustmentTitle };
 
 const HEX = /^#[0-9a-f]{6}$/i;
-export const COLUMNS = [
-  { key: 'points', label: 'P', title: 'Pontos', cls: 'col-pts' },
-  { key: 'played', label: 'J', title: 'Jogos', cls: 'col-j' },
-  { key: 'won', label: 'V', title: 'Vitórias', cls: 'col-w' },
-  { key: 'drawn', label: 'E', title: 'Empates', cls: 'col-d' },
-  { key: 'lost', label: 'D', title: 'Derrotas', cls: 'col-l' },
-  { key: 'goals_for', label: 'GP', title: 'Gols pró', cls: 'col-gp' },
-  { key: 'goals_against', label: 'GC', title: 'Gols contra', cls: 'col-gc' },
-  { key: 'goal_difference', label: 'SG', title: 'Saldo de gols', cls: 'col-sg' },
-];
 
 function signed(n) {
   return n > 0 ? `+${n}` : String(n);
-}
-
-/** Pontos de um ajuste com o sinal tipográfico: −3, +2. */
-export function adjustmentLabel(points) {
-  const n = Number(points) || 0;
-  return n < 0 ? `\u2212${Math.abs(n)}` : `+${n}`;
-}
-
-/** Linha da nota de punições: "Santa Cruz: −3 pts — escalação irregular". */
-export function adjustmentNote(item) {
-  const name = item?.team?.name || item?.team?.short_name || 'Time';
-  const reason = item?.reason ? ` — ${item.reason}` : '';
-  return `${name}: ${adjustmentLabel(item?.points)} pts${reason}`;
-}
-
-/** Texto do título (e do leitor de tela) da marca "*" nos pontos ajustados. */
-export function adjustmentTitle(points) {
-  const n = Number(points) || 0;
-  const amount = Math.abs(n) === 1 ? '1 ponto' : `${Math.abs(n)} pontos`;
-  return n < 0 ? `Punição: perdeu ${amount} fora de campo` : `Bonificação: ganhou ${amount} fora de campo`;
 }
 
 function pointsCell(row, col) {
@@ -59,11 +32,6 @@ function pointsCell(row, col) {
 function swatch(color) {
   return s('svg', { class: 'legend__swatch', viewBox: '0 0 12 12', width: '12', height: '12', 'aria-hidden': 'true', focusable: 'false' },
     s('rect', { width: '12', height: '12', rx: '3', fill: HEX.test(color || '') ? color : 'currentColor' }));
-}
-
-export function rangeLabel(item) {
-  if (item.from == null) return '';
-  return item.to != null && item.to !== item.from ? `${item.from}º–${item.to}º` : `${item.from}º`;
 }
 
 function groupCaption(standings, group, multiple, anyPlaying) {

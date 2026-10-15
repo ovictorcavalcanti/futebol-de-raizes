@@ -8,8 +8,6 @@
  */
 import { h, s } from './render.js';
 import { createCrest } from './crest.js';
-import { icon } from './icons.js';
-import { openStandingsShare } from './share.js';
 
 const HEX = /^#[0-9a-f]{6}$/i;
 const COLUMNS = [
@@ -94,15 +92,6 @@ function teamCell(row) {
   );
 }
 
-/** A tabela no WhatsApp (imagem e mensagem): "competição · fase · rodada" (`share.round`) e, numa fase de grupos
- *  (`share.groups` ou mais de um grupo na tabela), o grupo. A classificação geral ou personalizada
- *  (um "grupo" com o nome da classificação) não vira grupo. */
-function shareGroup(standings, group, share, multiple) {
-  const groupName = (multiple || share.groups) && group.name !== 'Tabela' ? group.name || '' : '';
-  const value = (option) => (typeof option === 'function' ? option() : option || '');
-  openStandingsShare(standings, group, { competition: share.title, groupName, round: value(share.round), url: value(share.url) });
-}
-
 function groupTable(standings, group, opts, multiple, last) {
   const rows = group.rows || [];
   const anyPlaying = rows.some((r) => r.playing);
@@ -131,14 +120,8 @@ function groupTable(standings, group, opts, multiple, last) {
     return tr;
   }));
   const table = h('table', { class: 'table' }, groupCaption(standings, group, multiple, anyPlaying), thead, tbody);
-  // compartilhar a tabela no WhatsApp (opts.share = {title, url}): no canto, na altura do título
-  const share = opts.share && rows.length ? h('button', {
-    type: 'button', class: 'btn btn--secondary btn--icon btn--sm standings__share',
-    'aria-label': 'Compartilhar a classificação no WhatsApp', title: 'Compartilhar no WhatsApp',
-    onclick: () => shareGroup(standings, group, opts.share, multiple),
-  }, icon('share')) : null;
-  return h('div', { class: ['card standings__group', share && 'standings__group--shareable'], 'data-group-id': group.id },
-    share, h('div', { class: 'table-scroll' }, table), footer(standings, opts, groupFoot(standings, group, multiple, last)));
+  return h('div', { class: 'card standings__group', 'data-group-id': group.id }, h('div', { class: 'table-scroll' }, table),
+    footer(standings, opts, groupFoot(standings, group, multiple, last)));
 }
 
 const teamIdsOf = (groups) => new Set(groups.flatMap((g) => (g.rows || []).map((r) => r.team?.id)).filter((id) => id != null));

@@ -1121,10 +1121,9 @@ def test_competicao_classificacao_geral_nao_perde_gol_anulado(open_page, fixture
         api.ranking_stage_ids = [6, 7]
 
     page, api, errors = open_page("/competition.html?slug=copa-pernambuco&stage=6", prepare=prepare)
-    page.wait_for_selector("#standings-switch button")
+    page.wait_for_selector("#standings-field:not([hidden])")
     ping = _sse([("ping", {"server_time": _now_iso()}, None)])
     api.streams = [ping]
-    switch = page.locator("#standings-switch")
 
     def ranking_gets():
         return sum(1 for r in api.requests if r[0] == "GET" and r[1] == "/api/rankings/5")
@@ -1142,7 +1141,7 @@ def test_competicao_classificacao_geral_nao_perde_gol_anulado(open_page, fixture
         page.wait_for_timeout(300)
 
     with refetches_ranking():
-        switch.get_by_role("button", name="Geral").click()
+        page.select_option("#standings-select", label="Geral")
     # classificação geral na lateral: os jogos por grupo, e o jogo entre grupos à parte
     assert page.evaluate("[...document.querySelectorAll('#round-matches .match-group')].map((g) => [g.querySelector('.match-group__title').textContent, g.querySelectorAll('.match').length])") == [["Grupo A", 1], ["Grupo B", 1], ["Jogos entre grupos", 1]]
     with refetches_ranking():
@@ -1150,10 +1149,10 @@ def test_competicao_classificacao_geral_nao_perde_gol_anulado(open_page, fixture
     assert ranking_gets() == 2
 
     # com a tabela da fase na tela chega o 2x0; de volta à classificação, ela mostra o 2x0
-    switch.get_by_role("button", name="Fase de grupos").click()
+    page.select_option("#standings-select", label="Fase de grupos")
     deliver(score(2), 4184)
     with refetches_ranking():
-        switch.get_by_role("button", name="Geral").click()
+        page.select_option("#standings-select", label="Geral")
     assert ranking_gets() == 3
     with refetches_ranking():  # gol anulado: volta ao 1x0 (já visto antes da troca)
         deliver(score(1), 4185)
@@ -1169,10 +1168,10 @@ def test_competicao_classificacao_geral_nao_perde_gol_anulado(open_page, fixture
 
     # o 2x0 chega no meio da carga (da tabela da fase para "Geral"): as fases somadas ainda
     # não chegaram e a resposta pode vir velha; ao fim da carga, busca de novo
-    switch.get_by_role("button", name="Fase de grupos").click()
+    page.select_option("#standings-select", label="Fase de grupos")
     held = []  # segura a primeira resposta da classificação
     page.route(lambda url: "/api/rankings/5" in url, lambda route: route.fallback() if held else held.append(route))
-    switch.get_by_role("button", name="Geral").click()
+    page.select_option("#standings-select", label="Geral")
     for _ in range(50):
         if held:
             break
@@ -1448,41 +1447,52 @@ def test_compartilhar_jogo_botao_e_faixa_do_card(open_page, width):
     assert not errors, errors
 
 
-SWITCH_POS_JS = """() => { const s = document.querySelector('#standings-switch').getBoundingClientRect();
+SELECT_POS_JS = """() => { const f = document.querySelector('#standings-field').getBoundingClientRect();
+  const st = document.querySelector('#stage-select').closest('.field').getBoundingClientRect();
   const rk = document.querySelector('#ranking-standings:not([hidden])')?.getBoundingClientRect();
-  const col = document.querySelector('#round-matches').getBoundingClientRect();
   const first = document.querySelector('#round-matches .match').getBoundingClientRect();
-  return { top: Math.round(s.top + scrollY), left: Math.round(s.left), bottom: Math.round(s.bottom + scrollY),
-    ranking: rk ? Math.round(rk.top + scrollY) : null, games: Math.round(col.top + scrollY), firstMatch: Math.round(first.top + scrollY) }; }"""
+  return { top: Math.round(f.top + scrollY), left: Math.round(f.left), stageTop: Math.round(st.top + scrollY), stageBottom: Math.round(st.bottom + scrollY),
+    stageRight: Math.round(st.right), ranking: rk ? Math.round(rk.top + scrollY) : null, firstMatch: Math.round(first.top + scrollY) }; }"""
 
 
-@pytest.mark.parametrize("width", [390, 768, 1280])
-def test_competicao_classificacao_extra_nao_tira_nada_do_lugar(open_page, width):
-    """Fase de grupos: escolher outra classificação ("Geral") não move os botões (linha própria acima de
-    jogos e classificação). Desktop: os jogos também ficam parados e a tabela começa na altura do
-    primeiro jogo, como a tabela de cada grupo. Celular/tablet: a tabela escolhida vem logo abaixo dos botões."""
+@pytest.mark.parametrize("width", [390, 1280])
+def test_competicao_seletor_de_classificacao(open_page, width):
+    """Mais de uma classificação pública: seletor "Classificação" ao lado da fase (no celular, abaixo), sempre no
+    mesmo lugar; trocar muda só a tabela. Desktop: os jogos ficam parados e a tabela fica junto do primeiro jogo."""
     def prepare(api):
         api.rankings = [{"id": 5, "name": "Geral", "scope": "overall"}]
         api.ranking_stage_ids = [6, 7]
 
     page, _, errors = open_page("/competition.html?slug=copa-pernambuco&stage=6", width=width, prepare=prepare)
-    page.wait_for_selector("#standings-switch button")
+    page.wait_for_selector("#standings-field:not([hidden])")
     page.wait_for_timeout(200)
-    before = page.evaluate(SWITCH_POS_JS)
-    page.locator("#standings-switch").get_by_role("button", name="Geral").click()
+    assert page.evaluate("[...document.querySelectorAll('#standings-select option')].map((o) => o.textContent)") == ["Fase de grupos", "Geral"]
+    before = page.evaluate(SELECT_POS_JS)
+    if width >= 960:
+        assert before["top"] == before["stageTop"] and before["left"] > before["stageRight"], before  # ao lado da fase
+    else:
+        assert before["top"] >= before["stageBottom"], before  # abaixo da fase
+    page.select_option("#standings-select", label="Geral")
     page.wait_for_selector("#ranking-standings table")
     page.wait_for_timeout(200)
-    after = page.evaluate(SWITCH_POS_JS)
-    assert abs(after["top"] - before["top"]) <= 1 and after["left"] == before["left"], (before, after)
+    after = page.evaluate(SELECT_POS_JS)
+    assert (after["top"], after["left"]) == (before["top"], before["left"]), (before, after)
     if width >= 960:
         assert abs(after["firstMatch"] - before["firstMatch"]) <= 1, (before, after)  # os jogos não pulam
         assert abs(after["ranking"] - after["firstMatch"]) <= 1, after  # tabela junto do primeiro jogo
-    else:
-        assert 0 <= after["ranking"] - after["bottom"] <= 40, after  # a tabela logo abaixo dos botões
-    page.locator("#standings-switch").get_by_role("button", name="Fase de grupos").click()
+    page.select_option("#standings-select", label="Fase de grupos")
     page.wait_for_timeout(200)
-    back = page.evaluate(SWITCH_POS_JS)
-    assert abs(back["top"] - before["top"]) <= 1 and abs(back["firstMatch"] - before["firstMatch"]) <= 1, (before, back)
+    back = page.evaluate(SELECT_POS_JS)
+    assert (back["top"], back["left"]) == (before["top"], before["left"]) and abs(back["firstMatch"] - before["firstMatch"]) <= 1, (before, back)
+    assert not errors, errors
+
+
+def test_competicao_sem_outra_classificacao_nao_mostra_o_seletor(open_page):
+    """Só a classificação da fase: o seletor "Classificação" não aparece."""
+    page, _, errors = open_page("/competition.html?slug=pernambucano-raiz")
+    page.wait_for_selector("#round-matches .match")
+    page.wait_for_timeout(200)
+    assert page.evaluate("document.querySelector('#standings-field').hidden")
     assert not errors, errors
 
 

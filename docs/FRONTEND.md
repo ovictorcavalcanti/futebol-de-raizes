@@ -138,6 +138,7 @@ for (const stage of comp.stages) {
 | --- | --- |
 | `[data-hook="competition-name"]`, `[data-hook="season"]`, `[data-hook="competition-eyebrow"]` | Título (contém um esqueleto até ser preenchido), ano da temporada, rótulo acima. |
 | `#stage-select` (`disabled`) | `<option value=stage.id>` por fase; habilite ao preencher. |
+| `#standings-field` (`hidden`), `#standings-select` | Seletor "Classificação" ao lado da fase (no celular, abaixo), só quando há mais de uma classificação pública (a da fase e as de `rankings`/`stage.rankings`): `<option value="stage">` e uma por classificação. Fica sempre no mesmo lugar e troca só a tabela (a lateral; na fase de grupos, as tabelas por grupo dão lugar à escolhida, que no desktop começa junto do primeiro jogo). |
 | `#round-prev`, `#round-next` (`disabled`), `#round-label` (`aria-live="polite"`) | Navegação ‹ Rodada 5 ›. |
 | `#round-matches` (`aria-busy="true"`) | Cards da rodada (`createMatchCard`); mata-mata: um bloco por confronto (`createTieGroup`); fase de grupos com tabela: uma linha por grupo (`.group-row`: jogos do grupo ou "Não há jogos deste grupo nesta rodada." e a tabela do grupo ao lado, topo alinhado, com a legenda das cores e as punições do grupo embaixo; a linha tem a altura do mais alto dos dois; critérios de desempate uma vez, dentro do card do último grupo; jogos entre grupos numa seção à parte, `createGroupRows`). |
 | `#round-empty` (`hidden`) | "Nenhum jogo nesta rodada." |
@@ -346,8 +347,8 @@ document.addEventListener('visibilitychange', () => document.hidden || clock.che
 * Liga: cards + classificação (legenda e critérios) no aside. Grupos (com a tabela da fase
   exibida): uma linha por grupo, jogos à esquerda e a tabela do grupo à direita, alinhada com o
   primeiro jogo e a legenda das cores embaixo (critérios de desempate uma vez, no card do
-  último grupo); jogos entre grupos numa seção à parte, depois dos grupos; os
-  botões das classificações sobem para a primeira linha. Mata-mata: um bloco
+  último grupo); jogos entre grupos numa seção à parte, depois dos grupos; a outra
+  classificação se escolhe no seletor "Classificação", ao lado da fase. Mata-mata: um bloco
   por confronto com os cards (com "Semifinal · Ida" na faixa de meta, também na home); o card
   da ida diz "Jogo de ida", o da volta traz o agregado (parcial até o fim) e, no fim, quem
   avança e como; a mensagem `match` atualiza o confronto nos dois cards (`syncTieCards`,

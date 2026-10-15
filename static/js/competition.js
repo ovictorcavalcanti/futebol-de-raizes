@@ -35,8 +35,8 @@ const els = {
   matches: $('round-matches'),
   roundEmpty: $('round-empty'),
   standings: $('stage-standings'),
-  standingsHead: $('standings-head'),
-  standingsSwitch: $('standings-switch'),
+  standingsField: $('standings-field'),
+  standingsSelect: $('standings-select'),
   rankingStandings: $('ranking-standings'),
   ties: $('stage-ties'),
   tiesList: document.querySelector('#stage-ties [data-hook="ties-list"]'),
@@ -121,7 +121,7 @@ function groupRowsMode() {
   return state.stage?.format === 'groups' && state.view === 'stage' && !!state.standingsData?.groups?.length;
 }
 
-/** Linhas dos grupos (createGroupRows); os botões das classificações ficam na linha de cima. */
+/** Linhas dos grupos (createGroupRows): os jogos de cada grupo e a tabela dele ao lado. */
 function groupRows(matches, card) {
   state.groupLayout = createGroupRows(state.standingsData, matches, card);
   return state.groupLayout.rows;
@@ -199,7 +199,7 @@ function rankingRefs(data) {
   return [...(data.rankings || []), ...(data.stage?.rankings || [])].filter((r) => !seen.has(r.id) && seen.add(r.id));
 }
 
-function paintStandingsSwitch() {
+function paintStandingsSelect() {
   const data = state.data || {};
   const refs = rankingRefs(data);
   const hasStage = !!data.stage?.standings;
@@ -208,24 +208,17 @@ function paintStandingsSwitch() {
   } else if (state.view !== 'stage' ? !refs.some((r) => r.id === state.view) : !hasStage) {
     state.view = hasStage ? 'stage' : refs[0].id;
   }
-  const button = (view, text) => {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'btn btn--secondary btn--sm btn--toggle';
-    b.textContent = text;
-    b.setAttribute('aria-pressed', String(state.view === view));
-    b.addEventListener('click', () => {
-      if (state.view === view) return;
-      state.view = view;
-      paintStandingsSwitch();
-      if (state.stage?.format === 'groups') reorderCards(); // linhas de grupo × jogos por grupo
-    });
-    return b;
+  // seletor ao lado da fase (no celular, abaixo): só com mais de uma classificação pública
+  const option = (view, text) => {
+    const o = document.createElement('option');
+    o.value = String(view);
+    o.textContent = text;
+    return o;
   };
-  const buttons = [...(hasStage ? [button('stage', data.stage.name || 'Fase')] : []), ...refs.map((r) => button(r.id, r.name))];
-  els.standingsSwitch.replaceChildren(...buttons);
-  els.standingsSwitch.hidden = buttons.length < 2 && state.view === 'stage';
-  els.standingsHead.hidden = els.standingsSwitch.hidden;
+  const options = [...(hasStage ? [option('stage', data.stage.name || 'Fase')] : []), ...refs.map((r) => option(r.id, r.name))];
+  els.standingsSelect.replaceChildren(...options);
+  els.standingsSelect.value = String(state.view);
+  els.standingsField.hidden = options.length < 2;
   els.standings.hidden = state.view !== 'stage' || !hasStage || groupRowsMode(); // grupos: tabela ao lado dos jogos
   els.rankingStandings.hidden = state.view === 'stage';
   if (state.view !== 'stage') loadRanking(state.view);
@@ -256,9 +249,8 @@ async function loadRanking(id) {
 function updateAside() {
   const hasAside = !els.standings.hidden || !els.ties.hidden || !els.rankingStandings.hidden;
   els.grid.classList.toggle('split--no-aside', !hasAside);
-  // empilhado (celular/tablet), o aside vem antes dos cards: no mata-mata, o resumo dos confrontos
-  // (quem avança); com outra classificação escolhida, a tabela aparece logo abaixo dos botões
-  els.grid.classList.toggle('split--aside-first', !els.ties.hidden || state.view !== 'stage');
+  // mata-mata no celular: o resumo dos confrontos (quem avança) vem antes dos cards
+  els.grid.classList.toggle('split--aside-first', !els.ties.hidden);
   // fase de grupos com outra classificação: no desktop, a tabela desce o título do grupo, para
   // começar junto do primeiro jogo, como a tabela de cada grupo
   els.grid.classList.toggle('split--groups-ranking', state.stage?.format === 'groups' && state.view !== 'stage');
@@ -326,7 +318,7 @@ function render(data, requestedRoundId = null) {
   els.error.hidden = true;
   paintRoundNav();
   renderStandings(data.stage || {});
-  paintStandingsSwitch();
+  paintStandingsSelect();
   renderMatches(data.stage?.matches || [], data.stage?.format === 'knockout' ? data.stage?.ties || null : null);
   writeUrl();
 }
@@ -548,6 +540,14 @@ async function boot() {
 
 els.prev.addEventListener('click', () => goToRound(state.roundIndex - 1));
 els.next.addEventListener('click', () => goToRound(state.roundIndex + 1));
+// a classificação escolhida troca só a tabela (a lateral; na fase de grupos, as tabelas por grupo)
+els.standingsSelect.addEventListener('change', () => {
+  const value = els.standingsSelect.value;
+  state.view = value === 'stage' ? 'stage' : toInt(value);
+  paintStandingsSelect();
+  if (state.stage?.format === 'groups') reorderCards(); // linhas de grupo × jogos por grupo
+});
+
 els.stageSelect.addEventListener('change', () => {
   const id = toInt(els.stageSelect.value);
   if (id != null && id !== state.stage?.id) goToStage(id);

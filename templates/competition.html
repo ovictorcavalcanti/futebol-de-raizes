@@ -26,12 +26,22 @@
       <span class="frevo frevo--short" aria-hidden="true"></span>
     </div>
     <div class="controls">
-      <div class="field controls__stage">
-        <label class="field__label" for="stage-select">Fase</label>
-        <span class="select">
-          <select id="stage-select" data-hook="stage-select" disabled></select>
-          <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg>
-        </span>
+      <div class="controls__fields">
+        <div class="field controls__stage">
+          <label class="field__label" for="stage-select">Fase</label>
+          <span class="select">
+            <select id="stage-select" data-hook="stage-select" disabled></select>
+            <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+          </span>
+        </div>
+        {# mais de uma classificação pública (a da fase e as gerais/personalizadas): troca só a tabela (competition.js) #}
+        <div id="standings-field" class="field controls__stage" data-hook="standings-field" hidden>
+          <label class="field__label" for="standings-select">Classificação</label>
+          <span class="select">
+            <select id="standings-select" data-hook="standings-select"></select>
+            <svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+          </span>
+        </div>
       </div>
       <nav class="round-nav" aria-label="Rodadas" data-hook="round-nav">
         <button id="round-prev" type="button" class="btn btn--secondary btn--icon" data-hook="round-prev" aria-label="Rodada anterior" disabled>
@@ -45,10 +55,6 @@
     </div>
   </section>
 
-  {# botões: tabela da fase × outras classificações (competition.js), numa linha acima de jogos e classificação #}
-  <div id="standings-head" class="split split--head" data-hook="standings-head" hidden>
-    <div id="standings-switch" class="cluster standings-switch" role="group" aria-label="Classificação exibida" data-hook="standings-switch" hidden></div>
-  </div>
   <div id="competition-grid" class="split" data-hook="competition-grid">
     <section aria-labelledby="round-label">
       <div id="round-matches" class="matches" data-hook="matches" aria-busy="true">

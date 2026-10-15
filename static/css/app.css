@@ -272,8 +272,7 @@
     gap: var(--s-5);
     align-items: start;
   }
-  /* empilhado (celular/tablet): o aside sobe quando é o resumo (confrontos do mata-mata) ou
-     quando outra classificação está na tela (a tabela logo abaixo dos botões) */
+  /* empilhado (celular/tablet): o aside sobe quando é o resumo (confrontos do mata-mata) */
   @media (max-width: 959.98px) {
     .split--aside-first > .split__aside { order: -1; }
   }
@@ -1631,11 +1630,7 @@
   .dialog__foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s-2); padding: var(--s-3) var(--s-5) var(--s-4); border-top: 1px solid var(--line); background: color-mix(in srgb, var(--surface-2) 45%, var(--surface)); }
 
   /* --- Segmentado, interruptor ---------------------------------------------------- */
-  .standings-switch { gap: var(--s-2); flex-wrap: wrap; }
-  /* linha dos botões, acima de jogos e classificação; no desktop, sobre a coluna da classificação */
-  .split--head { margin-bottom: var(--s-4); }
   @media (min-width: 960px) {
-    .split--head > .standings-switch { grid-column: 2; }
     /* fase de grupos com outra classificação: a tabela começa junto do primeiro jogo (desce o título do
        grupo e o respiro até o card, como .group-row__table) */
     .split--groups-ranking > .split__aside { margin-top: calc(1.25rem + var(--s-3)); }
@@ -1712,6 +1707,8 @@
   .comp-hero { display: grid; gap: var(--s-4); }
   .comp-hero__title { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-2) var(--s-3); }
   .comp-hero__season { font-family: var(--font-num); font-weight: 700; font-size: 1.375rem; color: var(--ink-3); }
+  /* fase e classificação lado a lado (no celular, uma abaixo da outra); a rodada à direita */
+  .controls__fields { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s-3); flex: 1 1 auto; min-width: 0; }
   .controls__stage { min-width: min(260px, 100%); flex: 1 1 220px; max-width: 360px; }
 
   /* --- Operador ----------------------------------------------------------------------- */

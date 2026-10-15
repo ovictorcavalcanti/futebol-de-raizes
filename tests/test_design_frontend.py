@@ -638,3 +638,104 @@ def test_componentes_no_navegador(browser_page):
     assert "Gol anulado aos 36' — Impedimento marcado pelo VAR" in out["annulStruck"]
     assert "Mão na bola" in out["annulTimeline"]
     assert "Oxe" not in out["annulTimeline"]
+
+
+CARD_NAMES_JS = """async (width) => {
+  const M = await import('/static/js/match-card.js');
+  const S = await import('/static/js/standings.js');
+  const F = await import('/static/js/fixtures.js');
+  const root = document.getElementById('root');
+  root.replaceChildren();
+  const box = document.createElement('div');
+  box.style.width = `${width}px`;
+  const table = document.createElement('div');
+  table.style.width = `${width}px`;
+  root.append(box, table);
+  const base = F.MATCHES.finished;
+  const pairs = [['Centro Limoeirense', 'Atlético Pernambucano'], ['Afogados da Ingazeira', 'Flamengo de Arcoverde']];
+  pairs.forEach(([home, away], i) => box.append(M.createMatchCard(
+    { ...base, id: 9100 + i, home: { ...base.home, name: home }, away: { ...base.away, name: away } }, { details: false })));
+  table.append(S.createStandings(F.STANDINGS));
+  await document.fonts.load('600 14px Barlow');
+  await document.fonts.ready;
+  const split = [];
+  for (const full of box.querySelectorAll('.team__full')) {
+    const node = full.firstChild;
+    let at = 0;
+    for (const word of full.textContent.split(' ')) {
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + word.length);
+      at += word.length + 1;
+      if (new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size > 1) {
+        const probe = document.createElement('span'); // a palavra numa linha só: cabe na coluna?
+        probe.style.cssText = 'position:absolute;white-space:nowrap;visibility:hidden';
+        probe.textContent = word;
+        full.parentElement.append(probe);
+        split.push([word, Math.round(probe.getBoundingClientRect().width), full.parentElement.clientWidth]);
+        probe.remove();
+      }
+    }
+  }
+  const font = (el) => { const st = getComputedStyle(el); return [st.fontFamily, st.fontWeight, st.fontSize]; };
+  return { split, card: font(box.querySelector('.team__name')), table: font(table.querySelector('.team-cell__name')),
+    score: parseFloat(getComputedStyle(box.querySelector('.score__line')).fontSize),
+    overflow: [...box.querySelectorAll('.team__name')].some((n) => n.scrollWidth > n.clientWidth + 1) };
+}"""
+
+
+@pytest.mark.parametrize("width", [358, 328])
+def test_card_estreito_nome_quebra_por_palavra_no_tipo_da_classificacao(browser_page, width):
+    """Card do celular: o nome do time quebra só entre palavras ("Centro / Limoeirense", nunca "Cen- / tro"),
+    no mesmo tipo do nome na classificação; placar menor. Só a palavra que sozinha é mais larga que a coluna
+    (a 328 px, "Pernambucano") quebra, como último recurso; a 358 px (celular de 390) nenhuma."""
+    page, errors = browser_page
+    out = page.evaluate(CARD_NAMES_JS, width)
+    assert not errors, errors
+    assert all(word_w > col for _, word_w, col in out["split"]), out  # cabia numa linha: não podia quebrar
+    if width >= 358:
+        assert out["split"] == [], out
+    assert out["card"] == out["table"], out
+    assert out["score"] <= 32 and not out["overflow"], out
+
+
+UNCONFIRMED_GOAL_JS = """async () => {
+  const M = await import('/static/js/match-card.js');
+  const F = await import('/static/js/fixtures.js');
+  const root = document.getElementById('root');
+  root.replaceChildren();
+  const live = F.MATCHES.live;
+  const side = (x) => x.team_side || x.side;
+  const model = live.events.find((e) => e.type === 'goal' && !e.annulled && side(e) === 'away');
+  const away = live.away_score + 1;
+  const event = { ...model, id: 999001, sequence: 999, minute: 80, minute_label: "80'", player: null, payload: { origin: 'open_play' },
+    score_after: { home: live.home_score, away } };
+  const goal = { ...live.goals.find((g) => side(g) === 'away'), event_id: 999001, player: null, minute: 80, minute_label: "80'" };
+  const match = { ...live, away_score: away, version: live.version + 1, events: [...live.events, event], goals: [...live.goals, goal] };
+  const card = M.createMatchCard(match, { onExpand: () => new Promise(() => {}) });
+  root.append(card);
+  card.querySelector('details').open = true;
+  await new Promise((r) => setTimeout(r, 50));
+  M.updateMatchCard(card, match);
+  const item = card.querySelector('.tl-item[data-event-id="999001"]');
+  return {
+    summary: card.querySelector('.match__summary').textContent,
+    summaryItems: card.querySelectorAll('.match__summary li').length,
+    withPlayer: live.goals.filter((g) => g.player).length,
+    item: item && [item.querySelector('.tl-item__title')?.textContent, item.querySelector('.tl-item__min').textContent.trim(),
+      item.querySelector('.tl-item__icon')?.getAttribute('aria-label')],
+    latest: M.createLatestGoal({ ...goal, match: live, team: live.away, score_after: event.score_after }).textContent,
+  };
+}"""
+
+
+def test_gol_sem_autor_fora_do_resumo_e_so_placar_nos_lances(browser_page):
+    """Gol sem autor (informações a confirmar): fora do resumo do card até chegarem os dados; nos lances,
+    só o placar, sem nome nem minuto; o "a confirmar" fica só nos últimos gols."""
+    page, errors = browser_page
+    out = page.evaluate(UNCONFIRMED_GOAL_JS)
+    assert not errors, errors
+    assert out["summaryItems"] == out["withPlayer"] and "confirmar" not in out["summary"], out
+    title, minute, icon_label = out["item"]
+    assert title == "" and "'" not in minute and "×" in minute and icon_label == "Gol", out
+    assert "Informações a confirmar" in out["latest"], out

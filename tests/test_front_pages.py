@@ -1506,6 +1506,26 @@ def test_competicao_melhores_segundos_sem_o_grupo_dos_times(open_page):
     assert not errors, errors
 
 
+TIES_JS = """() => { const col = document.querySelector('#round-matches').getBoundingClientRect();
+  return { col: Math.round(col.width), ties: [...document.querySelectorAll('#round-matches > .tie-group')].map((g) => {
+    const r = g.querySelector('.match').getBoundingClientRect(); // o card, não só o bloco do confronto
+    return [Math.round(r.left - col.left), Math.round(r.top), Math.round(r.width)]; }) }; }"""
+
+
+@pytest.mark.parametrize("width", [1024, 1280])
+def test_mata_mata_sem_lateral_usa_a_largura_toda(open_page, width):
+    """Mata-mata sem classificação ao lado: um confronto por linha, com os cards na largura toda."""
+    page, _, errors = open_page("/competition.html?slug=copa-pernambuco&stage=7", width=width)
+    page.wait_for_selector("#round-matches > .tie-group")
+    page.wait_for_timeout(200)
+    assert page.evaluate("document.querySelector('#competition-grid').classList.contains('split--no-aside')")
+    out = page.evaluate(TIES_JS)
+    tops = [t[1] for t in out["ties"]]
+    assert len(out["ties"]) >= 2 and tops == sorted(set(tops)), out  # um por linha
+    assert all(t[0] == 0 and t[2] == out["col"] for t in out["ties"]), out  # largura toda
+    assert not errors, errors
+
+
 def test_competicao_sem_outra_classificacao_nao_mostra_o_seletor(open_page):
     """Só a classificação da fase: o seletor "Classificação" não aparece."""
     page, _, errors = open_page("/competition.html?slug=pernambucano-raiz")

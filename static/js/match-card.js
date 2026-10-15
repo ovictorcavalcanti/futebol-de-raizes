@@ -286,7 +286,46 @@ function renderMeta(meta, match, now, opts) {
       match.city ? h('span', { class: 'match__place-item' }, icon('pin'), h('span', { class: 'visually-hidden', text: 'Cidade: ' }), match.city) : null,
     ));
   }
+  if (opts.details !== false) parts.push(shareLink(match)); // o placar do operador não compartilha
   meta.replaceChildren(...parts);
+}
+
+/**
+ * Texto do jogo para o WhatsApp: placar (ou os times, antes de começar), situação,
+ * competição e o link da página.
+ * @param {object} match
+ * @param {number} [now]
+ * @param {string} [url]
+ * @returns {string}
+ */
+export function whatsappText(match, now = Date.now(), url = '') {
+  const home = displayName(match.home);
+  const away = displayName(match.away);
+  let title = hasScore(match) ? `${home} ${match.home_score ?? 0} × ${match.away_score ?? 0} ${away}` : `${home} × ${away}`;
+  if (match.home_penalties != null && match.away_penalties != null) title += ` (pênaltis ${match.home_penalties} × ${match.away_penalties})`;
+  let status = match.status_label || '';
+  if (match.status === 'live' && !match.partial_info && !INTERVALS.has(match.period)) {
+    status = ['Ao vivo', liveMinuteLabel(match, now)].filter(Boolean).join(' · ');
+  } else if (match.status === 'scheduled' && match.kickoff_at) {
+    status = formatWhen(toDate(match.kickoff_at), now);
+  }
+  const context = [status, match.competition?.name].filter(Boolean).join(' · ');
+  return [`*${title}*`, context, url].filter(Boolean).join('\n');
+}
+
+/** Link "WhatsApp" da faixa: o texto é montado no clique, com o minuto da hora. */
+function shareLink(match) {
+  const link = h('a', {
+    class: 'btn btn--ghost btn--sm match__share', target: '_blank', rel: 'noopener',
+    'aria-label': `Compartilhar no WhatsApp: ${displayName(match.home)} × ${displayName(match.away)}`,
+  }, icon('external', { className: 'icon--sm' }), 'WhatsApp');
+  const refresh = () => {
+    const url = globalThis.location ? globalThis.location.href.split('#')[0] : '';
+    link.href = `https://api.whatsapp.com/send?text=${encodeURIComponent(whatsappText(match, Date.now(), url))}`;
+  };
+  refresh();
+  link.addEventListener('click', refresh);
+  return link;
 }
 
 /* ==========================================================================

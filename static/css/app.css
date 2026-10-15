@@ -743,6 +743,7 @@
     color: var(--ink-2);
   }
   .match__status { display: inline-flex; align-items: center; gap: var(--s-2); }
+  .match__share { margin-left: auto; }
   .match__minute {
     font-family: var(--font-num);
     font-weight: 700;

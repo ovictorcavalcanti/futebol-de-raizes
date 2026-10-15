@@ -29,7 +29,7 @@ GOAL_KEYS = {
 }
 MATCH_KEYS = {
     "id", "competition", "stage", "group", "round", "kickoff_at", "finished_at", "venue", "city", "status",
-    "status_label", "status_note", "resumes_at", "walkover", "partial_info", "period", "period_label", "period_short", "period_started_at", "clock", "home", "away",
+    "status_label", "status_note", "partial_info", "period", "period_label", "period_short", "period_started_at", "clock", "home", "away",
     "home_score", "away_score", "home_penalties", "away_penalties", "winner", "version", "tie", "goals", "cards",
     "red_cards",
 }
@@ -272,7 +272,7 @@ def test_operator_response_payloads(played):
     body = selectors.status_payload(status)
     assert set(body) == {"event", "match", "available", "replayed"}
     assert body["event"]["type"] == "suspended" and body["event"]["kind"] == "status"
-    assert body["available"]["status"] == ["resume", "reschedule", "cancel", "walkover"]
+    assert body["available"]["status"] == ["resume", "cancel"]
 
     outcome = op.void(second.event.id)
     body = selectors.void_payload(outcome)

@@ -99,16 +99,7 @@ Decisões do serviço:
 * **Confronto de ida e volta travado** (`tie_leg_locked`): com o jogo decisivo já começado
   (status fora de agendado/adiado/cancelado), o outro jogo não aceita cancelamento nem
   lançamento que mude o placar dele (o domínio refaz a volta com o placar atual da ida).
-* **W.O.** (ação `walkover`, lance `walkover`): vale para jogo agendado, atrasado, adiado,
-  suspenso ou já cancelado (ao vivo: suspenda antes) e encerra o jogo (`finished`) com o placar
-  do W.O., que conta na tabela e no confronto. Pede `team_id` (beneficiado) e `reason`
-  (obrigatório); `home_score`/`away_score` são opcionais (padrão 3 × 0 para o beneficiado, 0 a
-  99, e o placar tem de dar a vitória a ele → senão `422 invalid_payload`). O payload gravado fica
-  `{"home_score", "away_score", "reason"}`, com o time no `team_id` do lance. Cancelar sem W.O.
-  segue na ação `cancel`.
-* **Reagendamento**: vale para jogo agendado, atrasado ou adiado (volta a agendado) e para jogo
-  suspenso (segue suspenso, no mesmo período, com placar e minuto guardados; na data nova o
-  operador retoma de onde parou). O payload gravado fica `{"kickoff_at": "<UTC Z>", "previous_kickoff_at":
+* **Reagendamento**: o payload gravado fica `{"kickoff_at": "<UTC Z>", "previous_kickoff_at":
   "<UTC Z>", "reason"?}` (sem fuso = Brasília). Cancelar reagendamento volta ao último
   reagendamento que sobrou ou, sem nenhum, ao `previous_kickoff_at` do mais antigo cancelado.
   O serviço só grava `kickoff_at` quando ele muda (não sobrescreve edição do admin).
@@ -305,7 +296,7 @@ Sem vencedor: `winner_team_id`, `decided_by` e `decided_by_label` são `null` e 
  "group": {"id": 4, "name": "Tabela"}, "round": {"id": 9, "number": 5, "name": "Rodada 5"},
  "kickoff_at": "2026-10-03T19:30:00Z", "finished_at": null,
  "venue": "Ilha do Retiro", "city": "Recife, PE",
- "status": "live", "status_label": "Ao vivo", "status_note": null, "resumes_at": null, "walkover": null,
+ "status": "live", "status_label": "Ao vivo",
  "period": "second_half", "period_label": "2º tempo", "period_short": "2T",
  "period_started_at": "2026-10-03T20:35:12Z",
  "clock": {"running": true, "offset": 45, "regular_end": 90, "stoppage_announced": 4, "paused_at": null},
@@ -323,11 +314,6 @@ Sem vencedor: `winner_team_id`, `decided_by` e `decided_by_label` são `null` e 
   inteiros entre `period_started_at` e `paused_at` + 1); ao vivo, `paused_at` é null.
   `stoppage_announced` = minutos do último `stoppage_time` visível do período corrente (ou null).
 * `winner`: "home" | "away" | "draw" | null (só com status finished; considera pênaltis).
-* `status_note`: motivo do operador (`payload.reason` do último lance do tipo: o que abriu o
-  status atual) com o jogo atrasado, adiado, suspenso ou cancelado; senão null.
-  `resumes_at`: jogo suspenso reagendado depois da última suspensão (parou num dia, volta em
-  outro, de onde parou) → o `kickoff_at`, em UTC; senão null. `walkover`: jogo encerrado por
-  W.O. → `{"team_id": <beneficiado>, "reason": "..."}`; senão null. Os três vêm também nas listas.
 * Detalhe (`GET /api/matches/:id`) e mensagem `match` do stream acrescentam:
   `"events": [EventOut]`, `"lineups": {"home": LineupOut|null, "away": LineupOut|null}`,
   `"officials": [{"role","role_label","name","state"}]`,
@@ -393,7 +379,7 @@ usado volta no `X-Request-ID` da resposta e vai nos logs e na auditoria.
 | `POST /api/ops/matches/{id}/events` + `Idempotency-Key` | `201 {"event": EventOut, "derived": [EventOut], "match": MatchOut(detalhe), "available": Available, "warnings": [...], "replayed": false}` · replay → `200` com `"replayed": true` |
 | `POST /api/ops/matches/{id}/events/{eventId}/edit` (`matches.void_event` também) `EventIn` (mesmo `type` do lance) | `200 {"event": EventOut, "derived": [], "match": MatchOut(detalhe), "available": Available, "warnings": [...], "replayed": false, "voided": [ids]}` (`voided`: os que caíram junto — o vermelho automático cujo amarelo deixou de ser o 2º; `[]` quando nada caiu) · `422 event_not_editable` |
 | `POST /api/ops/matches/{id}/events/{eventId}/void` `{"reason"}` | `200 {"voided": [ids], "match": MatchOut(detalhe), "available": Available, "already": bool}` (`already`: já estava cancelado, nada mudou) |
-| `POST /api/ops/matches/{id}/status` + `Idempotency-Key` `{"action","kickoff_at"?,"reason"?,"team_id"?,"home_score"?,"away_score"?}` | `201 {"event": EventOut, "match": ..., "available": ..., "replayed": false}` · replay → `200` com `"replayed": true` |
+| `POST /api/ops/matches/{id}/status` + `Idempotency-Key` `{"action","kickoff_at"?,"reason"?}` | `201 {"event": EventOut, "match": ..., "available": ..., "replayed": false}` · replay → `200` com `"replayed": true` |
 | `POST /api/ops/matches/{id}/partial-info` (`matches.change_status`) `{"partial_info": bool}` | `200 {"match": MatchOut (detalhe), "available": ...}` · publica `match` só quando muda |
 | `GET /api/ops/catalog` | `{"events": [EventSpecOut], "status_actions": [{"action","label"}], "periods": [{"key","label","short"}], "statuses": [{"key","label"}]}` (todos os tipos do catálogo, status inclusive) |
 | `GET /api/home?date=YYYY-MM-DD` | HomeOut, `Cache-Control: no-store` (micro-cache no servidor, §3) |
@@ -442,7 +428,7 @@ usado volta no `X-Request-ID` da resposta e vai nos logs e na auditoria.
   (o front renova em `GET /api/auth/me`); sem a permissão da rota → `403 permission_denied`
   (`details.required_any`). Permissões: lançar `matches.post_event`, cancelar
   `matches.void_event`, status `matches.change_status`, catálogo qualquer uma das três. Tipo de
-  status (`postponed`, `suspended`, `resumed`, `rescheduled`, `cancelled`, `walkover`) mandado por `/events`
+  status (`postponed`, `suspended`, `resumed`, `rescheduled`, `cancelled`) mandado por `/events`
   exige também `matches.change_status` → senão `403 permission_denied` (`required_any =
   ["matches.change_status"]`): `/events` não é atalho para quem só lança lances.
 * Login: CSRF conferido explicitamente (rota anônima); `django.contrib.auth.login` troca a chave

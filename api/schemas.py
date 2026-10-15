@@ -95,12 +95,9 @@ class EventIn(Schema):
 
 
 class StatusIn(Schema):
-    action: str = Field(..., min_length=1, max_length=40, description="delay, postpone, suspend, resume, reschedule, cancel ou walkover")
+    action: str = Field(..., min_length=1, max_length=40, description="postpone, suspend, resume, reschedule ou cancel")
     kickoff_at: str | None = Field(None, max_length=64, description="Reagendar: ISO 8601 com data e hora (sem fuso = Brasília)")
     reason: str | None = Field(None, max_length=TEXT_MAX_LENGTH)
-    team_id: int | None = Field(None, description="W.O.: time beneficiado")
-    home_score: int | None = Field(None, description="W.O.: gols do mandante (padrão 3 × 0 para o beneficiado)")
-    away_score: int | None = Field(None, description="W.O.: gols do visitante")
 
 
 class PartialInfoIn(Schema):

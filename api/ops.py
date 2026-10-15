@@ -157,7 +157,7 @@ def void_event(request, match_id: int, event_id: int, data: VoidIn | None = None
     "/matches/{match_id}/status",
     auth=OperatorAuth(CHANGE_STATUS),
     response={201: StatusOut, 200: StatusOut, codes_4xx: ErrorOut},
-    summary="Adia, suspende, retoma, reagenda, cancela ou encerra por W.O.",
+    summary="Adia, suspende, retoma, reagenda ou cancela",
 )
 def change_status(
     request,
@@ -174,9 +174,6 @@ def change_status(
         idempotency_key=key,
         kickoff_at=data.kickoff_at or None,
         reason=data.reason or "",
-        team_id=data.team_id,
-        home_score=data.home_score,
-        away_score=data.away_score,
         request=request,
     )
     return respond(selectors.status_payload(result), status=201 if result.created else 200)

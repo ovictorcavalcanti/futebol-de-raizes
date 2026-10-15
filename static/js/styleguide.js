@@ -195,7 +195,7 @@ const actionButton = (spec) => {
 };
 $('sg-actions').replaceChildren(...actionSpecs.filter((spec) => spec.kind !== 'structural').map(actionButton));
 $('sg-flow-actions').replaceChildren(...actionSpecs.filter((spec) => spec.kind === 'structural').map(actionButton));
-const STATUS_ICON = { postpone: 'calendar', suspend: 'pause', resume: 'play', reschedule: 'calendar', cancel: 'x-circle', walkover: 'flag' };
+const STATUS_ICON = { postpone: 'calendar', suspend: 'pause', resume: 'play', reschedule: 'calendar', cancel: 'x-circle' };
 $('sg-status').replaceChildren(...F.CATALOG.status_actions.map((a) => {
   const btn = cloneTemplate('tpl-status-button');
   const p = hooks(btn);

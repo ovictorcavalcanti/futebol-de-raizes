@@ -382,16 +382,11 @@ def test_status_postpone_reschedule_suspend_resume_cancel(league, operator_clien
     later = make_match(league["stage"], sport, nautico, kickoff_at=timeutils.now() + timedelta(days=1), round=league["rounds"][0])
     op = ApiOp(operator_client, later)
 
-    def listed():  # o jogo como sai nas listas (resumo), não na resposta do operador
-        matches = operator_client.get(f"/api/matches?roundId={league['rounds'][0].id}").json()["matches"]
-        return next(m for m in matches if m["id"] == later.id)
-
     postponed = op.status("postpone", reason="Chuva forte")
     assert postponed["replayed"] is False and set(postponed) == {"event", "match", "available", "replayed"}
     assert postponed["event"]["type"] == "postponed" and postponed["event"]["kind"] == "status"
     assert postponed["event"]["payload"] == {"reason": "Chuva forte"}
     assert postponed["match"]["status"] == "postponed"
-    assert postponed["match"]["status_note"] == listed()["status_note"] == "Chuva forte"
     assert "reschedule" in postponed["available"]["status"] and postponed["available"]["events"] == []
 
     assert_error(op.status("reschedule", expect=422), "invalid_payload")
@@ -410,27 +405,16 @@ def test_status_postpone_reschedule_suspend_resume_cancel(league, operator_clien
     suspended = op.status("suspend", reason="Queda de energia")
     assert suspended["match"]["status"] == "suspended" and suspended["match"]["period"] == "first_half"
     assert suspended["match"]["clock"]["running"] is False and suspended["match"]["clock"]["paused_at"]
-    assert set(suspended["available"]["status"]) == {"resume", "reschedule", "cancel", "walkover"}
-    assert suspended["match"]["status_note"] == "Queda de energia" and suspended["match"]["resumes_at"] is None
+    assert set(suspended["available"]["status"]) == {"resume", "cancel"}
     assert_error(op.goal(sport, 10, expect=422), "match_not_live")
-    # suspenso reagendado: segue suspenso (relógio parado), na data nova; retoma de onde parou
-    moved = op.status("reschedule", kickoff_at="2026-10-14T19:00")
-    assert moved["match"]["status"] == "suspended" and moved["match"]["period"] == "first_half"
-    assert moved["match"]["kickoff_at"] == "2026-10-14T22:00:00Z" and moved["match"]["clock"]["running"] is False
-    # o card mostra o motivo da suspensão e a retomada, também nas listas
-    assert moved["match"]["resumes_at"] == listed()["resumes_at"] == "2026-10-14T22:00:00Z"
-    assert moved["match"]["status_note"] == listed()["status_note"] == "Queda de energia"
     resumed = op.status("resume")
     assert resumed["match"]["status"] == "live" and resumed["match"]["clock"]["running"] is True
-    assert resumed["match"]["status_note"] is None and resumed["match"]["resumes_at"] is None
     assert_error(op.status("cancel", expect=422), "invalid_status_action")  # ao vivo não cancela
-    again = op.status("suspend")  # nova suspensão sem motivo: nem o motivo nem a data da anterior
-    assert again["match"]["status_note"] is None and again["match"]["resumes_at"] is None
+    op.status("suspend")
     cancelled = op.status("cancel", reason="Sem condições de jogo")
-    assert cancelled["match"]["status"] == "cancelled" and cancelled["available"] == {"events": [], "status": ["walkover"]}
-    assert cancelled["match"]["status_note"] == listed()["status_note"] == "Sem condições de jogo"
+    assert cancelled["match"]["status"] == "cancelled" and cancelled["available"] == {"events": [], "status": []}
     types = list(MatchEvent.objects.filter(match=later).order_by("sequence").values_list("type", flat=True))
-    assert types == ["postponed", "rescheduled", "match_start", "suspended", "rescheduled", "resumed", "suspended", "cancelled"]
+    assert types == ["postponed", "rescheduled", "match_start", "suspended", "resumed", "suspended", "cancelled"]
 
 
 # --- Formato, permissão e catálogo -------------------------------------------------------------
@@ -485,7 +469,7 @@ def test_catalog_lists_every_type_and_labels(operator_client):
     goal = next(spec for spec in data["events"] if spec["type"] == "goal")
     assert goal["minute"] == "optional" and goal["kind"] == "game"  # gol "a confirmar"
     assert {"name": "team_id", "kind": "team", "label": "Time beneficiado", "required": True, "choices": []} in goal["fields"]
-    assert {item["action"] for item in data["status_actions"]} == {"delay", "postpone", "suspend", "resume", "reschedule", "cancel", "walkover"}
+    assert {item["action"] for item in data["status_actions"]} == {"delay", "postpone", "suspend", "resume", "reschedule", "cancel"}
     assert [item["key"] for item in data["periods"]] == [
         "first_half", "half_time", "second_half", "extra_time", "extra_half_time", "extra_second_half", "penalties",
     ]
@@ -523,51 +507,6 @@ def test_status_delay_with_note_then_start(league, operator_client):
     assert next(m for m in listed if m["id"] == match.id)["status_note"] == "Chuva forte"
     started = op.post("match_start")
     assert started["match"]["status"] == "live" and started["match"]["status_note"] is None
-
-
-def test_status_postpone_with_reason_shows_note(league, operator_client):
-    """Adiado: o motivo (opcional) também vem em `status_note`, para o card mostrar nas observações."""
-    sport, nautico = league["teams"][0], league["teams"][1]
-    match = make_match(league["stage"], sport, nautico, kickoff_at=timeutils.now(), round=league["rounds"][0])
-    op = ApiOp(operator_client, match)
-    postponed = op.status("postpone", reason="Falta de energia no estádio")
-    assert postponed["match"]["status"] == "postponed" and postponed["match"]["status_note"] == "Falta de energia no estádio"
-
-
-def test_status_walkover_from_cancelled_counts_in_standings(league, operator_client):
-    """Cancelado sem W.O. fica fora da tabela (nem o placar parcial conta); o W.O. encerra com o
-    placar dele (padrão 3 × 0 para o beneficiado), que conta; o card recebe o time e o motivo em
-    `walkover`, também nas listas."""
-    sport, nautico = league["teams"][0], league["teams"][1]
-    match = make_match(league["stage"], sport, nautico, kickoff_at=timeutils.now(), round=league["rounds"][0])
-    op = ApiOp(operator_client, match)
-
-    def table(live=False):  # oficial (só encerrados) ou ao vivo (com os em andamento e suspensos)
-        body = operator_client.get(f"/api/stages/{league['stage'].id}/standings", {"live": "1"} if live else {}).json()
-        return {row["team"]["id"]: row for row in body["groups"][0]["rows"]}
-
-    op.post("match_start")
-    op.goal(sport, 10)
-    op.status("suspend", reason="Náutico deixou o campo")
-    assert table(live=True)[sport.id]["goals_for"] == 1  # suspenso entra na tabela ao vivo
-    assert op.status("cancel", reason="Náutico deixou o campo")["available"]["status"] == ["walkover"]
-    for rows in (table(), table(live=True)):  # cancelado sem W.O.: fora das duas
-        assert all((rows[team.id]["points"], rows[team.id]["goals_for"]) == (0, 0) for team in (sport, nautico))
-    assert_error(op.status("walkover", reason="Sport não compareceu", expect=422), "team_required")
-    assert_error(op.status("walkover", team_id=nautico.id, expect=422), "invalid_payload")  # sem motivo
-    tie_score = {"home_score": 1, "away_score": 1}
-    assert_error(op.status("walkover", team_id=nautico.id, reason="Sport não compareceu", **tie_score, expect=422), "invalid_payload")
-    wo = op.status("walkover", team_id=nautico.id, reason="Sport não compareceu")
-    assert wo["event"]["type"] == "walkover"
-    done = wo["match"]
-    assert done["status"] == "finished" and (done["home_score"], done["away_score"]) == (0, 3) and done["finished_at"]
-    assert done["winner"] == "away" and done["status_note"] is None and wo["available"] == {"events": [], "status": []}
-    assert done["walkover"] == {"team_id": nautico.id, "reason": "Sport não compareceu"}
-    listed = operator_client.get(f"/api/matches?roundId={league['rounds'][0].id}").json()["matches"]
-    assert next(m for m in listed if m["id"] == match.id)["walkover"] == done["walkover"]
-    rows = table()  # o placar do W.O. (0 × 3), não o 1 × 0 de antes da suspensão
-    assert rows[nautico.id]["points"] == 3 and (rows[nautico.id]["goals_for"], rows[nautico.id]["goals_against"]) == (3, 0)
-    assert (rows[sport.id]["points"], rows[sport.id]["goals_for"]) == (0, 0)
 
 
 def test_partial_info_switch(match, op, operator_client):

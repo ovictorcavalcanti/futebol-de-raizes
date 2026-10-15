@@ -9,14 +9,13 @@
  */
 import { hooks, cloneTemplate, renderCompetitionNav, showToast } from './render.js';
 import { ServerClock, mountClock } from './clock.js';
-import { formatDateLong, formatDay, dayKey } from './format.js';
+import { formatDateLong, dayKey } from './format.js';
 import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createLatestGoal, createTieGroup, tiesFromMatches, syncTieCards, refreshMatchCards } from './match-card.js';
 import { createStandings, updateStandings } from './standings.js';
 import { createGroupRows, updateGroupRows, createMatchGroupBlocks } from './group-rows.js';
 import { getHome, getCompetitions, getMatch } from './api.js';
 import { createStream, liveStatusIndicator } from './stream.js';
 import { createGoalAlerts, notificationSupport } from './alerts.js';
-import { shareResultsOnWhatsApp } from './share.js';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -38,12 +37,6 @@ const els = {
   notifyHint: $('notifications-hint'),
   audio: $('goal-sound'),
   competitions: $('competitions'),
-  dayNav: document.querySelector('[data-hook="date-nav"]'),
-  dayBar: document.querySelector('[data-hook="day-bar"]'),
-  dayBarDate: document.querySelector('[data-hook="day-bar-date"]'),
-  dayBarPrev: document.querySelector('[data-hook="day-bar-prev"]'),
-  dayBarNext: document.querySelector('[data-hook="day-bar-next"]'),
-  liveJumps: [...document.querySelectorAll('[data-hook="live-jump"]')],
   empty: $('home-empty'),
   error: $('home-error'),
 };
@@ -64,20 +57,8 @@ function dayFromUrl() {
   return value && DAY_RE.test(value) ? value : null;
 }
 
-/**
- * Jogo do link compartilhado (?jogo=<id>, share.js): a home abre no dia dele (o servidor manda
- * o dia em data-focus-day, sempre o atual, mesmo com o jogo reagendado) e o card vem aberto,
- * na tela. Vale só para a primeira carga; trocar de dia tira o ?jogo da URL.
- */
-const focus = (() => {
-  const id = Number(new URLSearchParams(location.search).get('jogo'));
-  if (!Number.isInteger(id) || id <= 0) return null;
-  const day = els.competitions?.dataset.focusDay || '';
-  return { id, day: DAY_RE.test(day) && day !== dayKey(Date.now()) ? day : null };
-})();
-
 const state = {
-  selected: dayFromUrl() ?? focus?.day ?? null, // dia escolhido no seletor; null = hoje
+  selected: dayFromUrl(), // dia escolhido no seletor; null = hoje
   date: null, // dia da resposta exibida
   competitions: [], // menu
   liveKey: '',
@@ -163,65 +144,8 @@ function paintDayLabels(key) {
 }
 
 function setDayBusy(busy) {
-  for (const button of [els.dayPrev, els.dayNext, els.dayToday, els.dayBarPrev, els.dayBarNext]) if (button) button.disabled = busy;
+  for (const button of [els.dayPrev, els.dayNext, els.dayToday]) if (button) button.disabled = busy;
 }
-
-/* --- Celular: barra fixa do dia e atalho dos jogos ao vivo -------------------------------- */
-
-// A barra só aparece no celular e depois que o seletor de dias sai da tela por cima (nunca os
-// dois ao mesmo tempo); escondida, fica inerte (fora do Tab). Os cards guardam o espaço dela
-// (scroll-margin) quando o atalho ou o link de um jogo os leva para o topo.
-const narrow = window.matchMedia('(max-width: 639px)');
-let pastDayNav = false;
-
-function paintDayBar() {
-  const show = narrow.matches && pastDayNav;
-  if (els.dayBar) {
-    els.dayBar.hidden = !show;
-    els.dayBar.inert = !show;
-  }
-  document.body.classList.toggle('has-day-bar', narrow.matches);
-}
-
-if (els.dayNav && els.dayBar && 'IntersectionObserver' in window) {
-  new IntersectionObserver(([entry]) => {
-    pastDayNav = !entry.isIntersecting && entry.boundingClientRect.top < 0;
-    paintDayBar();
-  }).observe(els.dayNav);
-}
-narrow.addEventListener?.('change', paintDayBar);
-paintDayBar();
-// os botões da barra fazem o mesmo que os do seletor e voltam ao topo (o dia novo começa do início)
-for (const [button, target] of [[els.dayBarPrev, els.dayPrev], [els.dayBarNext, els.dayNext]]) {
-  button?.addEventListener('click', () => {
-    if (!target || target.disabled) return;
-    target.click();
-    window.scrollTo({ top: 0 });
-  });
-}
-
-const liveCards = () => [...els.competitions.querySelectorAll('.match')].filter((card) => getCardMatch(card)?.status === 'live');
-let liveIndex = -1;
-
-/** "Ao vivo N": some sem jogo ao vivo no dia. */
-function paintLiveJump() {
-  const count = liveCards().length;
-  for (const chip of els.liveJumps) {
-    chip.hidden = count === 0;
-    const counter = chip.querySelector('[data-hook="live-count"]');
-    if (counter) counter.textContent = String(count);
-  }
-}
-
-/** Cada toque leva ao próximo jogo ao vivo (na ordem da página), de volta ao primeiro no fim. */
-function jumpToLive() {
-  const cards = liveCards();
-  if (!cards.length) return;
-  liveIndex = (liveIndex + 1) % cards.length;
-  const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  cards[liveIndex].scrollIntoView({ block: 'start', behavior: smooth ? 'smooth' : 'auto' });
-}
-for (const chip of els.liveJumps) chip.addEventListener('click', jumpToLive);
 
 /** Troca o dia exibido: hoje sai da URL (e volta a acompanhar a virada do dia). */
 function goToDay(key, { push = true } = {}) {
@@ -230,7 +154,6 @@ function goToDay(key, { push = true } = {}) {
     const url = new URL(location.href);
     if (state.selected) url.searchParams.set('date', state.selected);
     else url.searchParams.delete('date');
-    url.searchParams.delete('jogo');
     history.pushState(null, '', url);
   }
   setDayBusy(true);
@@ -253,38 +176,12 @@ function cardFor(match, next) {
   return card;
 }
 
-/** Compartilhar as tabelas da fase no WhatsApp, com o link da fase na página da competição. */
-const standingsShare = (comp, stage) => ({
-  title: comp.name,
-  groups: stage.format === 'groups',
-  round: (stage.matches || []).find((m) => m.round?.name)?.round?.name || '', // a rodada dos jogos do dia
-  url: `${window.location.origin}/competition.html?slug=${encodeURIComponent(comp.slug)}&stage=${stage.id}`,
-});
-
-function standingsFor(stage, next, comp) {
+function standingsFor(stage, next) {
   let el = state.standings.get(stage.id)?.el;
   if (el) updateStandings(el, stage.standings);
-  else el = createStandings(stage.standings, { share: standingsShare(comp, stage) });
+  else el = createStandings(stage.standings);
   next.set(stage.id, { el });
   return el;
-}
-
-/** Resultados do dia de uma competição no WhatsApp, na ordem da página, com o link do dia. */
-function shareDay(comp, section) {
-  const title = [comp.name, els.date?.textContent?.trim()].filter(Boolean).join(' · ');
-  const matches = [...section.querySelectorAll('.match')].map(getCardMatch).filter(Boolean);
-  shareResultsOnWhatsApp(title, matches, { now: now(), url: `${window.location.origin}/?date=${state.date || dayKey(now())}` });
-}
-
-/** Card do link compartilhado: aberto (busca os lances) e na tela, uma vez. */
-function openFocus() {
-  if (!focus || focus.done) return;
-  focus.done = true;
-  const card = state.cards.get(focus.id);
-  if (!card) return;
-  const details = card.querySelector(':scope > .match__details');
-  if (details) details.open = true;
-  requestAnimationFrame(() => card.scrollIntoView({ block: 'start' }));
 }
 
 function competitionSection(comp, nextCards, nextStandings) {
@@ -294,7 +191,6 @@ function competitionSection(comp, nextCards, nextStandings) {
   p['competition-name'].textContent = comp.name;
   p['competition-link'].href = href;
   p['competition-more'].href = href;
-  p['competition-share']?.addEventListener('click', () => shareDay(comp, section));
   section.dataset.competitionId = String(comp.id);
   const stages = comp.stages || [];
   for (const stage of stages) {
@@ -316,7 +212,7 @@ function competitionSection(comp, nextCards, nextStandings) {
       // jogos entre grupos numa seção à parte (createGroupRows)
       const matches = stage.matches || [];
       const when = { 0: 'hoje', [-1]: 'ontem', 1: 'amanhã' }[daysFromToday(state.date)] ?? 'neste dia'; // o seletor mostra outros dias
-      const layout = createGroupRows(stage.standings, matches, (m) => cardFor(m, nextCards), { only: 'playing', when, share: standingsShare(comp, stage) });
+      const layout = createGroupRows(stage.standings, matches, (m) => cardFor(m, nextCards), { only: 'playing', when });
       b.matches.classList.add('match-groups', 'group-rows');
       b.matches.replaceChildren(...layout.rows);
       b.standings.remove();
@@ -329,7 +225,7 @@ function competitionSection(comp, nextCards, nextStandings) {
       b.matches.replaceChildren(...(grouped
         ? createMatchGroupBlocks(matches, null, (m) => cardFor(m, nextCards))
         : matches.map((m) => cardFor(m, nextCards))));
-      if (stage.standings) b.standings.append(standingsFor(stage, nextStandings, comp));
+      if (stage.standings) b.standings.append(standingsFor(stage, nextStandings));
       else b.standings.remove();
     }
     p.stages.append(block);
@@ -353,7 +249,6 @@ function render(home) {
     els.date.dateTime = home.date;
   }
   paintDayLabels(home.date);
-  if (els.dayBarDate) els.dayBarDate.textContent = formatDay(`${home.date}T12:00:00Z`, now()); // "Hoje", "sáb, 18/10"
   els.error.hidden = true;
   const competitions = home.competitions || [];
   const nextCards = new Map();
@@ -373,8 +268,6 @@ function render(home) {
   els.latest.hidden = !hasGames; // sem jogo no dia, o bloco de últimos gols não aparece
   renderLatestGoals(home.latest_goals || []);
   paintNav(true);
-  liveIndex = -1;
-  paintLiveJump();
 }
 
 function showError() {
@@ -394,7 +287,6 @@ function onMatch(message) {
     const before = getCardMatch(card);
     updateMatchCard(card, match, { flash: true }); // pisca no gol; acordeão e aba continuam
     paintNav();
-    paintLiveJump(); // jogo que começou ou acabou
     syncTieCards(state.cards.values(), match); // agregado no card da volta
     // a ordem da fase depende do status e do início; início em outro dia tira o card da página;
     // time ou grupo trocado no admin muda o bloco do card e as tabelas de grupo exibidas
@@ -473,7 +365,6 @@ async function boot() {
   const home = homeResult.value;
   sync(home);
   render(home);
-  openFocus(); // link compartilhado: o card do jogo aberto e na tela
 
   alerts = createGoalAlerts({
     region: els.alertRegion,

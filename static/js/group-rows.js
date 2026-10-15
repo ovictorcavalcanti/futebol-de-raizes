@@ -113,18 +113,16 @@ function groupRow(title, id, cards, empty, tables = [], cls = null) {
  * @param {object} standings StageStandingsOut da fase (todos os grupos)
  * @param {object[]} matches jogos do recorte (a rodada na competição, o dia na home)
  * @param {(match: object) => HTMLElement} card card de cada jogo (a página reaproveita os seus)
- * @param {{only?: 'all'|'playing', when?: string, share?: {title: string, url: string|Function}}} [opts]
- *   only 'playing': só os grupos com jogo no recorte; when: "nesta rodada" / "hoje", no aviso do
- *   grupo sem jogo; share: botão de compartilhar cada tabela no WhatsApp (standings.js)
+ * @param {{only?: 'all'|'playing', when?: string}} [opts] only 'playing': só os grupos com jogo
+ *   no recorte; when: "nesta rodada" / "hoje", no aviso do grupo sem jogo
  * @returns {{rows: HTMLElement[], tables: HTMLElement[], key: string}}
  */
-export function createGroupRows(standings, matches, card, { only = 'all', when = 'nesta rodada', share = null } = {}) {
+export function createGroupRows(standings, matches, card, { only = 'all', when = 'nesta rodada' } = {}) {
   const split = splitGroupMatches(matches, standings);
   const place = placeGroups(standings, split, only);
   const tables = []; // na ordem de place.order (um grupo pode aparecer duas vezes: rodada mista)
   const tableOf = (g) => {
-    const [data, opts] = tableArgs(standings, place.order, tables.length);
-    const table = createStandings(data, { ...opts, share: share && { ...share, groups: true } }); // cada tabela é de um grupo
+    const table = createStandings(...tableArgs(standings, place.order, tables.length));
     tables.push(table);
     return table;
   };

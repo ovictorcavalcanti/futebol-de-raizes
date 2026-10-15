@@ -69,7 +69,7 @@ O contexto `brand` (`core/context_processors.py`, `settings.BRAND`) alimenta:
   --vermelho --amarelo --verde`, `--field` (borda de campo de formulário e trilho do
   interruptor, ≥ 3:1 — WCAG 1.4.11), mais variantes AA para texto pequeno
   (`--verde-ink --amarelo-ink --vermelho-ink`), texto sobre cor (`--on-azul`…),
-  tintas (`--azul-tint`…), `--frevo-stripe`.
+  tintas (`--azul-tint`…), `--frevo-stripe`, `--hatch`.
 * **Ajuste de contraste (desvio de IDENTIDADE.md):** `--ink-3` claro passou de
   `#7B7365` para `#6F675A` e o escuro de `#8E8778` para `#A8A193` — os originais
   ficavam abaixo de 4.5:1 sobre `--paper`/`--surface-2` e, no escuro, sobre as tintas
@@ -103,9 +103,6 @@ escondidas; quem liga os dados tira o `hidden`.
 | `#home-date` (`<time>`) | Data do dia: já vem no HTML (`{% now %}`, Brasília) e o JS reescreve com `formatDateLong` da data da resposta — a linha nunca aparece depois (sem layout shift). |
 | `#latest-goals` | Bloco "Últimos gols", **visível desde a 1ª pintura** com um chip esqueleto (altura de um `.goal-chip`), sem layout shift quando os dados chegam. `home.js` o esconde no dia sem jogo (o estado vazio toma o lugar) e no erro da carga inicial. |
 | `#goal-alert` (`aria-live="polite"`) | Avisos: `createGoalAlert(goal)` / `createGoalAlert(goal, {kind: 'correction', reason})`. Use `prepend`. |
-| `[data-hook="live-jump"]` (`hidden`; só na barra fixa do dia) | Celular: "Ao vivo N" (jogos com status `live` no dia); cada toque leva ao próximo, no topo da tela (os cards têm `scroll-margin-top` com a barra). Some sem jogo ao vivo. |
-| `[data-hook="day-bar"]` (`hidden`) › `day-bar-prev`, `day-bar-date`, `day-bar-next` | Celular: barra fixa no topo que só aparece depois que o seletor de dias (`[data-hook="date-nav"]`) sai da tela por cima (IntersectionObserver; nunca os dois juntos); escondida, fica `inert`. Repete o dia (`formatDay`: "Hoje", "sáb, 18/10") e o ‹ › (fazem o mesmo que os do seletor e voltam ao topo). Fora do `.container`. |
-| `.section-head__label` | Celular: o texto de "Resultados no WhatsApp" e "Ver competição" fica só para leitor de tela; na tela, os ícones, em alvos de 44 px. |
 | `#toggle-sound`, `#toggle-notifications` (`hidden`) | Botões liga/desliga (`aria-pressed`). Os rótulos trocam sozinhos via `.when-on`/`.when-off`. O de notificações só aparece onde `new Notification()` funciona: um script inline logo depois dele (antes da 1ª pintura) aplica a mesma regra de `isMobileDevice`/`notificationSupport` (sem o teste do construtor) e `alerts.js` confirma depois — o botão não surge com os módulos empurrando a página. |
 | `#notifications-hint` (`hidden`) | "As notificações do sistema só funcionam com HTTPS." — aparece quando a página não está em contexto seguro. |
 | `#latest-goals-list` (`<ol tabindex="0">`, `aria-busy="true"`) | `createLatestGoal(goal, {isNew})` por item, do mais novo ao mais antigo (substitui o chip esqueleto; `home.js` tira o `aria-busy`). Rola para o lado: `tabindex="0"` dá foco pelo teclado (os chips não são focáveis) e a borda direita esmaece como dica de rolagem. |
@@ -144,66 +141,10 @@ for (const stage of comp.stages) {
 | `#round-prev`, `#round-next` (`disabled`), `#round-label` (`aria-live="polite"`) | Navegação ‹ Rodada 5 ›. |
 | `#round-matches` (`aria-busy="true"`) | Cards da rodada (`createMatchCard`); mata-mata: um bloco por confronto (`createTieGroup`); fase de grupos com tabela: uma linha por grupo (`.group-row`: jogos do grupo ou "Não há jogos deste grupo nesta rodada." e a tabela do grupo ao lado, topo alinhado, com a legenda das cores e as punições do grupo embaixo; a linha tem a altura do mais alto dos dois; critérios de desempate uma vez, dentro do card do último grupo; jogos entre grupos numa seção à parte, `createGroupRows`). |
 | `#round-empty` (`hidden`) | "Nenhum jogo nesta rodada." |
-| `#round-share` (`hidden`) | "Resultados no WhatsApp": a mensagem da rodada exibida (um jogo por linha, na ordem da página) com o link dela, direto no WhatsApp; aparece com jogo na rodada. |
 | `#stage-standings` | `createStandings(stage.standings)` (liga; na fase de grupos as tabelas vão para as linhas de `#round-matches`). |
 | `#stage-ties` (`hidden`) › `[data-hook="ties-list"]` | Sem uso (fica `hidden`): o agregado vem no card do jogo de volta. |
 | `#competition-missing` (`hidden`) | Slug inexistente. |
 | `#competition-error` (`hidden`) › `[data-hook="competition-retry"]` | Erro genérico. |
-
-Na home, cada seção de competição tem `[data-hook="competition-share"]` ("Resultados no
-WhatsApp"): os resultados do dia daquela competição, com o link do dia (`/?date=`).
-
-Link compartilhado de um jogo: `/?jogo=<id>`. O servidor (`core.views.home_page`) põe as tags
-`og:` (placar e autores dos gols, `core/share.py`; cache de 60 s) e o dia do jogo em
-`#competitions[data-focus-day]` (o de agora, mesmo reagendado); a home abre nesse dia, com o card
-do jogo aberto e na tela. Trocar de dia tira o `?jogo` da URL. Id inválido ou jogo que não
-existe: a home de sempre.
-
-### Compartilhar no WhatsApp (`share.js`)
-
-* Card: botão `.match__share` no canto de cima (todo card com acordeão; o placar do operador
-  não tem) abre a janela `dialog.share-sheet`: a prévia da imagem e um botão, "Compartilhar no
-  WhatsApp" (`[data-hook="share-whatsapp"]`). Nunca há "baixar".
-  * Com Web Share de arquivos (celular): a imagem vai como arquivo pela folha nativa, com a
-    mensagem (e o link) na legenda. A imagem é gerada quando a janela abre, para o clique chamar
-    o share direto (o Safari exige o gesto do usuário).
-  * Sem ela (computador): o botão é o link `api.whatsapp.com/send?text=` com a mensagem e copia
-    a imagem para colar na conversa (toast "Imagem copiada").
-* `matchShareText(match, now, url)`: mensagem com a formatação do WhatsApp — `*placar*`;
-  competição · rodada · situação; W.O. (com o motivo); "⚽ *Time:* autor minuto (pên./contra)"
-  por lado; "🔗 link". `resultsShareText(title, matches, now, url)`: `*título*` e uma linha por
-  jogo (placar; situação entre parênteses se não acabou; horário se não começou) e o link.
-  `shareResultsOnWhatsApp(title, matches, {now, url})` abre a conversa com ela.
-* `renderMatchImage(match, {now, brand, host})` → PNG 1200 × 800 (3:2, tipos moderados, bloco do jogo centrado na altura) no canvas: competição, rodada e
-  situação, escudos (o `crest_url` com CORS ou o escudo desenhado), times, placar e só os autores
-  dos gols — todos os autores no mesmo tamanho de fonte (o maior em que o mais longo cabe), e os
-  dois nomes também —, com o nome do site no rodapé. Sem servidor e sem dependência nova.
-* `matchUrl(match)` → `/?jogo=<id>`.
-* Classificação: com `opts.share = {title, url}` em `createStandings` (home, competição e linhas
-  de grupo passam o nome da competição e o link), cada tabela tem `.standings__share` no canto do
-  título, que abre a mesma janela (`openStandingsShare`): a imagem da tabela
-  (`renderStandingsImage`: PNG de 1080 de largura, altura pelo número de times; competição,
-  "Classificação", "Classificação do Grupo A" ou "Classificação · Chave 1" (`groupLabel`,
-  `standingsHeading`; só em fase de grupos — `opts.share.groups` ou mais de um grupo —: a
-  classificação geral/personalizada não vira grupo), a fase e a rodada (`opts.share.round`: na
-  home, a dos jogos do dia; na competição, a atual da fase, senão a exibida; a classificação geral
-  não tem); faixa da zona, posição, escudo, nome — todos do mesmo tamanho — e, ao lado de quem
-  está em jogo, a etiqueta vermelha "JOGANDO AGORA"; P J V E D GP SG; legenda das zonas; o site
-  no rodapé) e a mensagem `*Classificação do Grupo A*`, "competição · fase · rodada", uma linha
-  por time ("1. Sport (jogando agora) — 13 pts · 5J · GP 11 · SG +8") e o link
-  (`standingsShareText`).
-
-Faixa de informações do card (`.match__meta`, grid): o bloco "quando" (`.match__lead`: o selo do
-status — "Agendado", "Ao vivo" com o minuto, "Encerrado"... —, o dia e a hora do início,
-`.match__when`, e a rodada/competição, quando pedidas) e o bloco "onde" (`.match__place`: o
-estádio com o ícone de estádio e a cidade com o pino, `.match__place-item`). No celular, duas
-linhas centradas, como o placar (o espaço do botão
-de compartilhar fica dos dois lados); no contêiner largo (≥ 560 px), "quando" à esquerda e
-"onde" à direita. O botão de compartilhar tem borda (é botão, não ícone de informação) e área
-de toque de 44 px (o desenho segue de 32 px). No placar estreito (< 520 px), o nome do time (o
-popular, como no cadastro: "Sport", "Náutico"), não a sigla, ao lado do escudo, um pouco menor,
-em até duas linhas. No celular, a janela de compartilhar abre como
-gaveta (presa embaixo, na largura da tela, com o botão largo).
 
 ### Operador (`operator.html`)
 
@@ -223,7 +164,7 @@ gaveta (presa embaixo, na largura da tela, com o botão largo).
 | `#event-form-card` (`hidden`), `#event-form` | Formulário. `[data-hook]`: `event-form-icon` (`<use>`), `event-form-title`, `event-warnings` (+ `event-warnings-list`, para `confirmation_required`), `event-error`, `event-type` (`#event-type`: `<select>` dos tipos em `available.events`, lances primeiro e os estruturais num `<optgroup label="Andamento do jogo">`), `event-fields`, `event-cancel`, `event-submit`, `event-submit-label`. |
 | `#op-timeline`, `#op-timeline-empty`, `[data-hook="timeline-count"]` | Lançamentos (mais recente primeiro) com `tpl-op-event`. |
 | `#confirm-dialog` | Confirmação genérica (andamento do jogo e avisos `confirmation_required`): `confirm-title`, `confirm-text`, `confirm-list` (`<ul>` dos avisos, `hidden` sem itens), `confirm-ok`; `returnValue` = `"confirm"` ou `"cancel"` ("Voltar"). |
-| `#status-dialog` | `status-title`, `status-text`, `status-kickoff-field` (`hidden`; mostre no reagendar) › `#status-kickoff`, `status-wo-team-field` › `#status-wo-team` e `status-wo-score` › `status-wo-home`/`status-wo-away` (`hidden`; mostre no W.O.: time beneficiado e placar, 3 × 0 para ele ao escolher), `#status-reason` (obrigatório no atraso e no W.O.), `status-ok`. |
+| `#status-dialog` | `status-title`, `status-text`, `status-kickoff-field` (`hidden`; mostre no reagendar) › `#status-kickoff`, `#status-reason`, `status-ok`. |
 | `#void-dialog` | `void-text`, `#void-reason`, `void-ok` (botão de perigo). |
 
 Templates do operador (`partials/operator-templates.html`, um por `kind` do catálogo):
@@ -303,7 +244,7 @@ O card cobre todos os status: agendado (pílula com horário, dia relativo), ao 
 (minuto correndo, faixa vermelha no topo), intervalo (amarelo), encerrado
 (vencedor em destaque, perdedor esmaecido), pênaltis `(4) × (3) pên.`, suspenso,
 adiado e cancelado (hachura). Linha do confronto no mata-mata (no card da volta: agregado e quem
-avança, com o agregado na mesma ordem mandante × visitante do placar do card; nas outras rodadas, "avança" com o símbolo de avançar (⏩) no fim; na rodada "Final", "Campeão" com a estrela dourada no fim; "Jogo de ida" e "Agregado" com o ícone de informação na frente). Atrasado, adiado, suspenso e cancelado: linha "Início atrasado", "Jogo adiado", "Jogo suspenso" ou "Jogo cancelado" — motivo, com o alerta laranja, nas observações abaixo do placar (onde fica o "Jogo de ida"), com o `status_note`; some com a mudança de status. Suspenso reagendado: mais uma linha, "Retomada: amanhã às 16:00", com o calendário (`resumes_at`). Encerrado por W.O.: "W.O. em favor do {time} — motivo", com o alerta (`walkover`). Nenhum status tem fundo hachurado nem borda tracejada (atrapalham a leitura): suspenso e cancelado têm selo com borda cinza contínua. Topo do card quase reto (2px) com a faixa de status: agendado azul, ao vivo vermelho, intervalo amarelo, atrasado e adiado laranja, encerrado tinta, suspenso e cancelado cinza, todos sem hachura.
+avança, com o agregado na mesma ordem mandante × visitante do placar do card; nas outras rodadas, "avança" com o símbolo de avançar (⏩) no fim; na rodada "Final", "Campeão" com a estrela dourada no fim; "Jogo de ida" e "Agregado" com o ícone de informação na frente). Atrasado: linha "Início atrasado — motivo" com o alerta na frente nas observações abaixo do placar (onde fica o "Jogo de ida"); some quando o jogo começa.
 Nome do time: sigla no celular, nome completo a partir de 520 px de card; quebra só entre
 palavras (`overflow-wrap: normal`, `text-wrap: balance`; a sigla nunca quebra) e o ✓ do
 vencedor fica fora do fluxo (no canto, junto da faixa do time), sem apertar o nome; em card

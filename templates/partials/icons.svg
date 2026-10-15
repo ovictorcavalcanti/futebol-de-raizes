@@ -32,7 +32,7 @@
   <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="M5 9l7 7 7-7"/></symbol>
   <symbol id="i-chevron-up" viewBox="0 0 24 24"><path d="M5 15l7-7 7 7"/></symbol>
   <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-8.5 8.5M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
-  <symbol id="i-star" viewBox="0 0 24 24"><path class="fill" fill="currentColor" stroke="none" d="M12 2.8l2.7 6 6.5.6-4.9 4.3 1.4 6.4L12 16.8l-5.7 3.3 1.4-6.4-4.9-4.3 6.5-.6z"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path class="fill" d="M12 2.8l2.7 6 6.5.6-4.9 4.3 1.4 6.4L12 16.8l-5.7 3.3 1.4-6.4-4.9-4.3 6.5-.6z"/></symbol>
   <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M7 3.5h10V9a5 5 0 0 1-10 0zM7 5.5H3.8v1.2A3.8 3.8 0 0 0 7.4 10.5M17 5.5h3.2v1.2a3.8 3.8 0 0 1-3.6 3.8M12 14v3.5M8 21h8M9.5 17.5h5V21h-5z"/></symbol>
   <symbol id="i-advance" viewBox="0 0 24 24"><path fill="currentColor" d="M4 7.5v9l6.5-4.5zM12.5 7.5v9l6.5-4.5z"/></symbol>
   <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2.8l8 3v5.7c0 4.9-3.4 8.5-8 9.7-4.6-1.2-8-4.8-8-9.7V5.8z"/></symbol>
@@ -42,7 +42,6 @@
   <symbol id="i-x-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></symbol>
   <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle class="fill" cx="12" cy="12" r="1.6"/></symbol>
   <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21.5V3.5M5 4h13l-2.6 4.2L18 12.5H5"/></symbol>
-  <symbol id="i-share" viewBox="0 0 24 24"><circle cx="18" cy="5.5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="18.5" r="2.5"/><path d="M8.2 10.8l7.6-4.1M8.2 13.2l7.6 4.1"/></symbol>
   <symbol id="i-pause" viewBox="0 0 24 24"><path d="M9 5v14M15 5v14"/></symbol>
   <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M4.5 12.5l5 5 10-11"/></symbol>

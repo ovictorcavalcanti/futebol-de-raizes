@@ -11,10 +11,9 @@
 import { h, clear, setText } from './render.js';
 import { icon, eventIconName } from './icons.js';
 import { createCrest } from './crest.js';
-import { formatWhen, formatInt, formatMoney, formatScore, toDate } from './format.js';
+import { formatTime, formatWhen, formatDay, formatInt, formatMoney, formatScore, toDate } from './format.js';
 import { liveMinuteLabel } from './clock.js';
 import { getMinuteFormat, minuteLabel } from './minute-format.js';
-import { openMatchShare } from './share.js';
 
 /** Estado por card: {match, opts, eventIds, requested, activeTab, failed}. */
 const STATE = new WeakMap();
@@ -37,7 +36,7 @@ const SEPARATORS = {
   match_end: { label: 'Fim de jogo', icon: 'flag', score: true, end: true },
 };
 const INTERVALS = new Set(['half_time', 'extra_half_time']); // períodos sem relógio entre os tempos
-const STATUS_EVENTS = new Set(['delayed', 'postponed', 'suspended', 'resumed', 'rescheduled', 'cancelled', 'walkover']);
+const STATUS_EVENTS = new Set(['delayed', 'postponed', 'suspended', 'resumed', 'rescheduled', 'cancelled']);
 const TABS = [
   { key: 'events', label: 'Lances', icon: 'list' },
   { key: 'lineups', label: 'Escalações', icon: 'shirt' },
@@ -91,8 +90,6 @@ const displayName = (team) => team?.name || team?.short_name || '';
  * @property {boolean} [details=true] false = sem acordeão (ex.: placar do operador)
  * @property {boolean} [showRound] mostra rodada/fase na faixa de meta
  * @property {boolean} [showCompetition] mostra a competição na faixa de meta
- * @property {boolean} [share=true] botão de compartilhar no canto (link, texto e imagem do jogo);
- *   sem acordeão (operador), não há botão
  */
 export function createMatchCard(match, opts = {}) {
   const id = ++seq;
@@ -113,17 +110,6 @@ export function createMatchCard(match, opts = {}) {
     details.append(toggle, body);
     details.addEventListener('toggle', () => onToggle(el));
     el.append(details);
-  }
-  if (opts.details !== false && opts.share !== false) {
-    // no canto de cima, por cima da faixa de meta (que deixa o espaço); compartilha o jogo como está agora
-    el.classList.add('match--shareable');
-    el.append(h('button', {
-      type: 'button', class: 'btn btn--secondary btn--icon btn--sm match__share', 'aria-label': 'Compartilhar jogo no WhatsApp', title: 'Compartilhar no WhatsApp',
-      onclick: () => {
-        const st = STATE.get(el);
-        if (st?.match) openMatchShare(st.match, { now: nowOf(st.opts) });
-      },
-    }, icon('share')));
   }
   STATE.set(el, { uid: id, match: null, opts: { ...opts, flash: false }, eventIds: null, requested: false, activeTab: null, failed: false });
   updateMatchCard(el, match, { flash: false });
@@ -183,7 +169,7 @@ export function updateMatchCard(el, match, opts = {}) {
   renderMeta(meta, match, now, st.opts);
   renderBoard(board, match, now);
   renderSummary(summary, match);
-  renderTie(tie, match, now);
+  renderTie(tie, match);
 
   if (flash && prev) flashScore(el, prev, match);
 
@@ -246,7 +232,10 @@ export function setMatchCardError(el) {
 
 function statusPill(match) {
   const { status } = match;
-  if (status === 'scheduled') return h('span', { class: 'pill pill--scheduled', text: match.status_label || 'Agendado' });
+  if (status === 'scheduled') {
+    const time = formatTime(match.kickoff_at);
+    return h('span', { class: 'pill pill--scheduled' }, icon('clock'), h('span', { class: 'visually-hidden', text: 'Agendado para ' }), time || 'A definir');
+  }
   if (status === 'live') {
     if (match.partial_info) return h('span', { class: 'pill pill--partial', text: 'Informações parciais' });
     if (INTERVALS.has(match.period)) return h('span', { class: 'pill pill--interval', text: 'Intervalo' });
@@ -269,9 +258,7 @@ function roundLabel(match) {
 }
 
 function renderMeta(meta, match, now, opts) {
-  // dois blocos: "quando" (o selo do status, o minuto ao vivo, o dia e a hora do início e a
-  // rodada/competição, quando pedidas) e "onde" (local e cidade). No desktop, um à esquerda e o
-  // outro à direita; no celular, duas linhas centradas, como o placar.
+  const parts = [];
   const status = h('span', { class: 'match__status' }, statusPill(match));
   if (match.status === 'live' && !match.partial_info && !INTERVALS.has(match.period) && match.period !== 'penalties') {
     status.append(h('span', { class: 'match__minute' },
@@ -282,18 +269,24 @@ function renderMeta(meta, match, now, opts) {
   } else if (match.status === 'suspended' && match.period_label) {
     status.append(h('span', { class: 'match__round', text: `parou no ${match.period_label}` }));
   }
+  parts.push(status);
+
   const kickoff = toDate(match.kickoff_at);
-  const context = [opts.showCompetition && (match.competition?.short_name || match.competition?.name), opts.showRound && roundLabel(match)].filter(Boolean).join(' · ');
-  const when = h('div', { class: 'match__lead' }, status,
-    kickoff ? h('time', { class: 'match__when', datetime: kickoff.toISOString(), text: formatWhen(kickoff, now) }) : null,
-    context ? h('span', { class: 'match__round', text: context }) : null);
-  // "onde": o estádio com o ícone de estádio e a cidade com o pino
-  const place = [
-    match.venue ? h('span', { class: 'match__place-item' }, icon('stadium'), h('span', { class: 'visually-hidden', text: 'Estádio: ' }), match.venue) : null,
-    match.city ? h('span', { class: 'match__place-item' }, icon('pin'), h('span', { class: 'visually-hidden', text: 'Cidade: ' }), match.city) : null,
-  ].filter(Boolean);
-  // sem estádio nem cidade: só o "quando" (replaceChildren escreveria "null")
-  meta.replaceChildren(when, ...(place.length ? [h('p', { class: 'match__place' }, ...place)] : []));
+  if (kickoff) {
+    const text = match.status === 'scheduled' ? formatDay(kickoff, now) : formatWhen(kickoff, now);
+    parts.push(h('time', { class: 'match__when', datetime: kickoff.toISOString() }, icon('calendar', { className: 'icon--sm' }), text));
+  }
+
+  const context = [opts.showCompetition && (match.competition?.short_name || match.competition?.name), opts.showRound && roundLabel(match)].filter(Boolean);
+  if (context.length) parts.push(h('span', { class: 'match__round', text: context.join(' · ') }));
+
+  if (match.venue || match.city) {
+    parts.push(h('span', { class: 'match__place' },
+      match.venue ? h('span', { class: 'match__place-item' }, icon('stadium'), h('span', { class: 'visually-hidden', text: 'Estádio: ' }), match.venue) : null,
+      match.city ? h('span', { class: 'match__place-item' }, icon('pin'), h('span', { class: 'visually-hidden', text: 'Cidade: ' }), match.city) : null,
+    ));
+  }
+  meta.replaceChildren(...parts);
 }
 
 /* ==========================================================================
@@ -320,8 +313,8 @@ function boardLabel(match, now) {
   const home = displayName(match.home);
   const away = displayName(match.away);
   if (!hasScore(match)) {
-    const when = match.kickoff_at ? `, ${whenText(match.kickoff_at, now)}` : '';
-    const note = NOTICES[match.status] && match.status_note ? `: ${match.status_note}` : '';
+    const when = match.kickoff_at ? `, ${formatWhen(match.kickoff_at, now).replace(' · ', ' às ').toLowerCase()}` : '';
+    const note = match.status === 'delayed' && match.status_note ? `: ${match.status_note}` : '';
     return `${home} contra ${away}${when}. ${match.status_label || ''}${note}`.trim();
   }
   let label = `${home} ${match.home_score ?? 0} a ${match.away_score ?? 0} ${away}`;
@@ -404,30 +397,16 @@ function teamById(tie, id) {
   return null;
 }
 
-/** Aviso de status nas observações, com o motivo do operador (`status_note`), quando houver. */
-const NOTICES = {
-  delayed: { text: 'Início atrasado', icon: 'alert' },
-  postponed: { text: 'Jogo adiado', icon: 'alert' },
-  suspended: { text: 'Jogo suspenso', icon: 'alert' },
-  cancelled: { text: 'Jogo cancelado', icon: 'alert' },
-};
-
-/** "hoje às 16:00", "sáb, 03/10 às 16:00" */
-const whenText = (value, now) => formatWhen(value, now).replace(' · ', ' às ').toLowerCase();
-
 /** Rodada chamada "Final" (o vencedor do confronto é o campeão). */
 const isFinalRound = (tie) => String(tie.round?.name || '').trim().toLowerCase() === 'final';
 
 /**
- * Observações do jogo, abaixo do placar: o aviso de status ("Início atrasado", "Jogo adiado",
- * "Jogo suspenso" ou "Jogo cancelado" — motivo, com o alerta na frente; some com a mudança de
- * status), o W.O. ("W.O. em favor do Sport — motivo", também com o alerta), a retomada do
- * suspenso com data nova ("Retomada: amanhã às 16:00", com o calendário) e o confronto do
- * mata-mata. Ida e volta: a ida diz "Jogo
+ * Observações do jogo, abaixo do placar: o atraso ("Início atrasado — motivo", com o alerta na
+ * frente; some quando o jogo começa) e o confronto do mata-mata. Ida e volta: a ida diz "Jogo
  * de ida"; a volta traz o agregado (parcial até o fim do confronto) — as duas com o ícone de
  * informação na frente — e, no fim, quem avança e como. Jogo único: só quem avança, no fim.
  */
-function renderTie(p, match, now) {
+function renderTie(p, match) {
   // uma linha por informação (atraso; agregado; quem avança), centradas; o espaço entre as
   // partes mantém o texto legível para leitor de tela e cópia
   const rows = [];
@@ -439,23 +418,11 @@ function renderTie(p, match, now) {
     return el;
   };
   const info = (el) => lead('info', el);
-  const notice = NOTICES[match.status];
-  if (notice) {
-    // um texto só, ao lado do ícone: no celular, o motivo quebra como frase
-    const note = row(h('span', null, h('strong', { text: notice.text }), match.status_note ? ` — ${match.status_note}` : ''));
-    note.classList.add('match__tie-row--note');
-    rows.push(lead(notice.icon, note, 'icon--warn'));
-  }
-  if (match.status === 'finished' && match.walkover) {
-    const favored = [match.home, match.away].find((team) => team?.id != null && team.id === match.walkover.team_id);
-    const reason = match.walkover.reason ? ` — ${match.walkover.reason}` : '';
-    const note = row(h('span', null, h('strong', { text: `W.O. em favor do ${displayName(favored)}` }), reason));
-    note.classList.add('match__tie-row--note');
-    rows.push(lead('alert', note, 'icon--warn'));
-  }
-  if (match.status === 'suspended' && match.resumes_at) {
-    // parou num dia e volta em outro, de onde parou
-    rows.push(lead('calendar', row(h('span', null, h('strong', { text: 'Retomada:' }), ` ${whenText(match.resumes_at, now)}`))));
+  if (match.status === 'delayed') {
+    // um texto só, ao lado do alerta: no celular, o motivo quebra como frase
+    const delay = row(h('span', null, h('strong', { text: 'Início atrasado' }), match.status_note ? ` — ${match.status_note}` : ''));
+    delay.classList.add('match__tie-row--note');
+    rows.push(lead('alert', delay, 'icon--warn'));
   }
   const tie = match.tie;
   if (!tie) {
@@ -843,9 +810,7 @@ export function renderTimeline(match, newIds = null) {
       }
       default: {
         if (STATUS_EVENTS.has(e.type)) {
-          const favored = e.type === 'walkover' && e.team_side ? match[e.team_side] : null;
-          const extra = e.type === 'rescheduled' && e.payload?.kickoff_at ? ` para ${formatWhen(e.payload.kickoff_at)}`
-            : favored ? ` em favor do ${displayName(favored)}` : '';
+          const extra = e.type === 'rescheduled' && e.payload?.kickoff_at ? ` para ${formatWhen(e.payload.kickoff_at)}` : '';
           const reason = e.payload?.reason ? ` — ${e.payload.reason}` : '';
           list.append(timelineItem(e, null, { title: `${e.type_label || e.type}${extra}${reason}`, isNew, minuteText: '' }));
         } else {

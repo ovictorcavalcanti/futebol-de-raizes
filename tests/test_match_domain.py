@@ -76,7 +76,7 @@ class Sim:
 
     def status(self, action: str, **kwargs) -> Event:
         new = status_action_event(action, **kwargs)
-        return self.post(new.type, team_id=new.team_id, payload=new.payload)
+        return self.post(new.type, payload=new.payload)
 
     def void(self, event_id: int):
         result = check_void(self.events, event_id, self.ctx)
@@ -201,13 +201,11 @@ def test_catalog_labels_kinds_and_public_flag():
         "penalty_missed": "Pênalti perdido", "var_review": "Revisão do VAR", "substitution": "Substituição",
         "yellow_card": "Cartão amarelo", "red_card": "Cartão vermelho", "stoppage_time": "Acréscimos", "clock_adjust": "Relógio do jogo",
         "shootout_kick": "Cobrança de pênalti", "delayed": "Atrasado", "postponed": "Adiado", "suspended": "Suspenso",
-        "resumed": "Retomado", "rescheduled": "Reagendado", "cancelled": "Cancelado", "walkover": "W.O.",
+        "resumed": "Retomado", "rescheduled": "Reagendado", "cancelled": "Cancelado",
     }
     assert {key: spec.label for key, spec in CATALOG.items()} == labels
     hidden = {key for key, spec in CATALOG.items() if not spec.public}
-    assert hidden == {
-        "goal_annulled", "clock_adjust", "delayed", "postponed", "suspended", "resumed", "rescheduled", "cancelled", "walkover",
-    }
+    assert hidden == {"goal_annulled", "clock_adjust", "delayed", "postponed", "suspended", "resumed", "rescheduled", "cancelled"}
     assert {key for key, spec in CATALOG.items() if spec.kind == "status"} == hidden - {"goal_annulled", "clock_adjust"}
     assert CATALOG["match_start"].minute == "optional" and CATALOG["yellow_card"].minute == "required"
     assert CATALOG["goal"].minute == "optional"  # gol "a confirmar": sem minuto e sem autor
@@ -809,7 +807,7 @@ def test_postpone_reschedule_then_start():
     postponed = sim.status("postpone", reason="  Chuva forte no Arruda ")
     assert postponed.payload == {"reason": "Chuva forte no Arruda"} and postponed.period is None
     assert sim.state.status == Status.POSTPONED
-    assert available_actions(sim.state, CTX) == {"events": [], "status": ["reschedule", "cancel", "walkover"]}
+    assert available_actions(sim.state, CTX) == {"events": [], "status": ["reschedule", "cancel"]}
     rejects("invalid_transition", sim, EventType.MATCH_START)
     rescheduled = sim.status("reschedule", kickoff_at="2026-10-10T19:30:00Z")
     assert rescheduled.payload == {"kickoff_at": "2026-10-10T19:30:00+00:00"}
@@ -830,7 +828,7 @@ def test_delay_needs_reason_then_start():
     assert sim.state.status == Status.DELAYED
     assert available_actions(sim.state, CTX) == {
         "events": ["match_start"],
-        "status": ["delay", "postpone", "reschedule", "cancel", "walkover"],
+        "status": ["delay", "postpone", "reschedule", "cancel"],
     }
     sim.status("delay", reason="Ambulância a caminho")  # atualiza a observação
     assert sim.state.status == Status.DELAYED
@@ -899,12 +897,7 @@ def test_suspend_keeps_period_and_resume():
     started = sim.state.period_started_seq
     rejects("match_not_live", sim, EventType.GOAL, team_id=SPORT, minute=61, payload={"player": "Zé"})
     rejects("invalid_transition", sim, EventType.MATCH_END)
-    assert available_actions(sim.state, CTX) == {"events": [], "status": ["resume", "reschedule", "cancel", "walkover"]}
-    # reagendado: segue suspenso, no mesmo período, com a data nova; retoma de onde parou
-    rescheduled = sim.status("reschedule", kickoff_at="2026-10-14T19:00:00-03:00")
-    assert rescheduled.period == "second_half" and rescheduled.payload == {"kickoff_at": "2026-10-14T19:00:00-03:00"}
-    assert sim.state.status == Status.SUSPENDED and sim.state.period == Period.SECOND_HALF
-    assert sim.state.rescheduled_to == "2026-10-14T19:00:00-03:00" and sim.state.period_started_seq == started
+    assert available_actions(sim.state, CTX) == {"events": [], "status": ["resume", "cancel"]}
     resumed = sim.status("resume")
     assert resumed.period == "second_half" and resumed.payload == {}
     assert sim.state.status == Status.LIVE and sim.state.period == Period.SECOND_HALF
@@ -924,42 +917,10 @@ def test_cancel_from_suspended_and_not_from_live():
     cancelled = sim.status("cancel", reason="Briga generalizada")
     assert cancelled.period == "second_half"
     assert sim.state.status == Status.CANCELLED and sim.state.period is None
-    assert available_actions(sim.state, CTX) == {"events": [], "status": ["walkover"]}  # cancelado ainda vira W.O.
+    assert available_actions(sim.state, CTX) == {"events": [], "status": []}
     for event_type in (EventType.RESUMED, EventType.CANCELLED, EventType.POSTPONED):
         rejects("invalid_status_action", sim, event_type)
     rejects("invalid_transition", sim, EventType.MATCH_START)
-
-
-def test_walkover_before_kickoff_defaults_to_three_nil_for_the_beneficiary():
-    sim = Sim()
-    rejects("team_required", sim, EventType.WALKOVER, payload={"reason": "Não compareceu"})
-    rejects("team_not_in_match", sim, EventType.WALKOVER, team_id=999, payload={"reason": "Não compareceu"})
-    rejects("invalid_payload", sim, EventType.WALKOVER, team_id=NAUTICO)  # o motivo é obrigatório
-    for bad in ({"home_score": 1, "away_score": 1}, {"home_score": 2, "away_score": 0}, {"away_score": 100}, {"away_score": True}):
-        rejects("invalid_payload", sim, EventType.WALKOVER, team_id=NAUTICO, payload={"reason": "Não compareceu", **bad})
-    assert "walkover" in available_actions(sim.state, CTX)["status"]
-    wo = sim.status("walkover", team_id=NAUTICO, reason="Sport não compareceu")
-    assert wo.team_id == NAUTICO and wo.payload == {"home_score": 0, "away_score": 3, "reason": "Sport não compareceu"}
-    assert sim.state.status == Status.FINISHED and (sim.state.home_score, sim.state.away_score) == (0, 3)
-    assert available_actions(sim.state, CTX) == {"events": [], "status": []}
-    sim.void(wo.id)  # lançado por engano: volta ao agendado, sem placar
-    assert sim.state.status == Status.SCHEDULED and (sim.state.home_score, sim.state.away_score) == (0, 0)
-
-
-def test_walkover_from_suspended_or_cancelled_with_custom_score_not_live():
-    sim = Sim().to_second_half()
-    sim.goal(NAUTICO, "Kieza", 60)
-    error = rejects("invalid_status_action", sim, EventType.WALKOVER, team_id=SPORT, payload={"reason": "Abandono"})
-    assert "Suspenda" in error.message
-    sim.status("suspend", reason="Náutico deixou o campo")
-    wo = sim.status("walkover", team_id=SPORT, reason="Náutico abandonou o jogo", home_score=2, away_score=1)
-    assert wo.period == "second_half" and wo.payload["home_score"] == 2 and wo.payload["away_score"] == 1
-    assert sim.state.status == Status.FINISHED and sim.state.period is None
-    assert (sim.state.home_score, sim.state.away_score) == (2, 1)
-    cancelled = Sim()
-    cancelled.status("cancel", reason="Sport não compareceu")
-    cancelled.status("walkover", team_id=NAUTICO, reason="Decisão do tribunal")
-    assert cancelled.state.status == Status.FINISHED and (cancelled.state.home_score, cancelled.state.away_score) == (0, 3)
 
 
 def test_finished_match_rejects_status_actions():
@@ -1056,7 +1017,7 @@ FIRST_HALF_EVENTS = [
 
 def test_available_actions_by_phase():
     sim = Sim()
-    assert available_actions(sim.state, CTX) == {"events": ["match_start"], "status": ["delay", "postpone", "reschedule", "cancel", "walkover"]}
+    assert available_actions(sim.state, CTX) == {"events": ["match_start"], "status": ["delay", "postpone", "reschedule", "cancel"]}
     sim.post(EventType.MATCH_START)
     assert available_actions(sim.state, CTX) == {"events": FIRST_HALF_EVENTS, "status": ["suspend"]}
     sim.post(EventType.HALF_TIME)

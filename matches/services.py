@@ -127,20 +127,14 @@ def change_status(
     idempotency_key: str,
     kickoff_at: datetime | str | None = None,
     reason: str = "",
-    team_id: int | None = None,
-    home_score: int | None = None,
-    away_score: int | None = None,
     source: str = "operator",
     request=None,
     at: datetime | None = None,
 ) -> PostResult:
-    """Adia, suspende, retoma, reagenda (`kickoff_at`; sem fuso = Brasília), cancela ou encerra
-    por W.O. (`team_id` beneficiado, `reason`, placar opcional: padrão 3 × 0 para ele)."""
+    """Adia, suspende, retoma, reagenda (`kickoff_at`; sem fuso = Brasília) ou cancela."""
 
     def build() -> NewEvent:
-        return domain.status_action_event(
-            action, kickoff_at=kickoff_at, reason=reason or None, team_id=team_id, home_score=home_score, away_score=away_score,
-        )
+        return domain.status_action_event(action, kickoff_at=kickoff_at, reason=reason or None)
 
     return _counting_rejections(
         lambda: _post(match_id, user, build, key=idempotency_key, source=source, confirm=True, request=request, at=at, action=action)
@@ -597,7 +591,7 @@ class _Work:
     def _finished_at(self, state: domain.MatchState) -> datetime | None:
         if state.status != Status.FINISHED:
             return None
-        ends = [row for row in self.rows if row.voided_at is None and row.type in (EventType.MATCH_END, EventType.WALKOVER)]
+        ends = [row for row in self.rows if row.voided_at is None and row.type == EventType.MATCH_END]
         return max(ends, key=lambda row: row.sequence).created_at if ends else self.match.finished_at
 
     def refresh_from_events(self) -> None:

@@ -746,6 +746,9 @@
   .match--shareable > .match__meta { padding-inline: 48px; } /* celular: espaço simétrico para o botão do canto */
   .match__lead { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px var(--s-3); }
   .match__status { display: inline-flex; align-items: center; gap: var(--s-2); }
+  /* celular, jogo ao vivo: "AO VIVO" e o tempo numa linha só deles, em cima (três linhas: status,
+     dia e hora, estádio e cidade) */
+  .match[data-status="live"] .match__status { flex-basis: 100%; justify-content: center; }
   /* compartilhar: no celular, botão de ícone no canto superior direito do card, fora do fluxo */
   .match__share { position: absolute; top: 8px; right: 8px; z-index: 1; }
   @media (max-width: 639px), (pointer: coarse) {
@@ -799,6 +802,7 @@
     .match__meta { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px var(--s-4); text-align: left; }
     .match--shareable > .match__meta { padding: 6px 8px 6px var(--s-4); }
     .match__lead { justify-content: flex-start; }
+    .match[data-status="live"] .match__status { flex-basis: auto; }
     .match__place { margin-left: auto; justify-content: flex-end; font-size: 0.875rem; gap: var(--s-3); }
     .match__share { position: static; margin-left: auto; }
     .match__place + .match__share { margin-left: 0; }

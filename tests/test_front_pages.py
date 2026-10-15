@@ -1535,6 +1535,28 @@ def test_competicao_sem_outra_classificacao_nao_mostra_o_seletor(open_page):
     assert not errors, errors
 
 
+LIVE_META_JS = """() => { const card = document.querySelector('.matches > article.match[data-status="live"]');
+  const box = (sel) => { const r = card.querySelector(sel).getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom) }; };
+  return { status: box('.match__status'), when: box('.match__when'), place: box('.match__place') }; }"""
+
+
+@pytest.mark.parametrize("width", [390, 1280])
+def test_card_ao_vivo_status_numa_linha_propria_no_celular(open_page, width):
+    """Jogo ao vivo no celular: "AO VIVO" e o tempo numa linha só deles, depois dia/hora, depois estádio e
+    cidade (três linhas). No desktop, a faixa segue numa linha."""
+    page, _, errors = open_page("/", width=width)
+    page.wait_for_selector('.matches > article.match[data-status="live"] .match__when')
+    out = page.evaluate(LIVE_META_JS)
+    if width < 640:
+        # cada linha começa abaixo da anterior (não basta o topo diferir 1 ou 2 px do alinhamento)
+        assert out["when"]["top"] >= out["status"]["bottom"] - 1, out
+        assert out["place"]["top"] >= out["when"]["bottom"] - 1, out
+    else:
+        mid = {k: (v["top"] + v["bottom"]) / 2 for k, v in out.items()}
+        assert abs(mid["status"] - mid["when"]) <= 6 and abs(mid["when"] - mid["place"]) <= 6, out
+    assert not errors, errors
+
+
 GOALS_JS = """() => [...document.querySelectorAll('.matches > article.match .match__summary .facts-line')].map((col) => {
   const items = [...col.children].map((li) => li.getBoundingClientRect());
   const box = col.getBoundingClientRect();

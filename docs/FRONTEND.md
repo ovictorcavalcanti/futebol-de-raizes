@@ -251,7 +251,8 @@ equilibradas (`text-wrap: balance`), hifenizando a palavra que não cabe (`hyphe
 último caso, quebrando-a (`overflow-wrap: break-word`), sem vazar da coluna; o ✓ do
 vencedor fica fora do fluxo (no canto, junto da faixa do time), sem apertar o nome; em card
 estreito (< 380 px) escudo, vão e coluna do placar diminuem. Resumo sem abrir: autores dos
-gols e vermelhos. Abas só com dado:
+gols, um por linha, em duas colunas (mandante à direita, visitante à esquerda), também no
+desktop. Abas só com dado:
 **Lances** (linha do tempo de dois lados com trilho central e separadores de
 período; gol anulado riscado com o motivo; lance sem time, como o VAR, vai ao
 centro com o minuto junto do texto; em cards estreitos o placar parcial

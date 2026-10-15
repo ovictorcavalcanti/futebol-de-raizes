@@ -927,16 +927,17 @@
     font-size: 0.8125rem;
     color: var(--ink-2);
   }
+  /* um gol por linha em cada coluna (mandante à direita, junto do placar; visitante à esquerda) */
   .facts-line {
     display: flex;
-    flex-wrap: wrap;
-    align-content: flex-start;
-    gap: 2px 10px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
     margin: 0;
     padding: 0;
     list-style: none;
   }
-  .facts-line--home { justify-content: flex-end; text-align: right; }
+  .facts-line--home { align-items: flex-end; text-align: right; }
   .facts-line__item { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0 4px; }
   .facts-line--home .facts-line__item { justify-content: flex-end; }
   .facts-line__min, .facts-line__tag { white-space: nowrap; }

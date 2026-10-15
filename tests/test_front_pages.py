@@ -1448,6 +1448,27 @@ def test_compartilhar_jogo_botao_e_faixa_do_card(open_page, width):
     assert not errors, errors
 
 
+GOALS_JS = """() => [...document.querySelectorAll('.matches > article.match .match__summary .facts-line')].map((col) => {
+  const items = [...col.children].map((li) => li.getBoundingClientRect());
+  const box = col.getBoundingClientRect();
+  return { side: col.classList.contains('facts-line--home') ? 'home' : 'away', tops: items.map((r) => Math.round(r.top)),
+    edge: items.map((r) => Math.round(col.classList.contains('facts-line--home') ? box.right - r.right : r.left - box.left)) };
+})"""
+
+
+@pytest.mark.parametrize("width", [390, 1280])
+def test_resumo_um_gol_por_linha(open_page, width):
+    """Resumo do card: cada gol numa linha, mandante alinhado à direita e visitante à esquerda (celular e desktop)."""
+    page, _, errors = open_page("/", width=width)
+    page.wait_for_selector(".matches > article.match .match__summary .facts-line__item")
+    cols = page.evaluate(GOALS_JS)
+    assert any(len(c["tops"]) >= 2 for c in cols)  # há time com mais de um gol nos dados
+    for c in cols:
+        assert c["tops"] == sorted(set(c["tops"])), c  # linhas diferentes, de cima para baixo
+        assert all(e <= 1 for e in c["edge"]), c  # encostados no lado do time
+    assert not errors, errors
+
+
 @pytest.mark.parametrize("width", [320, 390])
 def test_logo_horizontal_largo_nao_empurra_o_cabecalho(open_page, width):
     """BRAND_LOGO_URL de qualquer proporção (aqui 10:1): relógio e tema continuam na tela."""

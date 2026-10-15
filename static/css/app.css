@@ -731,64 +731,18 @@
   .match[data-status="suspended"]::before, .match[data-status="cancelled"]::before { background: var(--ink-3); }
 
   /* faixa de meta */
-  /* "quando" e "onde": no celular, duas linhas centradas (como o placar); no desktop, um bloco
-     à esquerda e o outro à direita (container query mais abaixo) */
   .match__meta {
-    display: grid;
-    justify-items: center;
-    gap: 4px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px var(--s-3);
     padding: 10px var(--s-4) 9px;
-    text-align: center;
     border-bottom: 1px solid var(--line);
     background: color-mix(in srgb, var(--surface-2) 55%, var(--surface));
     font-size: 0.875rem;
     color: var(--ink-2);
   }
   .match__status { display: inline-flex; align-items: center; gap: var(--s-2); }
-  .section-head__actions { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); }
-  @media (max-width: 639px) {
-    .section-head__actions { gap: var(--s-1); }
-    .section-head__actions .section-head__label {
-      position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
-    }
-    .section-head__actions > * { display: inline-grid; place-items: center; min-width: 44px; min-height: 44px; padding: 0; }
-    .section-head__actions .icon { width: 20px; height: 20px; }
-  }
-  /* compartilhar: no canto de cima, a faixa de meta deixa o espaço do botão */
-  .match--shareable > .match__meta { padding-inline: 46px; } /* centrado, longe do botão */
-  .match__lead { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px var(--s-3); min-width: 0; }
-  .match__place { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 2px var(--s-3); min-width: 0; margin: 0; color: var(--ink-3); font-size: 0.875rem; }
-  .match__place-item { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
-  .match__place .icon { flex: none; width: 15px; height: 15px; color: var(--ink-3); }
-  .match__share { position: absolute; top: 7px; right: 8px; }
-  /* área de toque de 44 px (o desenho continua de 32 px): bom para o dedo */
-  .match__share::after, .standings__share::after { content: ""; position: absolute; inset: -6px; }
-  .match__share .icon { width: 18px; height: 18px; }
-  .standings__group--shareable { position: relative; }
-  .standings__group--shareable caption { padding-right: 52px; }
-  .standings__share { position: absolute; top: 6px; right: 8px; z-index: 1; }
-  .standings__share .icon { width: 18px; height: 18px; }
-  /* janela de compartilhar o jogo: prévia da imagem e os botões */
-  .share-sheet__title { margin: 0; font-family: var(--font-num); font-weight: 700; font-size: 1.125rem; color: var(--ink); }
-  .share-sheet__preview { display: grid; place-items: center; margin: 0; min-height: 120px; border-radius: var(--radius); background: var(--surface-2); }
-  .share-sheet__img { display: block; width: 100%; height: auto; border-radius: var(--radius); }
-  .share-sheet__status { margin: 0; padding: var(--s-4); color: var(--ink-3); text-align: center; }
-  @media (max-width: 639px) {
-    .dialog.share-sheet {
-      width: 100%;
-      max-width: none;
-      max-height: 92dvh;
-      margin: auto 0 0;
-      border-bottom: 0;
-      border-radius: var(--radius-l) var(--radius-l) 0 0;
-      padding-bottom: env(safe-area-inset-bottom);
-    }
-    .dialog.share-sheet[open] { animation: sheet-up 0.24s var(--ease) 1; }
-    .share-sheet .dialog__foot { flex-direction: column-reverse; }
-    .share-sheet .dialog__foot .btn { width: 100%; justify-content: center; min-height: 48px; }
-  }
-  @keyframes sheet-up { from { transform: translateY(32px); opacity: 0; } }
-  @media (prefers-reduced-motion: reduce) { .dialog.share-sheet[open] { animation: none; } }
   .match__minute {
     font-family: var(--font-num);
     font-weight: 700;
@@ -799,7 +753,16 @@
     min-width: 3ch;
   }
   .match__minute-period { font-weight: 600; color: var(--ink-3); margin-right: 4px; }
-  .match__when { font-family: var(--font-num); font-weight: 600; font-size: 0.9375rem; letter-spacing: 0.02em; color: var(--ink-2); white-space: nowrap; }
+  .match__when {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-num);
+    font-weight: 600;
+    font-size: 0.9375rem;
+    letter-spacing: 0.02em;
+    color: var(--ink-2);
+  }
   .match__round {
     font-family: var(--font-num);
     font-weight: 600;
@@ -808,14 +771,22 @@
     text-transform: uppercase;
     color: var(--ink-3);
   }
-
+  .match__place {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px var(--s-3);
+    flex-basis: 100%;
+    color: var(--ink-3);
+    font-size: 0.8125rem;
+  }
+  .match__place-item { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+  .match__place-item .icon { width: 15px; height: 15px; color: var(--ink-3); }
   .divider-dot { color: var(--line-strong); }
 
   @container match (min-width: 560px) {
-    .match__meta { grid-template-columns: auto auto; justify-content: space-between; align-items: center; gap: var(--s-3); text-align: left; }
-    .match--shareable > .match__meta { padding-inline: var(--s-4) 56px; }
-    .match__lead { justify-content: flex-start; }
-    .match__place { justify-self: end; justify-content: flex-end; text-align: right; }
+    .match__place { flex-basis: auto; margin-left: auto; font-size: 0.875rem; gap: var(--s-3); }
+    .match__when { padding-left: var(--s-3); border-left: 1px solid var(--line); }
   }
 
   /* placar */
@@ -900,14 +871,6 @@
   .match[data-winner="home"] .team--away .crest,
   .match[data-winner="away"] .team--home .crest { opacity: 0.7; }
   /* fora do fluxo (no canto de cima, junto da faixa do time): não aperta o nome */
-
-  /* placar estreito (celular): o nome do time (o popular, "Sport", não a sigla), ao lado do
-     escudo, um pouco menor; nome comprido quebra entre palavras, em até duas linhas */
-  @container match (max-width: 519px) {
-    .team__name { font-size: 1rem; }
-    .team__full { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
-    .team__short { display: none; }
-  }
 
   /* card estreito (celular até ~400 px): escudo, vão e coluna do placar menores */
   @container match (max-width: 379px) {
@@ -1700,33 +1663,6 @@
   .page-intro { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--s-2) var(--s-4); }
   .date-nav { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
   .date-nav .page-intro__date { margin: 0; min-width: 12ch; text-align: center; }
-  /* celular (home): atalho "Ao vivo" e a barra fixa do dia, que só aparece depois que o seletor
-     de dias sai da tela; os cards guardam o espaço dela ao serem levados para o topo */
-  .live-jump {
-    display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px;
-    border: 0; border-radius: 999px; background: var(--vermelho); color: #FFFFFF; cursor: pointer;
-    font-family: var(--font-num); font-weight: 700; font-size: 0.8125rem; letter-spacing: 0.06em; text-transform: uppercase;
-  }
-  .live-jump .live-dot { background: #FFFFFF; }
-  .live-jump__count { font-variant-numeric: tabular-nums; }
-  .day-bar {
-    position: fixed; inset: 0 0 auto; z-index: 40;
-    padding-top: env(safe-area-inset-top);
-    border-bottom: 1px solid var(--line);
-    background: color-mix(in srgb, var(--surface) 94%, transparent);
-    backdrop-filter: blur(6px);
-    box-shadow: var(--shadow-1);
-    animation: day-bar-in 0.16s var(--ease) 1;
-  }
-  @keyframes day-bar-in { from { transform: translateY(-100%); } }
-  @media (prefers-reduced-motion: reduce) { .day-bar { animation: none; } }
-  .day-bar__inner { display: flex; align-items: center; gap: var(--s-1); min-height: 52px; padding: 4px var(--gutter); }
-  .day-bar__date {
-    flex: 1; min-width: 0; overflow: hidden; text-align: center; text-overflow: ellipsis; white-space: nowrap;
-    font-family: var(--font-num); font-weight: 600; font-size: 0.9375rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-2);
-  }
-  .has-day-bar .match { scroll-margin-top: 68px; }
-  @media (min-width: 640px) { .day-bar, .live-jump { display: none !important; } }
   .page-intro__date { min-height: 1.5em; font-family: var(--font-num); font-weight: 600; font-size: 1rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-3); }
   .competitions { display: grid; gap: var(--s-7); }
   .comp-section {

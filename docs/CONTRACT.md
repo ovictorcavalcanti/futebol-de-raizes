@@ -255,7 +255,7 @@ em até `READ_CACHE_SECONDS`.
 
 ### TeamOut
 ```json
-{"id": 1, "name": "Sport Club do Recife", "short_name": "SPT", "city": "Recife",
+{"id": 1, "name": "Sport", "short_name": "SPT", "city": "Recife",
  "color_primary": "#D7141A", "color_secondary": "#000000", "crest_url": ""}
 ```
 

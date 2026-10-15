@@ -1387,16 +1387,14 @@ NAMES_JS = """() => [...document.querySelectorAll('.match .team__name')].map((na
 @pytest.mark.parametrize("width", [320, 360, 375, 1024])
 @pytest.mark.parametrize("url", ["/", "/competition.html?slug=pernambucano-raiz"])
 def test_nome_do_time_completo_sem_vazar(open_page, url, width):
-    """Nome completo (nunca a sigla) em todas as larguras, sem vazar da coluna. No celular, até 3 linhas
-    (4 em 320 px, com nomes oficiais de quatro palavras como "Afogados da Ingazeira FC")."""
+    """O nome do time como cadastrado ("Náutico"), nunca a sigla, em até 2 linhas e sem vazar da coluna."""
     page, _, errors = open_page(url, width=width)
     page.wait_for_selector("article.match .team__name")
     page.wait_for_timeout(200)
     names = page.evaluate(NAMES_JS)
     assert names
     assert {n["kind"] for n in names} == {"full"}
-    max_lines = 4.5 if width <= 320 else 3.5 if width <= 375 else 2.5
-    bad = [n for n in names if n["lines"] > max_lines or n["overflow"] > 1]
+    bad = [n for n in names if n["lines"] > 2.5 or n["overflow"] > 1]
     assert not bad, bad
     assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
     assert not errors, errors

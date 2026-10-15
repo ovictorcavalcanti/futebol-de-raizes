@@ -18,14 +18,14 @@ export const TIMEZONE = 'America/Sao_Paulo';
 const team = (id, name, short_name, city, color_primary, color_secondary) => ({ id, name, short_name, city, color_primary, color_secondary, crest_url: '' });
 
 export const TEAMS = {
-  sport: team(1, 'Sport Club do Recife', 'SPT', 'Recife', '#D7141A', '#000000'),
-  nautico: team(2, 'Clube Náutico Capibaribe', 'NAU', 'Recife', '#E30613', '#FFFFFF'),
-  santa: team(3, 'Santa Cruz Futebol Clube', 'SAN', 'Recife', '#111111', '#E2001A'),
-  retro: team(4, 'Retrô FC Brasil', 'RET', 'Camaragibe', '#F7C600', '#1F3C88'),
-  central: team(5, 'Central Sport Club', 'CEN', 'Caruaru', '#000000', '#FFFFFF'),
-  salgueiro: team(6, 'Salgueiro Atlético Clube', 'SAL', 'Salgueiro', '#D11A2A', '#0E7A3A'),
-  ibis: team(7, 'Íbis Sport Club', 'ÍBI', 'Paulista', '#B5121B', '#000000'),
-  afogados: team(8, 'Afogados da Ingazeira FC', 'AFO', 'Afogados da Ingazeira', '#1C3F94', '#D21F2B'),
+  sport: team(1, 'Sport', 'SPT', 'Recife', '#D7141A', '#000000'),
+  nautico: team(2, 'Náutico', 'NAU', 'Recife', '#E30613', '#FFFFFF'),
+  santa: team(3, 'Santa Cruz', 'SAN', 'Recife', '#111111', '#E2001A'),
+  retro: team(4, 'Retrô', 'RET', 'Camaragibe', '#F7C600', '#1F3C88'),
+  central: team(5, 'Central', 'CEN', 'Caruaru', '#000000', '#FFFFFF'),
+  salgueiro: team(6, 'Salgueiro', 'SAL', 'Salgueiro', '#D11A2A', '#0E7A3A'),
+  ibis: team(7, 'Íbis', 'ÍBI', 'Paulista', '#B5121B', '#000000'),
+  afogados: team(8, 'Afogados', 'AFO', 'Afogados da Ingazeira', '#1C3F94', '#D21F2B'),
 };
 const T = TEAMS;
 

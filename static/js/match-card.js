@@ -110,11 +110,11 @@ export function createMatchCard(match, opts = {}) {
     details.append(toggle, body);
     details.addEventListener('toggle', () => onToggle(el));
     el.append(details);
-    // compartilhar no canto superior direito (o placar do operador não tem)
-    el.classList.add('match--shareable');
-    el.append(shareButton(el));
   }
-  STATE.set(el, { uid: id, match: null, opts: { ...opts, flash: false }, eventIds: null, requested: false, activeTab: null, failed: false });
+  // compartilhar (o placar do operador não tem): vive na faixa de meta e é preservado entre redesenhos
+  const share = opts.details !== false ? shareButton(el) : null;
+  if (share) el.classList.add('match--shareable');
+  STATE.set(el, { uid: id, match: null, opts: { ...opts, flash: false }, eventIds: null, requested: false, activeTab: null, failed: false, share });
   updateMatchCard(el, match, { flash: false });
   return el;
 }
@@ -169,7 +169,7 @@ export function updateMatchCard(el, match, opts = {}) {
   else delete el.dataset.winner;
 
   const [meta, board, summary, tie] = el.children;
-  renderMeta(meta, match, now, st.opts);
+  renderMeta(meta, match, now, st.opts, st.share);
   renderBoard(board, match, now);
   renderSummary(summary, match);
   renderTie(tie, match, now);
@@ -261,8 +261,10 @@ function roundLabel(match) {
   return match.round?.name || '';
 }
 
-function renderMeta(meta, match, now, opts) {
-  const parts = []; // 1ª linha: o tempo e o horário; 2ª: estádio e cidade (as duas centralizadas)
+function renderMeta(meta, match, now, opts, share = null) {
+  // celular: duas linhas centralizadas (o tempo e o horário; estádio e cidade), compartilhar no canto;
+  // desktop: uma linha, o tempo e o horário à esquerda, estádio e cidade à direita e compartilhar no fim
+  const parts = [];
   const status = h('span', { class: 'match__status' }, statusPill(match));
   if (match.status === 'live' && !match.partial_info && !INTERVALS.has(match.period) && match.period !== 'penalties') {
     status.append(h('span', { class: 'match__minute' },
@@ -291,7 +293,10 @@ function renderMeta(meta, match, now, opts) {
       match.city ? h('span', { class: 'match__place-item' }, icon('pin'), h('span', { class: 'visually-hidden', text: 'Cidade: ' }), match.city) : null,
     ));
   }
-  meta.replaceChildren(...rows);
+  // troca as linhas sem tirar o botão de compartilhar do lugar (não perde o foco)
+  for (const child of [...meta.children]) if (child !== share) child.remove();
+  meta.prepend(...rows);
+  if (share && share.parentNode !== meta) meta.append(share);
 }
 
 /**
@@ -329,7 +334,7 @@ function shareButton(el) {
 
 /** Atualiza o link do botão de compartilhar com o jogo atual do card. */
 function paintShare(el) {
-  const link = el.querySelector(':scope > .match__share');
+  const link = STATE.get(el)?.share;
   const match = STATE.get(el)?.match;
   if (!link || !match) return;
   const url = globalThis.location ? globalThis.location.href.split('#')[0] : '';

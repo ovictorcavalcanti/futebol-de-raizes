@@ -1402,32 +1402,42 @@ def test_nome_do_time_completo_sem_vazar(open_page, url, width):
 
 SHARE_JS = """() => [...document.querySelectorAll('.matches > article.match')].map((card) => {
   const c = card.getBoundingClientRect();
-  const btn = card.querySelector(':scope > .match__share');
+  const btn = card.querySelector('.match__meta > .match__share');
   const b = btn.getBoundingClientRect();
-  const meta = card.querySelector('.match__meta').getBoundingClientRect();
-  const rows = [...card.querySelectorAll('.match__lead, .match__place')].map((r) => r.getBoundingClientRect());
+  const m = card.querySelector('.match__meta').getBoundingClientRect();
+  const box = (sel) => { const r = card.querySelector(sel)?.getBoundingClientRect(); return r && { l: r.left, r: r.right, t: r.top, b: r.bottom, cx: (r.left + r.right) / 2, cy: (r.top + r.bottom) / 2 }; };
   const hit = (r) => !(r.right <= b.left || r.left >= b.right || r.bottom <= b.top || r.top >= b.bottom);
   const texts = [...card.querySelectorAll('.match__lead > *, .match__place-item')].map((e) => e.getBoundingClientRect());
-  return { right: c.right - b.right, top: b.top - c.top, size: [b.width, b.height], name: btn.getAttribute('aria-label'),
+  return { right: c.right - b.right, top: b.top - c.top, cy: (b.top + b.bottom) / 2, name: btn.getAttribute('aria-label'),
     href: decodeURIComponent(btn.href), icon: btn.querySelector('use')?.getAttribute('href'), text: btn.textContent.trim(),
-    centers: rows.map((r) => Math.round((r.left + r.right) / 2 - (meta.left + meta.right) / 2)), overlap: texts.some(hit) };
+    meta: { l: m.left, cx: (m.left + m.right) / 2 }, lead: box('.match__lead'), place: box('.match__place'), btn: { l: b.left },
+    overlap: texts.some(hit) };
 })"""
 
 
 @pytest.mark.parametrize("width", [390, 1280])
-def test_compartilhar_jogo_botao_no_canto_e_faixa_centralizada(open_page, width):
-    """Compartilhar: só o ícone, no canto superior direito do card; tempo/horário e estádio/cidade centralizados."""
+def test_compartilhar_jogo_botao_e_faixa_do_card(open_page, width):
+    """Celular: faixa em duas linhas centralizadas e o compartilhar (só o ícone) no canto superior direito.
+    Desktop: uma linha — status/tempo | hora à esquerda; estádio e cidade à direita e o compartilhar no fim."""
     page, _, errors = open_page("/", width=width)
     page.wait_for_selector(".matches > article.match .match__share")
     page.evaluate("document.fonts.ready")
     cards = page.evaluate(SHARE_JS)
     assert cards
     for card in cards:
-        assert abs(card["right"] - 8) <= 1 and abs(card["top"] - 8) <= 1, card
         assert card["name"] == "Compartilhar no WhatsApp" and card["icon"] == "#i-share" and card["text"] == "", card
         assert card["href"].startswith("https://api.whatsapp.com/send?text=*"), card
-        assert all(abs(x) <= 2 for x in card["centers"]) and len(card["centers"]) == 2, card
         assert not card["overlap"], card
+        assert abs(card["right"] - 8) <= 1, card
+        lead, place = card["lead"], card["place"]
+        if width < 640:
+            assert abs(card["top"] - 8) <= 1, card
+            assert abs(lead["cx"] - card["meta"]["cx"]) <= 2 and abs(place["cx"] - card["meta"]["cx"]) <= 2, card
+            assert place["t"] >= lead["b"] - 1, card  # duas linhas
+        else:
+            assert abs(lead["l"] - card["meta"]["l"] - 16) <= 1, card  # à esquerda
+            assert 0 <= card["btn"]["l"] - place["r"] <= 24, card  # compartilhar logo depois da cidade
+            assert abs(lead["cy"] - place["cy"]) <= 2 and abs(card["cy"] - lead["cy"]) <= 2, card  # uma linha só
     assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
     assert not errors, errors
 

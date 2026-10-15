@@ -325,7 +325,7 @@ export function whatsappText(match, now = Date.now(), url = '') {
 /** Botão de compartilhar no canto do card: abre o WhatsApp com o texto do jogo. */
 function shareButton(el) {
   const link = h('a', {
-    class: 'btn btn--secondary btn--icon btn--sm match__share', target: '_blank', rel: 'noopener',
+    class: 'btn btn--primary btn--icon btn--sm match__share', target: '_blank', rel: 'noopener', // fundo sólido: destaca na faixa
     'aria-label': 'Compartilhar no WhatsApp', title: 'Compartilhar no WhatsApp',
   }, icon('share', { className: 'icon--sm' }));
   link.addEventListener('click', () => paintShare(el)); // remonta no toque: o minuto sai atualizado

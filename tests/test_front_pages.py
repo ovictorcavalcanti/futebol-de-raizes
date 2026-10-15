@@ -1408,7 +1408,12 @@ SHARE_JS = """() => [...document.querySelectorAll('.matches > article.match')].m
   const box = (sel) => { const r = card.querySelector(sel)?.getBoundingClientRect(); return r && { l: r.left, r: r.right, t: r.top, b: r.bottom, cx: (r.left + r.right) / 2, cy: (r.top + r.bottom) / 2 }; };
   const hit = (r) => !(r.right <= b.left || r.left >= b.right || r.bottom <= b.top || r.top >= b.bottom);
   const texts = [...card.querySelectorAll('.match__lead > *, .match__place-item')].map((e) => e.getBoundingClientRect());
-  return { right: c.right - b.right, top: b.top - c.top, cy: (b.top + b.bottom) / 2, name: btn.getAttribute('aria-label'),
+  // rgb() vem em 0–255; color(srgb …) (de color-mix) vem em 0–1
+  const lum = (css) => { const k = css.startsWith('color(') ? 1 : 255; const [r, g, bl] = css.match(/[\d.]+/g).slice(0, 3).map((v) => { v /= k; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * bl; };
+  const ratio = (a, z) => { const [x, y] = [lum(a), lum(z)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+  const metaBg = getComputedStyle(card.querySelector('.match__meta')).backgroundColor;
+  const btnStyle = getComputedStyle(btn);
+  return { contrast: ratio(btnStyle.backgroundColor, metaBg), iconContrast: ratio(btnStyle.color, btnStyle.backgroundColor), right: c.right - b.right, top: b.top - c.top, cy: (b.top + b.bottom) / 2, name: btn.getAttribute('aria-label'),
     href: decodeURIComponent(btn.href), icon: btn.querySelector('use')?.getAttribute('href'), text: btn.textContent.trim(),
     meta: { l: m.left, cx: (m.left + m.right) / 2 }, lead: box('.match__lead'), place: box('.match__place'), btn: { l: b.left },
     overlap: texts.some(hit) };
@@ -1428,6 +1433,7 @@ def test_compartilhar_jogo_botao_e_faixa_do_card(open_page, width):
         assert card["name"] == "Compartilhar no WhatsApp" and card["icon"] == "#i-share" and card["text"] == "", card
         assert card["href"].startswith("https://api.whatsapp.com/send?text=*"), card
         assert not card["overlap"], card
+        assert card["contrast"] >= 3 and card["iconContrast"] >= 4.5, card  # fundo sólido que destaca na faixa
         assert abs(card["right"] - 8) <= 1, card
         lead, place = card["lead"], card["place"]
         if width < 640:

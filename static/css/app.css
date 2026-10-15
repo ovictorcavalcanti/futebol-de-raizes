@@ -701,7 +701,7 @@
   /* =========================================================================
      CARD DE JOGO
      ========================================================================= */
-  .matches { display: grid; gap: var(--s-3); }
+  .matches { display: grid; gap: var(--s-5); } /* 24 px entre os jogos: respiro entre os cards */
 
   .match {
     position: relative;
@@ -1463,10 +1463,10 @@
      ========================================================================= */
   .ties { display: grid; gap: var(--s-3); }
   /* Fase de grupos: os jogos separados por grupo, com o nome do grupo em cima. */
-  .matches.match-groups { gap: var(--s-5); }
+  .matches.match-groups { gap: var(--s-6); }
   .match-group { display: grid; gap: var(--s-3); }
   .match-group__title { margin: 0; font-family: var(--font-num); font-weight: 700; font-size: 0.875rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
-  .match-group__games { display: grid; gap: var(--s-3); }
+  .match-group__games { display: grid; gap: var(--s-5); }
   /* Competição, fase de grupos com a tabela: uma linha por grupo — jogos à esquerda, tabela
      do grupo à direita, alinhada com o primeiro jogo; mesmas colunas de .split. */
   .group-row { display: grid; gap: var(--s-3); grid-template-columns: minmax(0, 1fr); align-items: start; }
@@ -1487,7 +1487,7 @@
   .tie-group { display: grid; gap: var(--s-3); grid-template-columns: minmax(0, 1fr); align-items: start; }
   .tie-group > * { grid-column: 1; }
   .tie-group__title { margin: 0; font-family: var(--font-num); font-weight: 700; font-size: 1.125rem; letter-spacing: 0.02em; }
-  .tie-group__games { display: grid; gap: var(--s-3); }
+  .tie-group__games { display: grid; gap: var(--s-5); }
   @media (min-width: 960px) {
     .split--no-aside .tie-group { grid-template-columns: minmax(0, 1fr) minmax(320px, 380px); column-gap: var(--s-5); }
   }

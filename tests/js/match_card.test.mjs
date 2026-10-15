@@ -1,7 +1,7 @@
 // Partes puras do card de jogo (sem DOM): node --test tests/js/match_card.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { safeHref, annulledGoalNote, sortEventsByClock, sortMatchesForDisplay, groupMatchesByGroup } from '../../static/js/match-card.js';
+import { safeHref, annulledGoalNote, sortEventsByClock, sortMatchesForDisplay, groupMatchesByGroup, whatsappText } from '../../static/js/match-card.js';
 
 test('links de transmissão: só http(s); javascript:, data: e lixo viram null', () => {
   assert.equal(safeHref('https://tv.example.com/ao-vivo'), 'https://tv.example.com/ao-vivo');
@@ -50,4 +50,17 @@ test('groupMatchesByGroup: um bloco por grupo, pela ordem do nome, cada um na or
   assert.deepEqual(out.map((g) => g.group.name), ['Grupo A', 'Grupo B']);
   assert.deepEqual(out.map((g) => g.matches.map((x) => x.id)), [[4, 2], [3, 1]]);
   assert.deepEqual(groupMatchesByGroup([m(1, g10, 'scheduled', 20), m(2, g2, 'scheduled', 20)]).map((g) => g.group.name), ['Grupo 2', 'Grupo 10']);
+});
+
+test('whatsappText: placar, situação, competição e link; antes do jogo, os times e a data', () => {
+  const home = { name: 'Sport' };
+  const away = { name: 'Náutico' };
+  const competition = { name: 'Pernambucano Raiz' };
+  const finished = { status: 'finished', status_label: 'Encerrado', home, away, home_score: 2, away_score: 1, competition };
+  assert.equal(whatsappText(finished, Date.now(), 'https://x.test/'), '*Sport 2 × 1 Náutico*\nEncerrado · Pernambucano Raiz\nhttps://x.test/');
+  const pens = { ...finished, home_penalties: 4, away_penalties: 3 };
+  assert.equal(whatsappText(pens).split('\n')[0], '*Sport 2 × 1 Náutico (pênaltis 4 × 3)*');
+  const now = Date.parse('2026-10-14T15:00:00Z');
+  const scheduled = { status: 'scheduled', status_label: 'Agendado', home, away, kickoff_at: '2026-10-14T22:00:00Z', competition };
+  assert.equal(whatsappText(scheduled, now), '*Sport × Náutico*\nHoje · 19:00 · Pernambucano Raiz');
 });

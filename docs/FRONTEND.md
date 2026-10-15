@@ -245,11 +245,14 @@ O card cobre todos os status: agendado (pílula com horário, dia relativo), ao 
 (vencedor em destaque, perdedor esmaecido), pênaltis `(4) × (3) pên.`, suspenso,
 adiado e cancelado (hachura). Linha do confronto no mata-mata (no card da volta: agregado e quem
 avança, com o agregado na mesma ordem mandante × visitante do placar do card; nas outras rodadas, "avança" com o símbolo de avançar (⏩) no fim; na rodada "Final", "Campeão" com a estrela dourada no fim; "Jogo de ida" e "Agregado" com o ícone de informação na frente). Atrasado, adiado, suspenso e cancelado: linha "Início atrasado", "Jogo adiado", "Jogo suspenso" ou "Jogo cancelado" — motivo, com o alerta laranja, nas observações abaixo do placar (onde fica o "Jogo de ida"), com o `status_note`; some com a mudança de status. Suspenso reagendado: mais uma linha, "Retomada: amanhã às 16:00", com o calendário (`resumes_at`). Encerrado por W.O.: "W.O. em favor do {time} — motivo", com o alerta (`walkover`). Nenhum status tem fundo hachurado nem borda tracejada (atrapalham a leitura): suspenso e cancelado têm selo com borda cinza contínua. Topo do card quase reto (2px) com a faixa de status: agendado azul, ao vivo vermelho, intervalo amarelo, atrasado e adiado laranja, encerrado tinta, suspenso e cancelado cinza, todos sem hachura.
-Nome do time: sigla no celular, nome completo a partir de 520 px de card; quebra só entre
-palavras (`overflow-wrap: normal`, `text-wrap: balance`; a sigla nunca quebra) e o ✓ do
+Nome do time: o do cadastro, o popular ("Sport", "Náutico"), em todas as larguras (a sigla não aparece); no card estreito ele fica
+menor (16 px abaixo de 520 px de card, 14 px abaixo de 380 px) e quebra entre palavras em linhas
+equilibradas (`text-wrap: balance`), hifenizando a palavra que não cabe (`hyphens: auto`) e, só em
+último caso, quebrando-a (`overflow-wrap: break-word`), sem vazar da coluna; o ✓ do
 vencedor fica fora do fluxo (no canto, junto da faixa do time), sem apertar o nome; em card
 estreito (< 380 px) escudo, vão e coluna do placar diminuem. Resumo sem abrir: autores dos
-gols e vermelhos. Abas só com dado:
+gols, um por linha, em duas colunas (mandante à direita, visitante à esquerda), também no
+desktop. Abas só com dado:
 **Lances** (linha do tempo de dois lados com trilho central e separadores de
 período; gol anulado riscado com o motivo; lance sem time, como o VAR, vai ao
 centro com o minuto junto do texto; em cards estreitos o placar parcial

@@ -111,7 +111,10 @@ export function createMatchCard(match, opts = {}) {
     details.addEventListener('toggle', () => onToggle(el));
     el.append(details);
   }
-  STATE.set(el, { uid: id, match: null, opts: { ...opts, flash: false }, eventIds: null, requested: false, activeTab: null, failed: false });
+  // compartilhar (o placar do operador não tem): vive na faixa de meta e é preservado entre redesenhos
+  const share = opts.details !== false ? shareButton(el) : null;
+  if (share) el.classList.add('match--shareable');
+  STATE.set(el, { uid: id, match: null, opts: { ...opts, flash: false }, eventIds: null, requested: false, activeTab: null, failed: false, share });
   updateMatchCard(el, match, { flash: false });
   return el;
 }
@@ -166,10 +169,11 @@ export function updateMatchCard(el, match, opts = {}) {
   else delete el.dataset.winner;
 
   const [meta, board, summary, tie] = el.children;
-  renderMeta(meta, match, now, st.opts);
+  renderMeta(meta, match, now, st.opts, st.share);
   renderBoard(board, match, now);
   renderSummary(summary, match);
   renderTie(tie, match, now);
+  paintShare(el);
 
   if (flash && prev) flashScore(el, prev, match);
 
@@ -257,7 +261,9 @@ function roundLabel(match) {
   return match.round?.name || '';
 }
 
-function renderMeta(meta, match, now, opts) {
+function renderMeta(meta, match, now, opts, share = null) {
+  // celular: duas linhas centralizadas (o tempo e o horário; estádio e cidade), compartilhar no canto;
+  // desktop: uma linha, o tempo e o horário à esquerda, estádio e cidade à direita e compartilhar no fim
   const parts = [];
   const status = h('span', { class: 'match__status' }, statusPill(match));
   if (match.status === 'live' && !match.partial_info && !INTERVALS.has(match.period) && match.period !== 'penalties') {
@@ -279,14 +285,60 @@ function renderMeta(meta, match, now, opts) {
 
   const context = [opts.showCompetition && (match.competition?.short_name || match.competition?.name), opts.showRound && roundLabel(match)].filter(Boolean);
   if (context.length) parts.push(h('span', { class: 'match__round', text: context.join(' · ') }));
+  const rows = [h('span', { class: 'match__lead' }, ...parts)];
 
   if (match.venue || match.city) {
-    parts.push(h('span', { class: 'match__place' },
+    rows.push(h('span', { class: 'match__place' },
       match.venue ? h('span', { class: 'match__place-item' }, icon('stadium'), h('span', { class: 'visually-hidden', text: 'Estádio: ' }), match.venue) : null,
       match.city ? h('span', { class: 'match__place-item' }, icon('pin'), h('span', { class: 'visually-hidden', text: 'Cidade: ' }), match.city) : null,
     ));
   }
-  meta.replaceChildren(...parts);
+  // troca as linhas sem tirar o botão de compartilhar do lugar (não perde o foco)
+  for (const child of [...meta.children]) if (child !== share) child.remove();
+  meta.prepend(...rows);
+  if (share && share.parentNode !== meta) meta.append(share);
+}
+
+/**
+ * Texto do jogo para o WhatsApp: placar (ou os times, antes de começar), situação,
+ * competição e o link da página.
+ * @param {object} match
+ * @param {number} [now]
+ * @param {string} [url]
+ * @returns {string}
+ */
+export function whatsappText(match, now = Date.now(), url = '') {
+  const home = displayName(match.home);
+  const away = displayName(match.away);
+  let title = hasScore(match) ? `${home} ${match.home_score ?? 0} × ${match.away_score ?? 0} ${away}` : `${home} × ${away}`;
+  if (match.home_penalties != null && match.away_penalties != null) title += ` (pênaltis ${match.home_penalties} × ${match.away_penalties})`;
+  let status = match.status_label || '';
+  if (match.status === 'live' && !match.partial_info && !INTERVALS.has(match.period)) {
+    status = ['Ao vivo', liveMinuteLabel(match, now)].filter(Boolean).join(' · ');
+  } else if (match.status === 'scheduled' && match.kickoff_at) {
+    status = formatWhen(toDate(match.kickoff_at), now);
+  }
+  const context = [status, match.competition?.name].filter(Boolean).join(' · ');
+  return [`*${title}*`, context, url].filter(Boolean).join('\n');
+}
+
+/** Botão de compartilhar no canto do card: abre o WhatsApp com o texto do jogo. */
+function shareButton(el) {
+  const link = h('a', {
+    class: 'btn btn--primary btn--icon btn--sm match__share', target: '_blank', rel: 'noopener', // fundo sólido: destaca na faixa
+    'aria-label': 'Compartilhar no WhatsApp', title: 'Compartilhar no WhatsApp',
+  }, icon('share', { className: 'icon--sm' }));
+  link.addEventListener('click', () => paintShare(el)); // remonta no toque: o minuto sai atualizado
+  return link;
+}
+
+/** Atualiza o link do botão de compartilhar com o jogo atual do card. */
+function paintShare(el) {
+  const link = STATE.get(el)?.share;
+  const match = STATE.get(el)?.match;
+  if (!link || !match) return;
+  const url = globalThis.location ? globalThis.location.href.split('#')[0] : '';
+  link.href = `https://api.whatsapp.com/send?text=${encodeURIComponent(whatsappText(match, Date.now(), url))}`;
 }
 
 /* ==========================================================================

@@ -701,7 +701,7 @@
   /* =========================================================================
      CARD DE JOGO
      ========================================================================= */
-  .matches { display: grid; gap: var(--s-3); }
+  .matches { display: grid; gap: var(--s-5); } /* 24 px entre os jogos: respiro entre os cards */
 
   .match {
     position: relative;
@@ -730,19 +730,27 @@
   .match[data-status="finished"]::before { background: var(--ink); }
   .match[data-status="suspended"]::before, .match[data-status="cancelled"]::before { background: var(--ink-3); }
 
-  /* faixa de meta */
+  /* faixa de meta: duas linhas centralizadas, o tempo e o horário em cima, estádio e cidade embaixo */
   .match__meta {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
     align-items: center;
-    gap: 6px var(--s-3);
+    gap: 4px;
+    text-align: center;
     padding: 10px var(--s-4) 9px;
     border-bottom: 1px solid var(--line);
     background: color-mix(in srgb, var(--surface-2) 55%, var(--surface));
     font-size: 0.875rem;
     color: var(--ink-2);
   }
+  .match--shareable > .match__meta { padding-inline: 48px; } /* celular: espaço simétrico para o botão do canto */
+  .match__lead { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px var(--s-3); }
   .match__status { display: inline-flex; align-items: center; gap: var(--s-2); }
+  /* compartilhar: no celular, botão de ícone no canto superior direito do card, fora do fluxo */
+  .match__share { position: absolute; top: 8px; right: 8px; z-index: 1; }
+  @media (max-width: 639px), (pointer: coarse) {
+    .match__share::after { content: ""; position: absolute; inset: -6px; } /* toque de 44 px */
+  }
   .match__minute {
     font-family: var(--font-num);
     font-weight: 700;
@@ -775,8 +783,8 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
+    justify-content: center;
     gap: 2px var(--s-3);
-    flex-basis: 100%;
     color: var(--ink-3);
     font-size: 0.8125rem;
   }
@@ -784,8 +792,15 @@
   .match__place-item .icon { width: 15px; height: 15px; color: var(--ink-3); }
   .divider-dot { color: var(--line-strong); }
 
+  /* desktop (card a partir de 560 px): uma linha — status/tempo | hora à esquerda; estádio e
+     cidade à direita, com o compartilhar no fim */
   @container match (min-width: 560px) {
-    .match__place { flex-basis: auto; margin-left: auto; font-size: 0.875rem; gap: var(--s-3); }
+    .match__meta { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px var(--s-4); text-align: left; }
+    .match--shareable > .match__meta { padding: 6px 8px 6px var(--s-4); }
+    .match__lead { justify-content: flex-start; }
+    .match__place { margin-left: auto; justify-content: flex-end; font-size: 0.875rem; gap: var(--s-3); }
+    .match__share { position: static; margin-left: auto; }
+    .match__place + .match__share { margin-left: 0; }
     .match__when { padding-left: var(--s-3); border-left: 1px solid var(--line); }
   }
 
@@ -824,12 +839,14 @@
     line-height: 1.1;
     letter-spacing: 0.01em;
     color: var(--ink);
-    /* quebra só entre palavras (nunca "SP/T"), em linhas equilibradas */
-    overflow-wrap: normal;
+    /* quebra entre palavras, em linhas equilibradas; palavra que não cabe hifeniza (pt-BR)
+       e, só em último caso, quebra para não vazar da coluna */
+    overflow-wrap: break-word;
+    hyphens: auto;
     text-wrap: balance;
   }
-  .team__full { display: none; }
-  .team__short { letter-spacing: 0.04em; white-space: nowrap; }
+  /* o nome completo em todas as larguras; a sigla fica só no DOM (aria-hidden) */
+  .team__short { display: none; }
   .team .crest { --crest-size: 36px; }
 
   .score {
@@ -873,17 +890,20 @@
   /* fora do fluxo (no canto de cima, junto da faixa do time): não aperta o nome */
 
   /* card estreito (celular até ~400 px): escudo, vão e coluna do placar menores */
+  /* card estreito (celular): nome completo um pouco menor, para caber ao lado do escudo */
+  @container match (max-width: 519px) {
+    .team__name { font-size: 1rem; }
+  }
   @container match (max-width: 379px) {
     .match__board { gap: var(--s-2) var(--s-2); padding-inline: var(--s-3); }
     .team { gap: 6px; }
     .team .crest { --crest-size: 30px; }
+    .team__name { font-size: 0.875rem; }
     .score { min-width: 72px; }
     .score__line { font-size: 2.25rem; }
   }
 
   @container match (min-width: 520px) {
-    .team__full { display: inline; }
-    .team__short { display: none; }
     .team__name { font-size: 1.375rem; }
     .team .crest { --crest-size: 48px; }
     .score__line { font-size: 3rem; }
@@ -907,16 +927,17 @@
     font-size: 0.8125rem;
     color: var(--ink-2);
   }
+  /* um gol por linha em cada coluna (mandante à direita, junto do placar; visitante à esquerda) */
   .facts-line {
     display: flex;
-    flex-wrap: wrap;
-    align-content: flex-start;
-    gap: 2px 10px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
     margin: 0;
     padding: 0;
     list-style: none;
   }
-  .facts-line--home { justify-content: flex-end; text-align: right; }
+  .facts-line--home { align-items: flex-end; text-align: right; }
   .facts-line__item { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0 4px; }
   .facts-line--home .facts-line__item { justify-content: flex-end; }
   .facts-line__min, .facts-line__tag { white-space: nowrap; }
@@ -1462,10 +1483,10 @@
      ========================================================================= */
   .ties { display: grid; gap: var(--s-3); }
   /* Fase de grupos: os jogos separados por grupo, com o nome do grupo em cima. */
-  .matches.match-groups { gap: var(--s-5); }
+  .matches.match-groups { gap: var(--s-6); }
   .match-group { display: grid; gap: var(--s-3); }
   .match-group__title { margin: 0; font-family: var(--font-num); font-weight: 700; font-size: 0.875rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
-  .match-group__games { display: grid; gap: var(--s-3); }
+  .match-group__games { display: grid; gap: var(--s-5); }
   /* Competição, fase de grupos com a tabela: uma linha por grupo — jogos à esquerda, tabela
      do grupo à direita, alinhada com o primeiro jogo; mesmas colunas de .split. */
   .group-row { display: grid; gap: var(--s-3); grid-template-columns: minmax(0, 1fr); align-items: start; }
@@ -1486,7 +1507,7 @@
   .tie-group { display: grid; gap: var(--s-3); grid-template-columns: minmax(0, 1fr); align-items: start; }
   .tie-group > * { grid-column: 1; }
   .tie-group__title { margin: 0; font-family: var(--font-num); font-weight: 700; font-size: 1.125rem; letter-spacing: 0.02em; }
-  .tie-group__games { display: grid; gap: var(--s-3); }
+  .tie-group__games { display: grid; gap: var(--s-5); }
   @media (min-width: 960px) {
     .split--no-aside .tie-group { grid-template-columns: minmax(0, 1fr) minmax(320px, 380px); column-gap: var(--s-5); }
   }

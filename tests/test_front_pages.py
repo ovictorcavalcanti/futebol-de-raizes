@@ -1379,24 +1379,93 @@ NAMES_JS = """() => [...document.querySelectorAll('.match .team__name')].map((na
   const shown = [...name.children].find((c) => getComputedStyle(c).display !== 'none');
   const lh = parseFloat(getComputedStyle(name).lineHeight);
   return { kind: shown.classList.contains('team__short') ? 'short' : 'full', text: shown.textContent,
-    lines: shown.getBoundingClientRect().height / lh, overflow: name.scrollWidth - name.clientWidth };
+    lines: shown.getBoundingClientRect().height / lh, overflow: name.scrollWidth - name.clientWidth,
+    team: name.closest('.team').getBoundingClientRect().width, size: parseFloat(getComputedStyle(name).fontSize) };
 })"""
 
 
 @pytest.mark.parametrize("width", [320, 360, 375, 1024])
 @pytest.mark.parametrize("url", ["/", "/competition.html?slug=pernambucano-raiz"])
-def test_nome_do_time_nao_quebra_letra_a_letra(open_page, url, width):
-    """Sigla em 1 linha; nome completo em no máximo 2 linhas (quebra só entre palavras)."""
+def test_nome_do_time_completo_sem_vazar(open_page, url, width):
+    """O nome do time como cadastrado ("Náutico"), nunca a sigla, em até 2 linhas e sem vazar da coluna."""
     page, _, errors = open_page(url, width=width)
     page.wait_for_selector("article.match .team__name")
     page.wait_for_timeout(200)
     names = page.evaluate(NAMES_JS)
     assert names
-    bad = [n for n in names if n["lines"] > (1.5 if n["kind"] == "short" else 2.5) or n["overflow"] > 1]
+    assert {n["kind"] for n in names} == {"full"}
+    bad = [n for n in names if n["lines"] > 2.5 or n["overflow"] > 1]
     assert not bad, bad
-    if width <= 375:
-        assert {n["kind"] for n in names} == {"short"}
     assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
+    assert not errors, errors
+
+
+SHARE_JS = """() => [...document.querySelectorAll('.matches > article.match')].map((card) => {
+  const c = card.getBoundingClientRect();
+  const btn = card.querySelector('.match__meta > .match__share');
+  const b = btn.getBoundingClientRect();
+  const m = card.querySelector('.match__meta').getBoundingClientRect();
+  const box = (sel) => { const r = card.querySelector(sel)?.getBoundingClientRect(); return r && { l: r.left, r: r.right, t: r.top, b: r.bottom, cx: (r.left + r.right) / 2, cy: (r.top + r.bottom) / 2 }; };
+  const hit = (r) => !(r.right <= b.left || r.left >= b.right || r.bottom <= b.top || r.top >= b.bottom);
+  const texts = [...card.querySelectorAll('.match__lead > *, .match__place-item')].map((e) => e.getBoundingClientRect());
+  // rgb() vem em 0–255; color(srgb …) (de color-mix) vem em 0–1
+  const lum = (css) => { const k = css.startsWith('color(') ? 1 : 255; const [r, g, bl] = css.match(/[\d.]+/g).slice(0, 3).map((v) => { v /= k; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * bl; };
+  const ratio = (a, z) => { const [x, y] = [lum(a), lum(z)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+  const metaBg = getComputedStyle(card.querySelector('.match__meta')).backgroundColor;
+  const btnStyle = getComputedStyle(btn);
+  return { contrast: ratio(btnStyle.backgroundColor, metaBg), iconContrast: ratio(btnStyle.color, btnStyle.backgroundColor), right: c.right - b.right, top: b.top - c.top, cy: (b.top + b.bottom) / 2, name: btn.getAttribute('aria-label'),
+    href: decodeURIComponent(btn.href), icon: btn.querySelector('use')?.getAttribute('href'), text: btn.textContent.trim(),
+    meta: { l: m.left, cx: (m.left + m.right) / 2 }, lead: box('.match__lead'), place: box('.match__place'), btn: { l: b.left },
+    overlap: texts.some(hit) };
+})"""
+
+
+@pytest.mark.parametrize("width", [390, 1280])
+def test_compartilhar_jogo_botao_e_faixa_do_card(open_page, width):
+    """Celular: faixa em duas linhas centralizadas e o compartilhar (só o ícone) no canto superior direito.
+    Desktop: uma linha — status/tempo | hora à esquerda; estádio e cidade à direita e o compartilhar no fim."""
+    page, _, errors = open_page("/", width=width)
+    page.wait_for_selector(".matches > article.match .match__share")
+    page.evaluate("document.fonts.ready")
+    cards = page.evaluate(SHARE_JS)
+    assert cards
+    for card in cards:
+        assert card["name"] == "Compartilhar no WhatsApp" and card["icon"] == "#i-share" and card["text"] == "", card
+        assert card["href"].startswith("https://api.whatsapp.com/send?text=*"), card
+        assert not card["overlap"], card
+        assert card["contrast"] >= 3 and card["iconContrast"] >= 4.5, card  # fundo sólido que destaca na faixa
+        assert abs(card["right"] - 8) <= 1, card
+        lead, place = card["lead"], card["place"]
+        if width < 640:
+            assert abs(card["top"] - 8) <= 1, card
+            assert abs(lead["cx"] - card["meta"]["cx"]) <= 2 and abs(place["cx"] - card["meta"]["cx"]) <= 2, card
+            assert place["t"] >= lead["b"] - 1, card  # duas linhas
+        else:
+            assert abs(lead["l"] - card["meta"]["l"] - 16) <= 1, card  # à esquerda
+            assert 0 <= card["btn"]["l"] - place["r"] <= 24, card  # compartilhar logo depois da cidade
+            assert abs(lead["cy"] - place["cy"]) <= 2 and abs(card["cy"] - lead["cy"]) <= 2, card  # uma linha só
+    assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
+    assert not errors, errors
+
+
+GOALS_JS = """() => [...document.querySelectorAll('.matches > article.match .match__summary .facts-line')].map((col) => {
+  const items = [...col.children].map((li) => li.getBoundingClientRect());
+  const box = col.getBoundingClientRect();
+  return { side: col.classList.contains('facts-line--home') ? 'home' : 'away', tops: items.map((r) => Math.round(r.top)),
+    edge: items.map((r) => Math.round(col.classList.contains('facts-line--home') ? box.right - r.right : r.left - box.left)) };
+})"""
+
+
+@pytest.mark.parametrize("width", [390, 1280])
+def test_resumo_um_gol_por_linha(open_page, width):
+    """Resumo do card: cada gol numa linha, mandante alinhado à direita e visitante à esquerda (celular e desktop)."""
+    page, _, errors = open_page("/", width=width)
+    page.wait_for_selector(".matches > article.match .match__summary .facts-line__item")
+    cols = page.evaluate(GOALS_JS)
+    assert any(len(c["tops"]) >= 2 for c in cols)  # há time com mais de um gol nos dados
+    for c in cols:
+        assert c["tops"] == sorted(set(c["tops"])), c  # linhas diferentes, de cima para baixo
+        assert all(e <= 1 for e in c["edge"]), c  # encostados no lado do time
     assert not errors, errors
 
 

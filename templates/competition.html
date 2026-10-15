@@ -45,6 +45,10 @@
     </div>
   </section>
 
+  {# botões: tabela da fase × outras classificações (competition.js), numa linha acima de jogos e classificação #}
+  <div id="standings-head" class="split split--head" data-hook="standings-head" hidden>
+    <div id="standings-switch" class="cluster standings-switch" role="group" aria-label="Classificação exibida" data-hook="standings-switch" hidden></div>
+  </div>
   <div id="competition-grid" class="split" data-hook="competition-grid">
     <section aria-labelledby="round-label">
       <div id="round-matches" class="matches" data-hook="matches" aria-busy="true">
@@ -58,8 +62,6 @@
       </div>
     </section>
     <aside class="split__aside stack" aria-label="Classificação e confrontos" data-hook="aside">
-      {# botões: tabela da fase × classificações gerais/personalizadas (competition.js) #}
-      <div id="standings-switch" class="cluster standings-switch" role="group" aria-label="Classificação exibida" data-hook="standings-switch" hidden></div>
       <div id="stage-standings" data-hook="standings"></div>
       <div id="ranking-standings" data-hook="ranking-standings" aria-live="polite" hidden></div>
       <section id="stage-ties" class="ties" data-hook="ties" aria-labelledby="ties-title" hidden>

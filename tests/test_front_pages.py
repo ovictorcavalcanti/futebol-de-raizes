@@ -1450,13 +1450,17 @@ def test_compartilhar_jogo_botao_e_faixa_do_card(open_page, width):
 
 SWITCH_POS_JS = """() => { const s = document.querySelector('#standings-switch').getBoundingClientRect();
   const rk = document.querySelector('#ranking-standings:not([hidden])')?.getBoundingClientRect();
+  const col = document.querySelector('#round-matches').getBoundingClientRect();
+  const first = document.querySelector('#round-matches .match').getBoundingClientRect();
   return { top: Math.round(s.top + scrollY), left: Math.round(s.left), bottom: Math.round(s.bottom + scrollY),
-    ranking: rk ? Math.round(rk.top + scrollY) : null }; }"""
+    ranking: rk ? Math.round(rk.top + scrollY) : null, games: Math.round(col.top + scrollY), firstMatch: Math.round(first.top + scrollY) }; }"""
 
 
 @pytest.mark.parametrize("width", [390, 768, 1280])
-def test_competicao_classificacao_extra_nao_tira_os_botoes_do_lugar(open_page, width):
-    """Fase de grupos: escolher outra classificação ("Geral") não move os botões; a tabela vem logo abaixo deles."""
+def test_competicao_classificacao_extra_nao_tira_nada_do_lugar(open_page, width):
+    """Fase de grupos: escolher outra classificação ("Geral") não move os botões (linha própria acima de
+    jogos e classificação). Desktop: os jogos também ficam parados e a tabela começa na altura do
+    primeiro jogo, como a tabela de cada grupo. Celular/tablet: a tabela escolhida vem logo abaixo dos botões."""
     def prepare(api):
         api.rankings = [{"id": 5, "name": "Geral", "scope": "overall"}]
         api.ranking_stage_ids = [6, 7]
@@ -1470,10 +1474,15 @@ def test_competicao_classificacao_extra_nao_tira_os_botoes_do_lugar(open_page, w
     page.wait_for_timeout(200)
     after = page.evaluate(SWITCH_POS_JS)
     assert abs(after["top"] - before["top"]) <= 1 and after["left"] == before["left"], (before, after)
-    assert 0 <= after["ranking"] - after["bottom"] <= 40, after  # a tabela logo abaixo dos botões
+    if width >= 960:
+        assert abs(after["firstMatch"] - before["firstMatch"]) <= 1, (before, after)  # os jogos não pulam
+        assert abs(after["ranking"] - after["firstMatch"]) <= 1, after  # tabela junto do primeiro jogo
+    else:
+        assert 0 <= after["ranking"] - after["bottom"] <= 40, after  # a tabela logo abaixo dos botões
     page.locator("#standings-switch").get_by_role("button", name="Fase de grupos").click()
     page.wait_for_timeout(200)
-    assert abs(page.evaluate(SWITCH_POS_JS)["top"] - before["top"]) <= 1  # e na volta também
+    back = page.evaluate(SWITCH_POS_JS)
+    assert abs(back["top"] - before["top"]) <= 1 and abs(back["firstMatch"] - before["firstMatch"]) <= 1, (before, back)
     assert not errors, errors
 
 

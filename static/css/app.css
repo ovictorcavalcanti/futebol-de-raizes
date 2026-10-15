@@ -272,8 +272,8 @@
     gap: var(--s-5);
     align-items: start;
   }
-  /* empilhado (celular/tablet): o aside sobe quando é o resumo (confrontos do mata-mata) ou,
-     na fase de grupos, quando outra classificação está na tela (os botões não saem do lugar) */
+  /* empilhado (celular/tablet): o aside sobe quando é o resumo (confrontos do mata-mata) ou
+     quando outra classificação está na tela (a tabela logo abaixo dos botões) */
   @media (max-width: 959.98px) {
     .split--aside-first > .split__aside { order: -1; }
   }
@@ -1486,7 +1486,7 @@
   /* Fase de grupos: os jogos separados por grupo, com o nome do grupo em cima. */
   .matches.match-groups { gap: var(--s-6); }
   .match-group { display: grid; gap: var(--s-3); }
-  .match-group__title { margin: 0; font-family: var(--font-num); font-weight: 700; font-size: 0.875rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+  .match-group__title { margin: 0; font-family: var(--font-num); font-weight: 700; font-size: 0.875rem; line-height: 1.25rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
   .match-group__games { display: grid; gap: var(--s-5); }
   /* Competição, fase de grupos com a tabela: uma linha por grupo — jogos à esquerda, tabela
      do grupo à direita, alinhada com o primeiro jogo; mesmas colunas de .split. */
@@ -1497,7 +1497,6 @@
     .group-row { grid-template-columns: minmax(0, 1fr) minmax(320px, 380px); column-gap: var(--s-5); }
     .group-row > * { grid-column: 1; }
     .group-row > .group-row__table { grid-column: 2; grid-row: 2; }
-    .group-row--head > * { grid-column: 2; }
   }
   @media (min-width: 1200px) {
     .group-row { grid-template-columns: minmax(0, 1fr) 400px; column-gap: var(--s-6); }
@@ -1633,6 +1632,14 @@
 
   /* --- Segmentado, interruptor ---------------------------------------------------- */
   .standings-switch { gap: var(--s-2); flex-wrap: wrap; }
+  /* linha dos botões, acima de jogos e classificação; no desktop, sobre a coluna da classificação */
+  .split--head { margin-bottom: var(--s-4); }
+  @media (min-width: 960px) {
+    .split--head > .standings-switch { grid-column: 2; }
+    /* fase de grupos com outra classificação: a tabela começa junto do primeiro jogo (desce o título do
+       grupo e o respiro até o card, como .group-row__table) */
+    .split--groups-ranking > .split__aside { margin-top: calc(1.25rem + var(--s-3)); }
+  }
   .team-cell__group { margin-left: var(--s-2); font-size: 0.75rem; font-weight: 600; color: var(--ink-3); white-space: nowrap; }
   .segmented { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: var(--s-2); }
   .segmented__option { position: relative; }

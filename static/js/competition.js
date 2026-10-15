@@ -8,7 +8,7 @@
  * os jogos) e o <select> troca a fase (GET /api/competitions/:slug?stage=), atualizando a URL
  * sem recarregar. Assina o stream como a home (esta página não alerta gols).
  */
-import { h, renderCompetitionNav, showToast } from './render.js';
+import { renderCompetitionNav, showToast } from './render.js';
 import { ServerClock, mountClock } from './clock.js';
 import { createMatchCard, updateMatchCard, tickMatchCards, getCardMatch, createTieGroup, tiesFromMatches, syncTieCards, refreshMatchCards, sortMatchesForDisplay } from './match-card.js';
 import { createStandings, updateStandings } from './standings.js';
@@ -35,6 +35,7 @@ const els = {
   matches: $('round-matches'),
   roundEmpty: $('round-empty'),
   standings: $('stage-standings'),
+  standingsHead: $('standings-head'),
   standingsSwitch: $('standings-switch'),
   rankingStandings: $('ranking-standings'),
   ties: $('stage-ties'),
@@ -120,18 +121,14 @@ function groupRowsMode() {
   return state.stage?.format === 'groups' && state.view === 'stage' && !!state.standingsData?.groups?.length;
 }
 
-/** Linhas dos grupos (createGroupRows), com os botões das classificações em cima. */
+/** Linhas dos grupos (createGroupRows); os botões das classificações ficam na linha de cima. */
 function groupRows(matches, card) {
   state.groupLayout = createGroupRows(state.standingsData, matches, card);
-  const rows = state.groupLayout.rows;
-  if (!els.standingsSwitch.hidden) rows.unshift(h('div', { class: 'group-row group-row--head' }, els.standingsSwitch));
-  return rows;
+  return state.groupLayout.rows;
 }
 
-/** Fora das linhas de grupo: os botões das classificações voltam para o aside. */
 function leaveGroupRows() {
   els.matches.classList.remove('group-rows');
-  if (els.standingsSwitch.parentElement !== els.aside) els.aside.prepend(els.standingsSwitch);
   state.groupLayout = null;
 }
 
@@ -228,6 +225,7 @@ function paintStandingsSwitch() {
   const buttons = [...(hasStage ? [button('stage', data.stage.name || 'Fase')] : []), ...refs.map((r) => button(r.id, r.name))];
   els.standingsSwitch.replaceChildren(...buttons);
   els.standingsSwitch.hidden = buttons.length < 2 && state.view === 'stage';
+  els.standingsHead.hidden = els.standingsSwitch.hidden;
   els.standings.hidden = state.view !== 'stage' || !hasStage || groupRowsMode(); // grupos: tabela ao lado dos jogos
   els.rankingStandings.hidden = state.view === 'stage';
   if (state.view !== 'stage') loadRanking(state.view);
@@ -259,10 +257,11 @@ function updateAside() {
   const hasAside = !els.standings.hidden || !els.ties.hidden || !els.rankingStandings.hidden;
   els.grid.classList.toggle('split--no-aside', !hasAside);
   // empilhado (celular/tablet), o aside vem antes dos cards: no mata-mata, o resumo dos confrontos
-  // (quem avança); na fase de grupos com outra classificação, os botões ficam onde estavam (no
-  // topo, como nas linhas de grupo) e a tabela escolhida aparece logo abaixo deles
-  const rankingOnGroups = state.stage?.format === 'groups' && state.view !== 'stage';
-  els.grid.classList.toggle('split--aside-first', !els.ties.hidden || rankingOnGroups);
+  // (quem avança); com outra classificação escolhida, a tabela aparece logo abaixo dos botões
+  els.grid.classList.toggle('split--aside-first', !els.ties.hidden || state.view !== 'stage');
+  // fase de grupos com outra classificação: no desktop, a tabela desce o título do grupo, para
+  // começar junto do primeiro jogo, como a tabela de cada grupo
+  els.grid.classList.toggle('split--groups-ranking', state.stage?.format === 'groups' && state.view !== 'stage');
   els.aside.hidden = !hasAside;
 }
 

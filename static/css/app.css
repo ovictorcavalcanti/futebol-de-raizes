@@ -840,10 +840,10 @@
     line-height: 1.1;
     letter-spacing: 0.01em;
     color: var(--ink);
-    /* quebra entre palavras, em linhas equilibradas; palavra que não cabe hifeniza (pt-BR)
-       e, só em último caso, quebra para não vazar da coluna */
+    /* quebra só entre palavras ("Centro / Limoeirense", nunca "Cen- / tro"), em linhas
+       equilibradas; só a palavra que sozinha não cabe na coluna quebra, para não vazar */
     overflow-wrap: break-word;
-    hyphens: auto;
+    hyphens: manual;
     text-wrap: balance;
   }
   /* o nome completo em todas as larguras; a sigla fica só no DOM (aria-hidden) */
@@ -890,18 +890,22 @@
   .match[data-winner="away"] .team--home .crest { opacity: 0.7; }
   /* fora do fluxo (no canto de cima, junto da faixa do time): não aperta o nome */
 
-  /* card estreito (celular até ~400 px): escudo, vão e coluna do placar menores */
-  /* card estreito (celular): nome completo um pouco menor, para caber ao lado do escudo */
+  /* card estreito (celular): o nome do time no mesmo tipo do nome na classificação
+     (.team-cell__name: Barlow 600, 14 px) e o placar menor, que deixa mais largura para o nome */
   @container match (max-width: 519px) {
-    .team__name { font-size: 1rem; }
+    .team__name { font-family: var(--font-ui); font-weight: 600; font-size: 0.875rem; line-height: 1.2; letter-spacing: 0; }
+    .score { min-width: 64px; }
+    .score__line { font-size: 2rem; }
+    .score__vs { font-size: 1.5rem; }
+    .score__kickoff { font-size: 1.25rem; }
   }
+  /* card estreito (celular até ~400 px): escudo, vão e coluna do placar menores */
   @container match (max-width: 379px) {
-    .match__board { gap: var(--s-2) var(--s-2); padding-inline: var(--s-3); }
+    .match__board { gap: var(--s-2) var(--s-2); padding-inline: 10px; }
     .team { gap: 6px; }
-    .team .crest { --crest-size: 30px; }
-    .team__name { font-size: 0.875rem; }
-    .score { min-width: 72px; }
-    .score__line { font-size: 2.25rem; }
+    .team .crest { --crest-size: 28px; }
+    .score { min-width: 48px; }
+    .score__line { font-size: 1.75rem; }
   }
 
   @container match (min-width: 520px) {
@@ -1508,12 +1512,7 @@
   .tie-group > * { grid-column: 1; }
   .tie-group__title { margin: 0; font-family: var(--font-num); font-weight: 700; font-size: 1.125rem; letter-spacing: 0.02em; }
   .tie-group__games { display: grid; gap: var(--s-5); }
-  /* mata-mata sem lateral: os confrontos usam a largura toda; a partir de 1200 px, em duas colunas
-     (um confronto em cada, ida e volta empilhadas; o confronto único, como a final, na largura toda) */
-  @media (min-width: 1200px) {
-    .split--no-aside .matches.tie-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: var(--s-6); align-items: start; }
-    .split--no-aside .matches.tie-groups > .tie-group:only-child { grid-column: 1 / -1; }
-  }
+  /* mata-mata sem lateral: um confronto por linha, na largura toda (ida e volta empilhadas) */
   .tie__adv { display: inline-flex; align-items: center; gap: 4px; margin-left: var(--s-2); font-family: var(--font-num); font-weight: 600; font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--verde-ink); }
   .tie__adv .icon { width: 14px; height: 14px; }
 

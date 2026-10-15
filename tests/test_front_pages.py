@@ -1514,30 +1514,15 @@ TIES_JS = """() => { const col = document.querySelector('#round-matches').getBou
 
 @pytest.mark.parametrize("width", [1024, 1280])
 def test_mata_mata_sem_lateral_usa_a_largura_toda(open_page, width):
-    """Mata-mata sem classificação ao lado: os confrontos usam a largura toda. A partir de 1200 px, dois por
-    linha; o confronto único (a final) na largura toda. Abaixo disso, um por linha."""
+    """Mata-mata sem classificação ao lado: um confronto por linha, com os cards na largura toda."""
     page, _, errors = open_page("/competition.html?slug=copa-pernambuco&stage=7", width=width)
     page.wait_for_selector("#round-matches > .tie-group")
     page.wait_for_timeout(200)
     assert page.evaluate("document.querySelector('#competition-grid').classList.contains('split--no-aside')")
     out = page.evaluate(TIES_JS)
-    (left_a, top_a, w_a), (left_b, top_b, w_b) = out["ties"][:2]
-    if width >= 1200:
-        assert top_a == top_b and left_a == 0 and left_b > w_a, out  # lado a lado
-        assert w_a == w_b and w_a + w_b < out["col"] and w_a > out["col"] * 0.45, out  # meia largura cada
-    else:
-        assert left_a == left_b == 0 and top_b > top_a and w_a == w_b == out["col"], out  # um por linha, largura toda
-    assert not errors, errors
-
-    def one_tie(api):  # uma rodada com um confronto só (como a final)
-        api.fx = copy.deepcopy(api.fx)
-        api.fx["COMPETITION"]["stage"]["ties"] = api.fx["COMPETITION"]["stage"]["ties"][:1]
-
-    page, _, errors = open_page("/competition.html?slug=copa-pernambuco&stage=7", width=width, prepare=one_tie)
-    page.wait_for_selector("#round-matches > .tie-group")
-    page.wait_for_timeout(200)
-    final = page.evaluate(TIES_JS)
-    assert len(final["ties"]) == 1 and final["ties"][0][0] == 0 and final["ties"][0][2] == final["col"], final
+    tops = [t[1] for t in out["ties"]]
+    assert len(out["ties"]) >= 2 and tops == sorted(set(tops)), out  # um por linha
+    assert all(t[0] == 0 and t[2] == out["col"] for t in out["ties"]), out  # largura toda
     assert not errors, errors
 
 

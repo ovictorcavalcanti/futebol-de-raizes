@@ -177,6 +177,11 @@ erro do formulário.
   `unknown_event_type`, `period_mismatch` (replay), `event_not_found`, `already_voided`,
   `void_derived_event` (vermelho automático só cai com o amarelo), `void_breaks_sequence` (`details.cause` = regra violada no replay,
   ou `second_yellow_without_red` quando um amarelo passaria a ser o 2º do jogador sem o vermelho automático).
+* Textos (`message`) no vocabulário da tela, "Desfazer" (não "Cancelar"): `already_voided` "Este lançamento já
+  foi desfeito."; `void_derived_event` "…: desfaça o cartão amarelo de origem."; `void_breaks_sequence`
+  "Desfazer este lançamento …"; `event_not_editable` "…: desfaça e lance de novo." (ou "…desfaça esse amarelo
+  antes e lance-o de novo depois."). Gol com `payload.origin` fora de `GOAL_ORIGIN_LABELS` → `invalid_payload`
+  "Tipo do gol inválido." (`details.field = "payload.origin"`).
 * Relógio com suspensão: `state.period_pauses` = `((seq do suspended, seq do resumed | None), ...)` do período
   corrente (zera a cada período). Ao vivo: `period_started_at` = abertura + soma de `created_at(resumed) -
   created_at(suspended)`. Suspenso (`running=false`): o minuto fica parado no `created_at` da suspensão aberta.
@@ -189,8 +194,11 @@ erro do formulário.
   agora. Nos pênaltis, o minuto (se vier) é o do início da disputa: 120 com prorrogação, 90 sem.
 * Reagendamento: `kickoff_at` em ISO 8601 com data **e** hora (só a data é recusada: `invalid_payload`).
   Sem fuso = horário de Brasília: o serviço aplica `settings.TIME_ZONE` antes de gravar `Match.kickoff_at`.
-* Rótulos prontos para a API/catálogo: `STATUS_ACTION_LABELS`, `GOAL_ORIGIN_LABELS`, `PENALTY_MISS_LABELS`
-  (`payload.outcome` opcional do pênalti perdido). Gols anulados: `domain.annulled_goal_ids(events)`.
+* Rótulos prontos para a API/catálogo: `STATUS_ACTION_LABELS` (`cancel` = "Cancelar partida"), `GOAL_ORIGIN_LABELS`,
+  `PENALTY_MISS_LABELS` (`payload.outcome` opcional do pênalti perdido). Ícone dos botões de status:
+  `STATUS_ACTION_ICONS`, o do evento que a ação lança, menos `delay`, que usa `alert` (o do aviso "Início atrasado";
+  `clock` já é de Acréscimos). O `CATALOG` é a fonte única de rótulos e ícones: operador, guia de estilo e site
+  usam os mesmos. Gols anulados: `domain.annulled_goal_ids(events)`.
 
 Outros pontos de escrita que passam pelo mesmo núcleo:
 * Django Admin: salvar fase (pontuação/critérios/punições) → `standings.services.on_stage_rules_changed(stage)`
@@ -202,7 +210,7 @@ Outros pontos de escrita que passam pelo mesmo núcleo:
   `matches.services.publish_match(match)`. Times de grupo (`GroupTeam`) →
   `standings.services.recompute_group(group)` (a leitura também calcula na hora quando o cache não
   tem os times do grupo ou tem outros ajustes de pontos). Lances não são editáveis no admin: ficam
-  somente leitura dentro da partida (os cancelados não aparecem), com a caixa "Cancelar lançamento"
+  somente leitura dentro da partida (os cancelados não aparecem), com a caixa "Desfazer lançamento"
   por linha, que chama `void_event` (exige `matches.void_event`; erro do domínio vira mensagem).
   Lançar lance novo é só na tela do operador (`/operator.html?date=&match=`, link na partida).
   Partida com lançamentos não se apaga. A classificação (`Standing`) não tem página no admin.
@@ -217,7 +225,7 @@ Outros pontos de escrita que passam pelo mesmo núcleo:
   que o seed criou (com a trava de escrita), inclusive as mensagens do outbox das partidas (`match`) e
   fases (`standings`) apagadas e as `goals` que citam essas partidas; usuários e auditoria ficam.
 * `already_voided` não sai de `void_event` (o serviço devolve `VoidOutcome(already=True)`); só de
-  `domain.check_void` chamado direto.
+  `domain.check_void` chamado direto e da correção (`edit_event`) de um lance já desfeito.
 * Fase com critérios gravados inválidos (vazios, repetidos ou fora do catálogo) não derruba o
   lançamento: `standings.services.stage_rules` usa os critérios padrão (`Rules().criteria`) e loga
   um aviso; a leitura mostra os critérios efetivos.
@@ -403,7 +411,7 @@ usado volta no `X-Request-ID` da resposta e vai nos logs e na auditoria.
 | `POST /api/ops/matches/{id}/events/{eventId}/void` `{"reason"}` | `200 {"voided": [ids], "match": MatchOut(detalhe), "available": Available, "already": bool}` (`already`: já estava cancelado, nada mudou) |
 | `POST /api/ops/matches/{id}/status` + `Idempotency-Key` `{"action","kickoff_at"?,"reason"?,"team_id"?,"home_score"?,"away_score"?}` | `201 {"event": EventOut, "match": ..., "available": ..., "replayed": false}` · replay → `200` com `"replayed": true` |
 | `POST /api/ops/matches/{id}/partial-info` (`matches.change_status`) `{"partial_info": bool}` | `200 {"match": MatchOut (detalhe), "available": ...}` · publica `match` só quando muda |
-| `GET /api/ops/catalog` | `{"events": [EventSpecOut], "status_actions": [{"action","label"}], "periods": [{"key","label","short"}], "statuses": [{"key","label"}]}` (todos os tipos do catálogo, status inclusive) |
+| `GET /api/ops/catalog` | `{"events": [EventSpecOut], "status_actions": [{"action","label","icon"}], "periods": [{"key","label","short"}], "statuses": [{"key","label"}]}` (todos os tipos do catálogo, status inclusive) |
 | `GET /api/home?date=YYYY-MM-DD` | HomeOut, `Cache-Control: no-store` (micro-cache no servidor, §3) |
 | `GET /api/competitions` | `{"competitions": [{"id","name","slug","short_name","position"}]}` |
 | `GET /api/competitions/{slug}?stage=&round=` | CompetitionOut (micro-cache no servidor, §3) |
@@ -415,6 +423,10 @@ usado volta no `X-Request-ID` da resposta e vai nos logs e na auditoria.
 * MeUser: `{"id","username","name","roles": ["Operador"], "permissions": {"post_event": bool, "void_event": bool, "change_status": bool, "manage_users": bool, "admin_site": bool}}`.
 * Available: `{"events": ["goal", ...], "status": ["suspend", ...]}` (de `domain.available_actions`).
 * EventSpecOut: `{"type","label","kind","icon","minute": "required|optional|none","periods": [...], "fields": [{"name","kind","label","required","choices": [[v,l]]}]}`.
+  `fields` na ordem do catálogo, que o formulário segue; no gol: `team_id`, `payload.origin` ("Tipo do gol"),
+  `payload.player`, `payload.assist`. `icon` do catálogo (o mesmo do site); entre outros, `clock_adjust`
+  `stopwatch`, `rescheduled` `calendar-arrow`, `cancelled` `ban` e `walkover` `trophy`. `status_actions[].icon`
+  = `STATUS_ACTION_ICONS` (o do evento que a ação lança; `delay` usa `alert`).
 * Corpo do lançamento: `{"type","minute"?,"stoppage"?,"team_id"?,"payload"?: {},"annuls_event_id"?,"confirm"?: false,"source"?: "operator"}`.
   Jogador pelo nome no `payload`; `player_id` (ou `payload.player_id`/`player_out_id`/`player_in_id`) → `400 invalid_input`.
 * HomeOut: `{"date","server_time","timezone","cursor","competitions": [{"id","name","slug","short_name","position","stages": [{"id","name","format","matches": [MatchOut],"standings": StageStandingsOut|null}]}],"latest_goals": [LatestGoalOut]}`.

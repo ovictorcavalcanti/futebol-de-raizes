@@ -439,10 +439,10 @@ bandeira de Pernambuco e o wordmark “FUTEBOL DE RAÍZES”. Os arquivos são `
    fim do 1º tempo, 2º tempo, prorrogação, pênaltis, fim). Tudo vem de `available` na
    resposta do back, sem regra de jogo no front. Toda mudança de período pede confirmação
    com o placar.
-4. O formulário segue o catálogo: time, jogador (nome digitado, com a escalação em
-   `<datalist>`), origem do gol e minuto sugerido pelo relógio do jogo. Avisos brandos (minuto menor que o anterior,
+4. O formulário segue o catálogo: time, tipo do gol (antes do jogador), jogador (nome digitado,
+   com a escalação em `<datalist>`) e minuto sugerido pelo relógio do jogo. Avisos brandos (minuto menor que o anterior,
    jogador fora de campo) abrem a confirmação e reenviam com a mesma chave.
-5. Na linha do tempo, **Cancelar lançamento** corrige erro de digitação (com motivo
+5. Na linha do tempo, **Desfazer** corrige erro de digitação (com motivo
    opcional). **Status da partida** adia, suspende, retoma, reagenda (data e hora de
    Brasília) ou cancela.
 6. A tela só mostra o que `GET /api/auth/me` permite. Cadastros e regras da classificação
@@ -468,13 +468,13 @@ confrontos saíram do índice (os endereços continuam, para quem tem permissão
 | Temporada | Fases (nome, ordem, formato) com o link "abrir" |
 | Fase | Pontuação, critérios de desempate, zonas da legenda, **punições e bonificações em pontos**, grupos (com "Times do grupo (N)") e rodadas (com "Jogos da rodada (N)"; no mata-mata, "Confrontos e jogos"). Um quadro explica de onde vem a classificação |
 | Rodada | Os jogos da rodada (mandante, visitante, início, estádio, cidade; grupo só entre os da fase; status e placar somente leitura; "abrir") e, no mata-mata, os confrontos (jogos, prorrogação, times) — o jogo escolhe o confronto só entre os da rodada |
-| Jogo | Estrutura, situação e placar (calculados), **lances** (somente leitura, com "Cancelar lançamento" por linha), arbitragem, transmissões, estatísticas e os links das escalações. O botão **Lançar lances na tela do operador** abre `/operator.html?match=<id>` |
+| Jogo | Estrutura, situação e placar (calculados), **lances** (somente leitura, com "Desfazer lançamento" por linha), arbitragem, transmissões, estatísticas e os links das escalações. O botão **Lançar lances na tela do operador** abre `/operator.html?match=<id>` |
 | Escalação | Esquema, técnico e os jogadores (só nome, número e posição) |
 
 - **Lances**: são lançados na tela do operador, que confere os campos de cada tipo. Na página do
-  jogo, um lance errado se corrige marcando "Cancelar lançamento" e salvando; o admin chama
+  jogo, um lance errado se corrige marcando "Desfazer lançamento" e salvando; o admin chama
   `matches.services.void_event` (perfil com a permissão de cancelar), mostra o erro da regra
-  quando o cancelamento não pode, e nada é apagado. Os cancelados somem da lista.
+  quando não dá para desfazer, e nada é apagado. Os desfeitos somem da lista.
 - **Classificação**: não tem página. É um cache que o sistema recalcula a cada lance a partir
   dos jogos, da pontuação, dos critérios e das punições. A **oficial** conta só os jogos
   encerrados; a **ao vivo** inclui os jogos em andamento e é a que as páginas públicas mostram.

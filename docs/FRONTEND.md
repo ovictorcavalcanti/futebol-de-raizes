@@ -92,7 +92,7 @@ escondidas; quem liga os dados tira o `hidden`.
 | --- | --- |
 | `#competitions-nav` (`aria-busy="true"`) › `ul[data-hook="competition-links"]` | Menu de competições. Preencha com `renderCompetitionNav(list, competitions, {activeSlug, liveSlugs})` (tira o `aria-busy`). Só nas páginas com `page` público (home, competição, guia): não existe no operador nem nas páginas de erro (sem script para preenchê-lo). Esqueleto e links têm a mesma altura (`.comp-nav__list { min-height: 44px }`), sem layout shift. As competições de `liveSlugs` (com jogo ao vivo agora; na home e na competição) ganham o ponto vermelho, com o texto oculto " (jogando agora)" — o mesmo termo, "Jogando agora", do ponto da tabela. |
 | `#brasilia-clock` (`<time>`) | Relógio de Brasília: `mountClock(el, serverClock)`. Fora de qualquer `aria-live`. |
-| `[data-minute-format-toggle]` (`.minute-toggle`; não existe no operador) | Formato do minuto (`minute-format.js`): botão com borda, o valor em cima ("45+2'"; pressionado, "47' 1T") e a legenda "Minuto" embaixo, no desenho da legenda "Brasília" do relógio; largura fixa (trocar não empurra o relógio). Sem `aria-label`: o nome acessível é o texto visível mais um trecho `visually-hidden` ("45+2' Minuto — ver por tempo (1T/2T)"); o `title` fica para o mouse. No celular, desenho de 40 px e toque de 44 px (`::after`); logo, relógio, minuto e tema cabem numa linha a 320 px. |
+| `[data-minute-format-toggle]` (`.minute-toggle`; não existe no operador) | Formato do minuto (`minute-format.js`): botão com borda, o valor em cima ("45+2'"; pressionado, "47' 1T") e a legenda "Minuto" embaixo, no desenho da legenda "Brasília" do relógio (em `--ink-3` só em repouso; no hover, no `:active` e pressionado, `--ink-2`, para manter 4,5:1 sobre o fundo do `.btn:hover`, que no toque fica preso depois de tocar); largura fixa (trocar não empurra o relógio). Sem `aria-label`: o nome acessível é o texto visível mais um trecho `visually-hidden` ("45+2' Minuto — ver por tempo (1T/2T)"); o `title` fica para o mouse. Desenho de 40 px e toque de 44 px (`::after`, `inset: -4px 0`: só na vertical, sem alcançar o relógio nem o tema) no celular e em qualquer tela de toque (`@media (max-width: 639px), (pointer: coarse)`; com mouse, nada muda); logo, relógio, minuto e tema cabem numa linha a 320 px. |
 | `#live-status` (`hidden`) › `[data-hook="live-status-text"]` | "Reconectando ao vivo…" quando o stream cai. |
 | `#toasts` | Região dos avisos passageiros: `showToast(texto, {kind})`. |
 | `[data-theme-toggle]` | Botão de tema (já ligado por `theme.js`). |
@@ -107,7 +107,7 @@ escondidas; quem liga os dados tira o `hidden`.
 | `[data-hook="live-jump"]` (`hidden`; só na barra fixa do dia) | Celular e tablet (< 960 px): "Ao vivo N", com texto e bolinha em `--on-vermelho`, como a pílula AO VIVO (jogos com status `live` no dia); cada toque leva ao próximo, no topo da tela (os cards têm `scroll-margin-top` com a barra). Some sem jogo ao vivo. |
 | `[data-hook="day-bar"]` (`hidden`) › `day-bar-prev`, `day-bar-date`, `day-bar-next` | Celular e tablet (coluna única, < 960 px: `matchMedia('(max-width: 959.98px)')`, o mesmo corte do CSS; `has-day-bar` no `body` dá aos cards o `scroll-margin-top` da barra): barra fixa no topo que só aparece depois que o seletor de dias (`[data-hook="date-nav"]`) sai da tela por cima (IntersectionObserver; nunca os dois juntos); escondida, fica `inert`. Repete o dia (`formatDay`: "Hoje", "sáb, 18/10") e o ‹ › (fazem o mesmo que os do seletor e voltam ao topo). Fora do `.container`. |
 | `[data-hook="competition-share"]` › `.label-wide` / `.label-narrow` | "Resultados no WhatsApp" no desktop; no celular, "Compartilhar" (com o ícone) e "Ver competição ›" numa linha própria embaixo do título, em alvos de 44 px. O nome acessível do botão é fixo ("Compartilhar os resultados no WhatsApp"). |
-| `#toggle-sound`, `#toggle-notifications` (`hidden`) | Botões liga/desliga (`aria-pressed`). Os rótulos trocam sozinhos via `.when-on`/`.when-off`, e cada estado tem o rótulo longo (`.hide-sm`: "Ativar som"/"Som ligado", "Ativar notificações"/"Notificações ligadas") e o curto (`.only-sm`, abaixo de 640 px, na linha do título: "Som" e "Notificações", o mesmo nos dois estados — o estado fica no ícone, cortado ou não, e no destaque azul de `aria-pressed`). O rótulo que não vale fica em `display: none`, então o nome acessível é sempre o texto da tela; `alerts.js` só pinta `aria-pressed` (bloqueado pelo navegador = desligado, com o toast explicando). No celular, toque de 44 px pelo `::after`, sem a linha crescer. O de notificações só aparece onde `new Notification()` funciona: um script inline logo depois dele (antes da 1ª pintura) aplica a mesma regra de `isMobileDevice`/`notificationSupport` (sem o teste do construtor) e `alerts.js` confirma depois — o botão não surge com os módulos empurrando a página. |
+| `#toggle-sound`, `#toggle-notifications` (`hidden`) | Botões liga/desliga (`aria-pressed`). Os rótulos trocam sozinhos via `.when-on`/`.when-off`, e cada estado tem o rótulo longo (`.hide-sm`: "Ativar som"/"Som ligado", "Ativar notificações"/"Notificações ligadas") e o curto (`.only-sm`, abaixo de 640 px, na linha do título: "Som" e "Notificações", o mesmo nos dois estados — o estado fica no ícone, cortado ou não, e no destaque azul de `aria-pressed`). O rótulo que não vale fica em `display: none`, então o nome acessível é sempre o texto da tela; `alerts.js` só pinta `aria-pressed` (bloqueado pelo navegador = desligado, com o toast explicando). Toque de 44 px pelo `::after` (`inset: -8px 0`, com `position: relative`: só na vertical, sem cobrir o botão vizinho nem a linha crescer) no celular e em qualquer tela de toque (`@media (max-width: 639px), (pointer: coarse)`; com mouse, nada muda); o padding curto (10 px) e o vão de 6 px ficam só abaixo de 640 px. O de notificações só aparece onde `new Notification()` funciona: um script inline logo depois dele (antes da 1ª pintura) aplica a mesma regra de `isMobileDevice`/`notificationSupport` (sem o teste do construtor) e `alerts.js` confirma depois — o botão não surge com os módulos empurrando a página. |
 | `#notifications-hint` (`hidden`) | "As notificações do sistema só funcionam com HTTPS." — aparece quando a página não está em contexto seguro. |
 | `#latest-goals-list` (`<ol tabindex="0">`, `aria-busy="true"`) | `createLatestGoal(goal, {isNew})` por item, do mais novo ao mais antigo (substitui o chip esqueleto; `home.js` tira o `aria-busy`). Rola para o lado: `tabindex="0"` dá foco pelo teclado (os chips não são focáveis) e a borda direita esmaece como dica de rolagem. |
 | `#latest-goals-empty` (`hidden`) | "Nenhum gol hoje ainda. Paciência, que ele vem." |
@@ -207,8 +207,13 @@ placar e suspenso) e "Retomada" (suspenso com `resumes_at`: o `kickoff_at` já �
 rótulo do placar diz o mesmo ao leitor de tela ("marcado para", "previsto para"). No celular, duas
 linhas centradas, como o placar (o espaço do botão
 de compartilhar fica dos dois lados); abaixo de 560 px de card, "onde" fica numa linha só e usa a
-largura do card, sem o recuo do botão: o nome do estádio corta com reticências
-(`.match__place-text`; inteiro no `title` e para o leitor de tela) e a cidade fica inteira. No
+largura do card, sem o recuo do botão, e o estádio tem a prioridade: ele fica inteiro enquanto
+sobrarem 5,5em para a cidade, e a cidade encolhe primeiro. Ela perde a UF na tela (", PE" fica
+em `.match__place-uf`, que continua para o leitor de tela) e corta com reticências
+(`.match__place-text`); o estádio só corta quando passaria desse limite. Os dois têm o nome
+inteiro no `title` (e no bloco "Local" da Ficha). Com o botão de compartilhar, a linha do
+"quando" tem pelo menos 32 px (a altura dele), para o "onde" ficar fora da área de toque de
+44 px do botão. No
 contêiner largo (≥ 560 px), "quando" à esquerda e "onde" à direita, com quebra normal. O botão de compartilhar tem borda (é botão, não ícone de informação) e área
 de toque de 44 px (o desenho segue de 32 px). No card estreito (< 520 px) vale uma escala só,
 compacta: 12 px de respiro nas laterais de todas as faixas (placar, resumo, desempate, botão de
@@ -233,7 +238,7 @@ gaveta (presa embaixo, na largura da tela, com o botão largo).
 | `#op-work` (`hidden`) | Área de trabalho. |
 | `#action-grid` | Botões `tpl-action-button` dos **lances de jogo** de `available.events` (gol, cartões, substituição…; classe `action-btn--goal` no gol; `aria-pressed="true"` no que está com formulário aberto), na ordem da API. Sem nenhum: "Nenhum lance disponível neste momento." (ou "Nenhum lance de jogo neste momento." quando só há andamento). |
 | `#flow-block` (`hidden`) › `#flow-actions` | **Andamento do jogo**: os estruturais de `available.events` (início, fim do 1º tempo, 2º tempo, prorrogação, pênaltis, fim), depois dos lances e com outra cara (`.action-grid--flow`: botão baixo e largo, fundo rebaixado, faixa amarela, classe `action-btn--structural`). Some sem estrutural disponível. Todo envio daqui passa pelo `#confirm-dialog`. |
-| `#status-actions` | Botões `tpl-status-button` de `catalog.status_actions` ("Cancelar partida" com `btn--danger`; `disabled` fora de `available.status`), sob o título "Status da partida" (ícone `clipboard`). |
+| `#status-actions` | Botões `tpl-status-button` de `catalog.status_actions`, com o `label` e o `icon` de cada item (o ícone do evento que a ação lança; "Marcar atraso" usa `alert`, o do aviso "Início atrasado" do site, porque o relógio já é de Acréscimos). "Cancelar partida" com `btn--danger`; `disabled` fora de `available.status`. Sob o título "Status da partida" (ícone `clipboard`). |
 | `[data-hook="actions-card"]` › `actions-block` (lances + andamento) / `status-block` | Cartão das ações; cada bloco some sem a permissão (`post_event` / `change_status`), o cartão some sem as duas. |
 | `#event-form-card` (`hidden`), `#event-form` | Formulário. `[data-hook]`: `event-form-icon` (`<use>`), `event-form-title`, `event-warnings` (+ `event-warnings-list`, para `confirmation_required`), `event-error`, `event-type` (`#event-type`: `<select>` dos tipos em `available.events`, lances primeiro e os estruturais num `<optgroup label="Andamento do jogo">`), `event-fields`, `event-cancel` ("Fechar": só fecha o formulário, sem lançar; o gancho manteve o nome), `event-submit`, `event-submit-label`. |
 | `#op-timeline`, `#op-timeline-empty`, `[data-hook="timeline-count"]` | Lançamentos (mais recente primeiro) com `tpl-op-event`. |
@@ -317,7 +322,7 @@ Todos são módulos ES puros, sem dependências; texto entra só por
 O card cobre todos os status: agendado (pílula com horário, dia relativo), ao vivo
 (minuto correndo, faixa vermelha no topo), intervalo (amarelo), encerrado
 (vencedor em destaque, perdedor esmaecido), pênaltis `(4) × (3) pên.`, suspenso,
-adiado e cancelado (hachura). Linha do confronto no mata-mata (no card da volta: agregado e quem
+adiado e cancelado. Linha do confronto no mata-mata (no card da volta: agregado e quem
 avança, com o agregado na mesma ordem mandante × visitante do placar do card; nas outras rodadas, "avança" com o símbolo de avançar (⏩) no fim; na rodada "Final", "Campeão" com a estrela dourada no fim; "Jogo de ida" e "Agregado" com o ícone de informação na frente). Atrasado, adiado, suspenso e cancelado: linha "Início atrasado", "Jogo adiado", "Jogo suspenso" ou "Jogo cancelado" — motivo, com o alerta laranja, nas observações abaixo do placar (onde fica o "Jogo de ida"), com o `status_note`; some com a mudança de status. Suspenso reagendado: mais uma linha, "Retomada: amanhã às 16:00", com o calendário (`resumes_at`). Adiado: "Nova data a definir", também com o calendário (reagendar devolve o jogo a agendado; a data da faixa é a original, "Era …"). Encerrado por W.O.: "W.O. em favor do {time} — motivo", com o alerta (`walkover`). Nenhum status tem fundo hachurado nem borda tracejada (atrapalham a leitura): suspenso e cancelado têm selo com borda cinza contínua. Topo do card quase reto (2px) com a faixa de status: agendado azul, ao vivo vermelho, intervalo amarelo, atrasado e adiado laranja, encerrado discreto (`--line-strong`), suspenso e cancelado cinza, todos sem hachura. O selo "Encerrado" (`.pill--finished`, também no operador) é tonal: fundo `--surface-2`, texto `--ink-2` e contorno `--line-strong`; o preenchimento forte fica para o "Ao vivo".
 Nome do time: sigla no celular, nome completo a partir de 520 px de card; quebra só entre
 palavras (`overflow-wrap: normal`, `text-wrap: balance`; a sigla nunca quebra) e o ✓ do
@@ -327,7 +332,7 @@ gols e vermelhos. Abas só com dado:
 **Lances** (linha do tempo de dois lados com trilho central e separadores de
 período; gol anulado riscado com o motivo; lance sem time, como o VAR, vai ao
 centro com o minuto junto do texto; em cards estreitos o placar parcial
-desce para o trilho), **Escalações** e **Ficha** (arbitragem, público e renda,
+desce para o trilho), **Escalações** e **Ficha** (local, arbitragem, público e renda,
 transmissões com link externo, estatísticas em barras com as cores dos times).
 No topo dos Lances, a faixa dos times (`.tl-sides`: escudo de 20 px e nome de cada time do seu
 lado do trilho, como no placar; nome longo com reticências e inteiro no `title`) fica presa ao
@@ -337,10 +342,15 @@ diz o time ao leitor de tela ("Náutico: Thiaguinho", texto oculto), e os neutro
 não. No card de até 400 px, a linha do tempo ganha largura (painel com 8 px de margem lateral e
 coluna do minuto de 36 px). Na linha do tempo, o reagendamento traz a data de antes
 ("Reagendado para sáb, 05/01 · 17:00 (era qua, 02/01 · 19:00) — motivo", com
-`previous_kickoff_at`). A Ficha, a partir de 640 px de card, usa duas colunas (3fr e 2fr): a
-arbitragem (`.fact--officials`) na larga, ocupando duas linhas, e público e renda e transmissões
-empilhados ao lado; um bloco sozinho ocupa a largura toda. Cada nome da arbitragem
-(`span.fact__person`) quebra inteiro para a linha de baixo.
+`previous_kickoff_at`). A Ficha começa pelo bloco "Local" (`.fact--place`: Estádio e Cidade, com
+a UF, inteiros), na largura toda; com lances ou escalações, a aba Ficha aparece mesmo que só
+tenha o local, e sem os dois (sem abas) o local vem abaixo do aviso ("Os lances aparecem aqui
+quando a bola rolar." no jogo agendado). Os outros blocos, a partir de 640 px de card, usam duas
+colunas: com arbitragem (`.facts:has(> .fact--officials)`), 3fr e 2fr, a arbitragem na larga,
+ocupando duas linhas, e público e renda e transmissões empilhados ao lado; sem arbitragem, duas
+colunas iguais. Um bloco sozinho ocupa a largura toda. Cada nome da arbitragem
+(`span.fact__person`) quebra inteiro para a linha de baixo. Nas transmissões, o tipo
+(`kind_label`, `.fact__kind`) fica numa linha própria abaixo do nome, sem o separador "·".
 No aviso de correção (`kind: 'correction'`), o placar do gol que caiu aparece
 riscado (`<s>`), nunca como placar atual.
 
@@ -374,7 +384,7 @@ riscado (`<s>`), nunca como placar atual.
 * `notificationSupport(window)` — API presente, contexto seguro e computador (`userAgentData.mobile`, user agent, iPadOS com toque); sem permissão, testa `new Notification()` em `try/catch`.
 
 ### `operator.js` (partes puras exportadas)
-`effectiveMinuteMode(spec, period)` (espelha `domain.minute_mode`), `suggestMinute(match, spec, nowMs)`, `buildEventBody(type, entries, {minute, stoppage})`, `toBrasiliaInput(iso)`, `groupByCompetition`, `lineupPlayers(match, teamId, {opponent})`, `splitActions(types, specOf) → {game, flow}` (lances de jogo × estruturais, na ordem da API), `structuralConfirm(type, match, label?) → {title, text, ok}` (texto da confirmação de cada estrutural, com o placar), `editedToast(summary, voided) → texto` (aviso da correção; com `voided` da resposta, diz que o vermelho automático caiu junto), `operatorCatalog(catalog)` (rótulos e ícones desta tela por cima do catálogo da API, sem mudar tipos, campos nem regras: "Origem" do gol → "Tipo do gol", "Cancelar" → "Cancelar partida"; ícones que não se repetem entre ações: `stopwatch` no Relógio do jogo, `calendar-arrow` no Reagendar, `trophy` no W.O., `ban` no Cancelar partida), `operatorEventIcon(event)` (o mesmo ícone do botão na linha do tempo), `STATUS_ICON` (ação de status → ícone), `minuteHint(mode, {filled, suggested})` e `ownGoalPlayerHint(match, teamId)` (as dicas do formulário). A tela só liga quando a página tem `#op-app`.
+`effectiveMinuteMode(spec, period)` (espelha `domain.minute_mode`), `suggestMinute(match, spec, nowMs)`, `buildEventBody(type, entries, {minute, stoppage})`, `toBrasiliaInput(iso)`, `groupByCompetition`, `lineupPlayers(match, teamId, {opponent})`, `splitActions(types, specOf) → {game, flow}` (lances de jogo × estruturais, na ordem da API), `structuralConfirm(type, match, label?) → {title, text, ok}` (texto da confirmação de cada estrutural, com o placar), `editedToast(summary, voided) → texto` (aviso da correção; com `voided` da resposta, diz que o vermelho automático caiu junto), `naturalMinute(type, match) → número|null` (o minuto padrão que o back grava no lance do andamento sem minuto, como `domain._plan_structural`: início 0', fim do 1º tempo e início do 2º 45', início da prorrogação 90', fim do 1º tempo da prorrogação e início do 2º 105'; início dos pênaltis e fim de jogo pelo tempo em curso, 90' no 2º tempo e 120' na prorrogação, e o fim depois dos pênaltis 120' com prorrogação, senão 90'; null no lance de jogo, que não tem padrão, ou quando não dá para saber), `minuteHint(mode, {filled, suggested, kind, natural})` e `ownGoalPlayerHint(match, teamId)` (as dicas do formulário). Rótulos e ícones vêm só do catálogo da API, os mesmos do site público: `spec.icon` nos lances, `status_actions[].icon` nos botões de status e `eventIconName(event)` na linha do tempo (a tela não tem sobreposição própria: `operatorCatalog`, `STATUS_ICON` e `operatorEventIcon` não existem). A tela só liga quando a página tem `#op-app`.
 
 ### `fixtures.js` (só para o guia de estilo)
 `SERVER_TIME`, `TIMEZONE`, `TEAMS`, `COMPETITIONS`, `MATCHES` (`live`, `halfTime`, `scheduledToday`, `scheduledTomorrow`, `finished`, `postponed`, `suspended`, `cancelled`, `knockoutLeg1`, `knockoutPenalties`, `knockoutSingle`), `TIES`, `STANDINGS`, `STANDINGS_GROUPS`, `LATEST_GOALS`, `HOME`, `COMPETITION`, `ME`, `CATALOG`, `AVAILABLE`, `summaryOf(match)`. Os horários são relativos ao carregamento do módulo.
@@ -480,17 +490,23 @@ document.addEventListener('visibilitychange', () => document.hidden || clock.che
   `<select>` de tipo limitado a `available.events`; campos por `EventSpec.fields`
   (reaproveitados entre tipos — trocar o tipo mantém o que já foi digitado; "Fechar", Esc
   ou outro clique no mesmo botão desistem do lance e limpam tudo —, os que não valem ficam
-  `hidden` + `disabled`); rótulos e ícones de `operatorCatalog` (o "Origem" do gol aparece como
-  "Tipo do gol": Jogada, Pênalti ou Contra); time em
+  `hidden` + `disabled`); rótulos, ícones e ordem dos campos vêm do catálogo (no gol: time,
+  "Tipo do gol" — Jogada, Pênalti ou Contra —, jogador e assistência; o tipo vem antes do
+  jogador porque, no gol contra, o autor é do adversário); time em
   rádios com os dois times (opcional ganha "Nenhum"); jogador com `<datalist>` da
   escalação (gol contra → elenco adversário, com a dica "Gol contra: jogador do adversário
   (Náutico).", ou "…do adversário do time beneficiado." sem time escolhido); gol anulado lista os gols válidos e, com o
   gol escolhido, esconde o time (herdado); minuto conforme `minute_mode`, pré-preenchido
   com a sugestão do relógio (atualiza a cada segundo até o operador mexer), com a dica ligada ao
   campo (`aria-describedby`; `minuteHint`): no obrigatório, "Sugerido pelo relógio do jogo.
-  Acréscimo só no fim de cada tempo."; no opcional, acompanhando o que está nele: "Sugerido pelo relógio; apague para
-  usar o minuto padrão do lance.", "Apague para…" quando o operador digitou e "Em branco, vale
-  o minuto padrão do lance." vazio. A chave "Informações parciais" diz o efeito antes de ligar
+  Acréscimo só no fim de cada tempo."; no opcional, a dica depende do tipo e acompanha o que
+  está no campo. Lance de jogo (o gol, por exemplo), que em branco fica sem minuto no site:
+  "Sugerido pelo relógio; em branco, o lance fica sem minuto no site." com o minuto do relógio e
+  "Em branco, o lance fica sem minuto." digitado ou vazio. Lance do andamento, que em branco usa
+  o minuto padrão (`naturalMinute`: 0', 45', 90', 105' ou 120'): "Sugerido pelo relógio; apague
+  para usar o minuto padrão do lance (90').", "Apague para…" quando o operador digitou e "Em
+  branco, vale o minuto padrão do lance (90')." vazio (sem o número quando não dá para saber
+  qual é). A chave "Informações parciais" diz o efeito antes de ligar
   ("No site, o jogo aparece sem minuto.", também em `aria-describedby`). **Todo
   estrutural pede confirmação** no envio (`#confirm-dialog` com o placar: "Iniciar a
   partida?", "Encerrar o 1º tempo?", "Iniciar o 2º tempo?", "Iniciar a prorrogação?", "Ir
@@ -562,3 +578,5 @@ document.addEventListener('visibilitychange', () => document.hidden || clock.che
   320–1024 px; logo 10:1 sem empurrar o cabeçalho), as páginas de erro (404/403 com a
   marca em PT-BR, 500 sem contexto), o preload da fonte dos títulos, os últimos gols
   visíveis com esqueleto e focáveis e o nome da marca no admin e no `alt` do logo.
+  `open_page(..., touch=True)` cria o contexto com `has_touch`, o que faz `(pointer: coarse)`
+  valer no Chromium (as áreas de toque de tablet).

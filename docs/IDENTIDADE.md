@@ -94,10 +94,13 @@ Mantém a leitura do wireframe — faixa de meta, placar central com escudos,
 linha do tempo de dois lados, escalações, ficha — com ganhos de UX:
 
 1. **Faixa de meta**: pílula de status com texto e cor (AO VIVO pulsando em
-   vermelho; INTERVALO em amarelo; ENCERRADO em tinta; horário para agendado;
-   ADIADO/SUSPENSO/CANCELADO com hachura), minuto ao vivo calculado no cliente
-   ("2T · 72'", "45+2'"), data relativa ("Hoje · 16:30", "Amanhã"), estádio e
-   cidade com ícones. Em telas pequenas quebra em duas linhas sem perder o status.
+   vermelho; INTERVALO em amarelo; ENCERRADO tonal, discreto; horário para agendado;
+   ATRASADO/ADIADO com contorno laranja e SUSPENSO/CANCELADO com contorno cinza, sem
+   hachura), minuto ao vivo calculado no cliente ("2T · 72'", "45+2'"), data relativa
+   ("Hoje · 16:30", "Amanhã"), estádio e cidade com ícones. Em telas pequenas quebra em
+   duas linhas sem perder o status; no card estreito, o "onde" fica numa linha com o
+   estádio em primeiro: a cidade perde a UF e encolhe antes dele (nome inteiro no
+   `title` e na Ficha).
 2. **Placar**: faixas laterais com a cor de cada time; nome completo no desktop e
    sigla no celular (o nome quebra só entre palavras, em no máximo duas linhas
    equilibradas; a sigla nunca quebra); placar grande tabular; vencedor em destaque e perdedor
@@ -108,7 +111,7 @@ linha do tempo de dois lados, escalações, ficha — com ganhos de UX:
 4. **Detalhe em acordeão** (`<details>`, fechado por padrão) com abas só quando há
    dado: **Lances** (linha do tempo de dois lados com trilho central, todos os
    tipos com ícone, separadores de período, gol anulado riscado com motivo),
-   **Escalações** (esquema, titulares, reservas, técnico) e **Ficha** (arbitragem,
+   **Escalações** (esquema, titulares, reservas, técnico) e **Ficha** (local, arbitragem,
    público e renda, transmissões com link externo, estatísticas em barras).
 5. **Ao vivo**: quando chega gol pelo stream, o placar pisca e o lance novo
    ganha destaque por alguns segundos (respeita `prefers-reduced-motion`).
@@ -129,7 +132,7 @@ linha do tempo de dois lados, escalações, ficha — com ganhos de UX:
 * Operador: funcional e denso, mesma identidade: login → escolha da partida →
   painel com placar, botões dos lances disponíveis (gol primeiro) e, à parte, o
   "Andamento do jogo" (início, fim de tempo, pênaltis, fim — com outra cara e sempre
-  com confirmação), formulário do lance, linha do tempo com "cancelar lançamento" e
+  com confirmação), formulário do lance, linha do tempo com "Desfazer" e
   ações de status com `<dialog>` de confirmação.
 * Páginas de erro (404/500) com a mesma identidade: faixa do frevo, estado vazio do
   sertão, texto em PT-BR e o caminho de volta para os jogos de hoje.

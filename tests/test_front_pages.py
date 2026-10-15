@@ -6,6 +6,7 @@ times, logo largo, ordem dos botões do operador). Sem banco, exceto o login do 
 
 import copy
 import json
+import math
 import os
 import re
 import shutil
@@ -1599,32 +1600,25 @@ def test_logo_horizontal_largo_nao_empurra_o_cabecalho(open_page, width):
     assert not errors, errors
 
 
-STANDINGS_IMAGE_JS = """async () => {
-  const texts = [];
+SHARE_STUB_JS = """() => {
+  window.__texts = [];
   const fillText = CanvasRenderingContext2D.prototype.fillText;
-  CanvasRenderingContext2D.prototype.fillText = function (text, ...rest) { texts.push(String(text)); return fillText.call(this, text, ...rest); };
+  CanvasRenderingContext2D.prototype.fillText = function (text, ...rest) { window.__texts.push([String(text), this.font]); return fillText.call(this, text, ...rest); };
+  window.__shared = null;
+  navigator.canShare = (data) => !!data?.files?.length;
+  navigator.share = async (data) => { window.__shared = data; };
+}"""
+
+CARD_INFO_JS = """() => {
   const card = document.querySelector('.standings__group');
-  const button = card.querySelector('.standings__share');
   const box = (el) => el.getBoundingClientRect().toJSON();
-  const place = { button: box(button), card: box(card), caption: box(card.querySelector('caption')) };
-  button.click();
-  let img = null;
-  for (let i = 0; i < 100; i++) {
-    img = document.querySelector('[data-hook="standings-image"] .share-image__preview');
-    if (img && !img.hidden && img.complete && img.naturalWidth) break;
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  CanvasRenderingContext2D.prototype.fillText = fillText;
   const section = card.closest('[data-competition-id]') || document;
-  const first = card.querySelector('tbody tr');
   let block = card; // home: o bloco da fase tem o nome dela; competição: o seletor de fase
   while (block && !block.querySelector('[data-hook="stage-name"]')) block = block.parentElement;
+  const first = card.querySelector('tbody tr');
   return {
-    texts, place,
-    label: button.getAttribute('aria-label'),
-    open: document.querySelector('[data-hook="standings-image"]').open,
-    size: [img.naturalWidth, img.naturalHeight],
-    download: document.querySelector('[data-hook="standings-image-download"]').getAttribute('download'),
+    place: { button: box(card.querySelector('.standings__share')), card: box(card) },
+    label: card.querySelector('.standings__share').getAttribute('aria-label'),
     competition: section.querySelector('[data-hook="competition-name"]').textContent.trim(),
     stage: (block?.querySelector('[data-hook="stage-name"]') || document.querySelector('#stage-select')?.selectedOptions[0])?.textContent.trim(),
     group: card.querySelector('caption').firstChild.textContent.trim(),
@@ -1632,42 +1626,99 @@ STANDINGS_IMAGE_JS = """async () => {
     zones: [...card.querySelectorAll('.legend__item span:first-of-type')].map((e) => e.textContent),
     first: { points: first.querySelector('.col-pts').textContent, played: first.querySelector('.col-j').textContent },
     tied: card.querySelectorAll('td .tied-mark').length,
+    playing: card.querySelectorAll('tbody .live-dot').length,
   };
 }"""
+
+SHARED_JS = """async () => {
+  const data = window.__shared;
+  const file = data.files[0];
+  const img = new Image();
+  img.src = URL.createObjectURL(file);
+  await img.decode();
+  return { keys: Object.keys(data), name: file.name, type: file.type, size: [img.naturalWidth, img.naturalHeight], texts: window.__texts,
+    dialog: !!document.querySelector('[data-hook="standings-image"][open]') };
+}"""
+
+SHARE_BUTTON = ".standings__group .standings__share"
 
 
 @pytest.mark.parametrize("url,width", [("/", 390), ("/competition.html?slug=copa-pernambuco&stage=6", 1280)])
 def test_classificacao_compartilhar_imagem(open_page, url, width):
-    """Botão de ícone no canto do card de cada grupo; gera a imagem (1080 px de largura) com o título da
-    competição, a fase e o grupo, a tabela completa (#, Time, P, J, V, E, D, GP, GC, SG, %), as legendas e
-    a fonte, e abre a prévia com "Baixar imagem"."""
+    """Botão de ícone no canto do card de cada grupo; o toque abre direto o menu de compartilhar do sistema
+    com o arquivo (sem prévia nem salvar antes). A imagem traz o título da competição, a fase e o grupo, a
+    tabela completa (#, Time, P, J, V, E, D, GP, GC, SG, %), "JOGANDO AGORA" em quem está em jogo, as
+    legendas e a fonte, com os nomes no tamanho cheio (a imagem alarga para caber)."""
     page, _, errors = open_page(url, width=width)
-    page.wait_for_selector(".standings__group .standings__share")
-    out = page.evaluate(STANDINGS_IMAGE_JS)
-    place, texts = out["place"], out["texts"]
-    # no canto superior direito do card, sem cobrir o nome do grupo
+    page.wait_for_selector(SHARE_BUTTON)
+    page.evaluate(SHARE_STUB_JS)
+    out = page.evaluate(CARD_INFO_JS)
+    place = out["place"]
+    # no canto superior direito do card
     assert place["button"]["right"] <= place["card"]["right"] and place["button"]["top"] >= place["card"]["top"], place
     assert place["button"]["top"] - place["card"]["top"] <= 12 and place["card"]["right"] - place["button"]["right"] <= 12, place
     assert out["label"].startswith("Compartilhar imagem da classificação"), out["label"]
-    assert out["open"] and out["size"][0] == 1080 and out["size"][1] >= 900, out["size"]
-    assert out["download"].startswith("classificacao-") and out["download"].endswith(".png"), out["download"]
 
-    joined = " ".join(texts)
-    assert out["competition"] in joined, (out["competition"], texts[:8])
+    page.locator(SHARE_BUTTON).first.click()
+    page.wait_for_function("window.__shared")
+    shared = page.evaluate(SHARED_JS)
+    assert shared["keys"] == ["files"] and not shared["dialog"], shared["keys"]  # só o arquivo, direto
+    assert shared["type"] == "image/png" and shared["name"].startswith("classificacao-") and shared["name"].endswith(".png"), shared["name"]
+    assert shared["size"][0] >= 1080 and shared["size"][1] >= 900, shared["size"]
+
+    texts = [text for text, _ in shared["texts"]]
+    fonts = {text: font for text, font in shared["texts"]}
+    assert out["competition"] in " ".join(texts), (out["competition"], texts[:8])
     group = "" if out["group"] == "Classificação" else out["group"]  # grupo único: só a fase
     assert " · ".join(filter(None, [out["stage"], group])).upper() in texts, (out["stage"], group, texts[:6])
     for label in ["#", "TIME", "P", "J", "V", "E", "D", "GP", "GC", "SG", "%"]:
         assert label in texts, label
-    for team in out["teams"]:
-        assert team in texts, team
+    for team in out["teams"]:  # inteiro e no tamanho cheio
+        assert team in texts and "28px" in fonts[team], (team, fonts.get(team))
+    if url == "/":
+        assert out["playing"], "a home do fixture tem time em jogo"
+    assert texts.count("JOGANDO AGORA") == out["playing"], (texts.count("JOGANDO AGORA"), out["playing"])
     for zone in out["zones"]:
         assert zone in texts, zone
     for legend in [" Pontos", " Jogos", " Vitórias", " Empates", " Derrotas", " Gols pró", " Gols contra", " Saldo de gols", " Aproveitamento"]:
         assert legend in texts, legend
     points, played = int(out["first"]["points"].rstrip("*")), int(out["first"]["played"])
-    assert str(round(points / (played * 3) * 100) if played else 0) in texts, out["first"]
+    pct = math.floor(points / (played * 3) * 1000 + 0.5) / 10 if played else 0
+    assert f"{pct:.1f}".replace(".", ",") in texts, (out["first"], pct)  # uma casa: "86,7"
     if out["tied"]:  # empatados em todos os critérios: "=" e a nota, como na página
         assert texts.count("=") == out["tied"] and "= Empatados em todos os critérios de desempate" in texts, texts
     assert ["Fonte: ", "Futebol de Raízes", " · futebolderaizes.com"] == texts[-4:-1], texts[-4:]
     assert texts[-1].startswith("Atualizada em "), texts[-1]
+    assert not errors, errors
+
+
+def test_classificacao_compartilhar_toque_vencido_pede_mais_um(open_page):
+    """Se o navegador não abre o menu (o toque "venceu" enquanto a imagem era feita), um diálogo pede mais um
+    toque, que compartilha o arquivo já pronto."""
+    page, _, errors = open_page("/competition.html?slug=copa-pernambuco&stage=6", width=1280)
+    page.wait_for_selector(SHARE_BUTTON)
+    page.evaluate(SHARE_STUB_JS)
+    # o navegador recusa o primeiro menu como recusa um toque vencido
+    page.evaluate("""() => { const share = navigator.share; let first = true;
+      navigator.share = async (data) => { if (first) { first = false; throw new DOMException('toque vencido', 'NotAllowedError'); } return share(data); }; }""")
+    page.locator(SHARE_BUTTON).first.click()
+    page.wait_for_selector('[data-hook="standings-image"][open]')
+    assert page.evaluate("window.__shared") is None
+    page.click('[data-hook="standings-image-share"]')
+    page.wait_for_function("window.__shared")
+    assert page.evaluate("window.__shared.files[0].name").startswith("classificacao-")
+    assert not page.evaluate("""!!document.querySelector('[data-hook="standings-image"][open]')""")
+    assert not errors, errors
+
+
+def test_classificacao_compartilhar_sem_menu_baixa_a_imagem(open_page):
+    """Navegador sem compartilhamento de arquivo (desktop): a imagem é baixada, com aviso."""
+    page, _, errors = open_page("/", width=1280)
+    page.wait_for_selector(SHARE_BUTTON)
+    page.evaluate("() => { navigator.share = undefined; navigator.canShare = undefined; }")
+    with page.expect_download() as info:
+        page.locator(SHARE_BUTTON).first.click()
+    name = info.value.suggested_filename
+    assert name.startswith("classificacao-") and name.endswith(".png"), name
+    page.wait_for_selector("text=Imagem da classificação baixada.")
     assert not errors, errors

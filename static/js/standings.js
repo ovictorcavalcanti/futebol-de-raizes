@@ -136,14 +136,25 @@ function shareButton(standings, group, adjustments) {
   const context = shareContext?.(standings);
   if (!context) return null;
   const label = group.name && group.name !== 'Tabela' ? ` (${group.name})` : '';
+  // a imagem começa no toque (pointerdown), antes do clique: o menu de compartilhar só abre logo depois do
+  // toque. Fica pronta para os toques seguintes (o botão é refeito quando a tabela muda).
+  let pending = null;
+  const prepare = () => {
+    pending ??= import('./standings-image.js')
+      .then((m) => m.standingsImageFile({ standings, group, adjustments, context }))
+      .catch((err) => { pending = null; throw err; });
+    return pending;
+  };
   return h('button', {
     type: 'button',
     class: 'btn btn--primary btn--icon btn--sm standings__share',
     'aria-label': `Compartilhar imagem da classificação${label}`,
     title: 'Compartilhar imagem da classificação',
+    onpointerdown: () => { prepare().catch(() => {}); },
     onclick: async () => {
-      const { openStandingsImage } = await import('./standings-image.js');
-      openStandingsImage({ standings, group, adjustments, context });
+      const file = prepare();
+      const { shareStandingsImage } = await import('./standings-image.js');
+      shareStandingsImage(file);
     },
   }, icon('share'));
 }

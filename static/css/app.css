@@ -1279,9 +1279,6 @@
   /* imagem da classificação (standings-image.js): botão de ícone no canto do card do grupo, como o do jogo */
   .standings__share { position: absolute; top: 6px; right: 8px; z-index: 1; }
   .standings__group--shareable .table caption { padding-right: 52px; }
-  .share-image { width: min(560px, calc(100vw - 32px)); }
-  .share-image__preview { display: block; width: 100%; height: auto; max-height: 62dvh; object-fit: contain; border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--paper); }
-  .share-image__status { margin: 0; }
   .table-scroll { overflow-x: auto; }
   .table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.875rem; }
   .table caption {

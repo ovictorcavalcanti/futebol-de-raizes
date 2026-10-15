@@ -29,12 +29,14 @@ test('imagem: colunas #, Time, P, J, V, E, D, GP, GC, SG e %', () => {
   assert.equal(IMAGE_COLUMNS.at(-1).title, 'Aproveitamento');
 });
 
-test('aproveitamento: pontos ganhos em campo sobre os disputados, sem a punição', () => {
-  assert.equal(performance({ points: 7, played: 3 }, { win: 3 }), 78);
-  assert.equal(performance({ points: 4, played: 3, points_adjustment: -3 }, { win: 3 }), 78);
+test('aproveitamento com uma casa: pontos ganhos em campo sobre os disputados, sem a punição', () => {
+  assert.equal(performance({ points: 7, played: 3 }, { win: 3 }), 77.8);
+  assert.equal(performance({ points: 4, played: 3, points_adjustment: -3 }, { win: 3 }), 77.8);
   assert.equal(performance({ points: 0, played: 0 }, { win: 3 }), 0);
   assert.equal(performance({ points: 4, played: 2 }, { win: 2 }), 100);
-  assert.equal(cellText({ points: 7, played: 3 }, 'performance', { win: 3 }), '78');
+  assert.equal(cellText({ points: 7, played: 3 }, 'performance', { win: 3 }), '77,8');
+  assert.equal(cellText({ points: 9, played: 3 }, 'performance', { win: 3 }), '100,0');
+  assert.equal(cellText({ points: 0, played: 3 }, 'performance', { win: 3 }), '0,0');
   assert.equal(cellText({ goal_difference: 3 }, 'goal_difference'), '+3');
   assert.equal(cellText({ goal_difference: -2 }, 'goal_difference'), '-2');
 });

@@ -1,13 +1,13 @@
 /**
  * Imagem da classificação para compartilhar (WhatsApp, Instagram): um <canvas> na identidade do
  * Futebol de Raízes com a tabela completa de um grupo (#, Time, P, J, V, E, D, GP, GC, SG, %), o
- * título da competição, a fase e o grupo, as legendas e a fonte. Abre num diálogo com a prévia,
- * "Compartilhar" (o menu do sistema, com WhatsApp e Instagram, quando o navegador aceita arquivo)
- * e "Baixar imagem".
+ * título da competição, a fase e o grupo, as legendas e a fonte. O toque no botão abre direto o
+ * menu de compartilhar do sistema (WhatsApp, Instagram…) com o arquivo; sem esse menu (desktop sem
+ * compartilhamento de arquivo), a imagem é baixada.
  *
  * Só desenho: ordem, zonas, cores e punições chegam prontas do back (como em standings.js).
  */
-import { h } from './render.js';
+import { h, showToast } from './render.js';
 import { icon } from './icons.js';
 import { SHIELD, contrastInk } from './crest.js';
 import { COLUMNS, adjustmentNote, rangeLabel } from './standings.js';
@@ -19,13 +19,15 @@ const HEX = /^#[0-9a-f]{6}$/i;
 
 /** Colunas da imagem: as da tabela da página e o aproveitamento. */
 export const IMAGE_COLUMNS = [...COLUMNS, { key: 'performance', label: '%', title: 'Aproveitamento' }];
-const COLUMN_WIDTH = { points: 64, played: 52, won: 52, drawn: 52, lost: 52, goals_for: 56, goals_against: 56, goal_difference: 64, performance: 72 };
+const COLUMN_WIDTH = { points: 72, played: 52, won: 52, drawn: 52, lost: 52, goals_for: 56, goals_against: 56, goal_difference: 64, performance: 88 };
+const PLAYING = 'JOGANDO AGORA';
 
 // cores e fontes da identidade (docs/IDENTIDADE.md), tema claro
 const C = {
   paper: '#FBF6EC', surface: '#FFFFFF', surface2: '#F3EBDB', zebra: '#FCF9F2',
   ink: '#1B1712', ink2: '#4B443A', ink3: '#6F675A', line: '#E5DAC5',
   azul: '#12306B', vermelho: '#C8102E', amarelo: '#F2B705', verde: '#0E8A4A',
+  pts: 'rgba(243, 235, 219, 0.6)', // coluna de pontos: --surface-2 a 60%, como na página
 };
 const FONT = {
   title: '"Alfa Slab One", Georgia, serif',
@@ -33,28 +35,35 @@ const FONT = {
   ui: 'Barlow, "Segoe UI", system-ui, sans-serif',
 };
 
-// medidas (px da imagem): 1080 de largura; a altura acompanha o número de times e tenta caber em 4:5
-const W = 1080;
+// medidas (px da imagem): pelo menos 1080 de largura, e mais larga quando o nome mais longo com o
+// "JOGANDO AGORA" pede (tudo no tamanho cheio); a altura acompanha o número de times e tenta caber em 4:5
+const MIN_W = 1080;
+const MAX_W = 1600;
 const PAD = 56;
 const CARD_X = 40;
-const CARD_W = W - 2 * CARD_X;
+const POS_W = 80; // da borda do card ao escudo
+const NAME_X = POS_W + 36 + 14; // escudo e respiro
+const NUMS_W = Object.values(COLUMN_WIDTH).reduce((a, b) => a + b, 0);
+const NAME_GAP = 24; // do nome (ou da etiqueta) à coluna de pontos
 const STRIPE = 12;
 const THEAD = 56;
 const FOOT_H = 124;
 const TARGET_H = 1350;
 
-/** Aproveitamento (%): pontos ganhos em campo (sem punição nem bonificação) sobre os disputados. */
+/** Aproveitamento (%), com uma casa: pontos ganhos em campo (sem punição nem bonificação) sobre os disputados. */
 export function performance(row, points) {
   const played = Number(row?.played) || 0;
   if (!played) return 0;
   const win = Number(points?.win) || 3;
   const earned = (Number(row.points) || 0) - (Number(row.points_adjustment) || 0);
-  return Math.max(0, Math.min(100, Math.round((earned / (played * win)) * 100)));
+  return Math.max(0, Math.min(100, Math.round((earned / (played * win)) * 1000) / 10));
 }
 
-/** Texto de uma célula numérica: saldo com sinal, como na tabela da página. */
+const PERCENT = new Intl.NumberFormat(LOCALE, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+/** Texto de uma célula numérica: saldo com sinal, como na tabela da página; aproveitamento "77,8". */
 export function cellText(row, key, points) {
-  if (key === 'performance') return String(performance(row, points));
+  if (key === 'performance') return PERCENT.format(performance(row, points));
   const n = Number(row?.[key]) || 0;
   return key === 'goal_difference' && n > 0 ? `+${n}` : String(n);
 }
@@ -223,6 +232,15 @@ export async function drawStandingsImage({ standings, group, adjustments = [], c
 
   const canvas = document.createElement('canvas');
   let ctx = canvas.getContext('2d');
+  const teamName = (row) => row.team?.name || row.team?.short_name || '';
+  setFont(ctx, 700, 22, FONT.num);
+  setSpacing(ctx, 1.5);
+  const tagW = Math.ceil(ctx.measureText(PLAYING).width) + 20;
+  setSpacing(ctx, 0);
+  setFont(ctx, 600, 28, FONT.ui);
+  const nameArea = Math.max(0, ...rows.map((r) => ctx.measureText(teamName(r)).width + (r.playing ? 14 + tagW : 0)));
+  const W = Math.min(MAX_W, Math.max(MIN_W, Math.ceil(2 * CARD_X + NAME_X + nameArea + NAME_GAP + NUMS_W + 16)));
+  const CARD_W = W - 2 * CARD_X;
   const inner = W - 2 * PAD;
 
   // --- medidas
@@ -329,9 +347,10 @@ export async function drawStandingsImage({ standings, group, adjustments = [], c
     return { ...col, center: right + COLUMN_WIDTH[col.key] / 2 };
   }).reverse();
   const posX = CARD_X + 44;
-  const teamX = CARD_X + 80;
-  const nameX = teamX + 36 + 14;
-  const nameMax = right - 12 - nameX;
+  const teamX = CARD_X + POS_W;
+  const nameX = CARD_X + NAME_X;
+  const nameMax = right - NAME_GAP - nameX;
+  const ptsCol = cols.find((col) => col.key === 'points');
 
   ctx.save();
   roundRect(ctx, CARD_X, top, CARD_W, cardH, 20);
@@ -343,7 +362,11 @@ export async function drawStandingsImage({ standings, group, adjustments = [], c
   ctx.fillStyle = C.ink3;
   ctx.textAlign = 'center';
   ctx.fillText('#', posX, top + THEAD / 2);
-  cols.forEach((col) => ctx.fillText(col.label, col.center, top + THEAD / 2));
+  cols.forEach((col) => {
+    ctx.fillStyle = col.key === 'points' ? C.ink : C.ink3;
+    ctx.fillText(col.label, col.center, top + THEAD / 2);
+  });
+  ctx.fillStyle = C.ink3;
   ctx.textAlign = 'left';
   ctx.fillText('TIME', teamX, top + THEAD / 2);
   setSpacing(ctx, 0);
@@ -355,6 +378,8 @@ export async function drawStandingsImage({ standings, group, adjustments = [], c
       ctx.fillStyle = C.zebra;
       ctx.fillRect(CARD_X, ry, CARD_W, rowH);
     }
+    ctx.fillStyle = C.pts;
+    ctx.fillRect(ptsCol.center - COLUMN_WIDTH.points / 2, ry, COLUMN_WIDTH.points, rowH);
     ctx.fillStyle = C.line;
     ctx.fillRect(CARD_X, ry, CARD_W, i ? 1.5 : 2);
     const zone = row.zone && HEX.test(row.zone.color || '') ? row.zone.color : null;
@@ -379,12 +404,27 @@ export async function drawStandingsImage({ standings, group, adjustments = [], c
 
     const crest = Math.min(40, rowH - 14);
     drawCrest(ctx, row.team, crests[i], teamX, cy - crest / 2, crest);
-    const name = row.team?.name || row.team?.short_name || '';
+    // nome no tamanho cheio (a imagem alarga para caber); só encolhe além da largura máxima
+    const room = nameMax - (row.playing ? 14 + tagW : 0);
     let size = 28;
     setFont(ctx, 600, size, FONT.ui);
-    while (size > 22 && ctx.measureText(name).width > nameMax) setFont(ctx, 600, (size -= 1), FONT.ui);
+    while (size > 22 && ctx.measureText(teamName(row)).width > room) setFont(ctx, 600, (size -= 1), FONT.ui);
+    const name = fitText(ctx, teamName(row), room);
     ctx.fillStyle = C.ink;
-    ctx.fillText(fitText(ctx, name, nameMax), nameX, cy);
+    ctx.fillText(name, nameX, cy);
+    if (row.playing) {
+      // em jogo agora: etiqueta de fundo vermelho, cantos retos
+      const tx = nameX + ctx.measureText(name).width + 14;
+      ctx.fillStyle = C.vermelho;
+      ctx.fillRect(tx, cy - 16, tagW, 32);
+      setFont(ctx, 700, 22, FONT.num);
+      setSpacing(ctx, 1.5);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.textAlign = 'center';
+      ctx.fillText(PLAYING, tx + tagW / 2 + 0.75, cy + 1);
+      ctx.textAlign = 'left';
+      setSpacing(ctx, 0);
+    }
 
     ctx.textAlign = 'center';
     for (const col of cols) {
@@ -443,9 +483,15 @@ export async function drawStandingsImage({ standings, group, adjustments = [], c
   return canvas;
 }
 
-/* ---------------------------------------------------------------- diálogo */
+/* ---------------------------------------------------------------- compartilhar */
 
-let dialog = null;
+/** PNG da imagem de um grupo (o nome do arquivo leva a competição, a fase e o grupo). */
+export async function standingsImageFile(args) {
+  const canvas = await drawStandingsImage(args);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+  if (!blob) throw new Error('imagem vazia');
+  return new File([blob], imageFileName(imageHeading(args.standings, args.group, args.context)), { type: 'image/png' });
+}
 
 function canShareFile(file) {
   try {
@@ -455,74 +501,62 @@ function canShareFile(file) {
   }
 }
 
-function shareDialog() {
-  if (dialog) return dialog;
-  const status = h('p', { class: 'share-image__status', role: 'status' });
-  const preview = h('img', { class: 'share-image__preview', alt: '', hidden: true });
-  const download = h('a', { class: 'btn btn--secondary', 'data-hook': 'standings-image-download', hidden: true, text: 'Baixar imagem' });
-  const share = h('button', { type: 'button', class: 'btn btn--primary', 'data-hook': 'standings-image-share', hidden: true }, icon('share'), 'Compartilhar');
-  const el = h('dialog', { class: 'dialog share-image', 'aria-labelledby': 'standings-image-title', 'data-hook': 'standings-image' },
-    h('form', { method: 'dialog', class: 'dialog__form' },
-      h('div', { class: 'dialog__head' }, h('h2', { id: 'standings-image-title', class: 'dialog__title', text: 'Compartilhar classificação' })),
-      h('div', { class: 'dialog__body' }, status, preview),
-      h('div', { class: 'dialog__foot' },
-        h('button', { type: 'submit', value: 'close', class: 'btn btn--ghost', text: 'Fechar' }),
-        download, share)));
-  document.body.append(el);
-  dialog = { el, status, preview, download, share, token: 0, url: null, file: null, text: '' };
-  share.addEventListener('click', async () => {
-    try {
-      await navigator.share({ files: [dialog.file], text: dialog.text });
-    } catch (err) {
-      if (err?.name !== 'AbortError') {
-        dialog.status.textContent = 'Não deu para abrir o compartilhamento. Baixe a imagem e envie pelo app.';
-        dialog.status.hidden = false;
-      }
-    }
-  });
-  el.addEventListener('close', () => {
-    dialog.token += 1; // imagem ainda sendo gerada não aparece depois de fechar
-    if (dialog.url) URL.revokeObjectURL(dialog.url);
-    dialog.url = null;
-    dialog.file = null;
-    preview.removeAttribute('src');
-  });
-  return dialog;
+// só o arquivo: com texto junto, alguns apps (Instagram; WhatsApp no iPhone) somem do menu ou recebem só o texto
+const shareFile = (file) => navigator.share({ files: [file] });
+
+function download(file) {
+  const url = URL.createObjectURL(file);
+  const link = h('a', { href: url, download: file.name, hidden: true });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  showToast('Imagem da classificação baixada.', { kind: 'ok' });
+}
+
+let confirmBox = null;
+
+/** O navegador só abre o menu de compartilhar logo depois de um toque: se a imagem demorou e o toque
+ *  venceu, um diálogo pede mais um. */
+function askToShare(file) {
+  if (!confirmBox) {
+    const share = h('button', { type: 'button', class: 'btn btn--primary', 'data-hook': 'standings-image-share' }, icon('share'), 'Compartilhar');
+    const el = h('dialog', { class: 'dialog', 'aria-labelledby': 'standings-image-title', 'data-hook': 'standings-image' },
+      h('form', { method: 'dialog', class: 'dialog__form' },
+        h('div', { class: 'dialog__head' }, h('h2', { id: 'standings-image-title', class: 'dialog__title', text: 'Imagem pronta' })),
+        h('div', { class: 'dialog__body' }, h('p', { text: 'Toque em Compartilhar para enviar no WhatsApp, no Instagram ou em outro app.' })),
+        h('div', { class: 'dialog__foot' }, h('button', { type: 'submit', value: 'close', class: 'btn btn--ghost', text: 'Fechar' }), share)));
+    document.body.append(el);
+    confirmBox = { el, file: null };
+    share.addEventListener('click', () => {
+      const pending = confirmBox.file;
+      shareFile(pending).catch((err) => { if (err?.name !== 'AbortError') download(pending); });
+      el.close();
+    });
+  }
+  confirmBox.file = file;
+  if (!confirmBox.el.open) confirmBox.el.showModal();
 }
 
 /**
- * Abre o diálogo e gera a imagem de um grupo da classificação.
- * @param {{standings: object, group: object, adjustments?: object[], context?: {competition?: string, season?: string}}} args
+ * Compartilha a imagem (a promessa do arquivo, começada no toque): abre direto o menu do sistema
+ * (WhatsApp, Instagram…), sem salvar antes; sem compartilhamento de arquivo no navegador, baixa a imagem.
+ * @param {Promise<File>} pendingFile
  */
-export async function openStandingsImage(args) {
-  const d = shareDialog();
-  const token = ++d.token;
-  const heading = imageHeading(args.standings, args.group, args.context);
-  d.status.textContent = 'Gerando a imagem…';
-  d.status.hidden = false;
-  d.preview.hidden = true;
-  d.download.hidden = true;
-  d.share.hidden = true;
-  if (!d.el.open) d.el.showModal();
+export async function shareStandingsImage(pendingFile) {
+  let file;
   try {
-    const canvas = await drawStandingsImage(args);
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
-    if (!blob) throw new Error('imagem vazia');
-    if (token !== d.token) return;
-    const name = imageFileName(heading);
-    if (d.url) URL.revokeObjectURL(d.url);
-    d.url = URL.createObjectURL(blob);
-    d.file = new File([blob], name, { type: 'image/png' });
-    d.text = `${[heading.title, heading.sub].filter(Boolean).join(' · ')}\n${SITE}`;
-    d.preview.src = d.url;
-    d.preview.alt = `Classificação: ${[heading.title, heading.sub].filter(Boolean).join(', ')}`;
-    d.preview.hidden = false;
-    d.download.href = d.url;
-    d.download.download = name;
-    d.download.hidden = false;
-    d.share.hidden = !canShareFile(d.file);
-    d.status.hidden = true;
+    file = await pendingFile;
   } catch {
-    if (token === d.token) d.status.textContent = 'Não deu para gerar a imagem agora. Tente de novo.';
+    showToast('Não deu para gerar a imagem agora. Tente de novo.', { kind: 'error' });
+    return;
+  }
+  if (!canShareFile(file)) { download(file); return; }
+  if (navigator.userActivation && !navigator.userActivation.isActive) { askToShare(file); return; }
+  try {
+    await shareFile(file);
+  } catch (err) {
+    if (err?.name === 'NotAllowedError') askToShare(file);
+    else if (err?.name !== 'AbortError') download(file); // desistiu do menu: nada
   }
 }

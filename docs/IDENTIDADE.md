@@ -98,7 +98,8 @@ linha do tempo de dois lados, escalações, ficha — com ganhos de UX:
    ADIADO/SUSPENSO/CANCELADO com hachura), minuto ao vivo calculado no cliente
    ("2T · 72'", "45+2'"), data relativa ("Hoje · 16:30", "Amanhã"), estádio e
    cidade com ícones. No celular, duas linhas centralizadas (o tempo e o horário em cima,
-   estádio e cidade embaixo) e o botão de ícone de compartilhar ("Compartilhar no WhatsApp")
+   estádio e cidade embaixo; ao vivo, três: "AO VIVO" e o tempo numa linha só deles, em cima)
+   e o botão de ícone de compartilhar ("Compartilhar no WhatsApp")
    no canto superior direito do card. No desktop (card a partir de 680 px), uma linha:
    status/tempo | hora à esquerda; estádio e cidade à direita, com o compartilhar no fim.
 2. **Placar**: faixas laterais com a cor de cada time; nome do time como cadastrado, o popular

@@ -258,8 +258,11 @@ async function loadRanking(id) {
 function updateAside() {
   const hasAside = !els.standings.hidden || !els.ties.hidden || !els.rankingStandings.hidden;
   els.grid.classList.toggle('split--no-aside', !hasAside);
-  // mata-mata no celular: o resumo dos confrontos (quem avança) vem antes dos cards
-  els.grid.classList.toggle('split--aside-first', !els.ties.hidden);
+  // empilhado (celular/tablet), o aside vem antes dos cards: no mata-mata, o resumo dos confrontos
+  // (quem avança); na fase de grupos com outra classificação, os botões ficam onde estavam (no
+  // topo, como nas linhas de grupo) e a tabela escolhida aparece logo abaixo deles
+  const rankingOnGroups = state.stage?.format === 'groups' && state.view !== 'stage';
+  els.grid.classList.toggle('split--aside-first', !els.ties.hidden || rankingOnGroups);
   els.aside.hidden = !hasAside;
 }
 

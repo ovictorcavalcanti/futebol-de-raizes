@@ -1448,6 +1448,35 @@ def test_compartilhar_jogo_botao_e_faixa_do_card(open_page, width):
     assert not errors, errors
 
 
+SWITCH_POS_JS = """() => { const s = document.querySelector('#standings-switch').getBoundingClientRect();
+  const rk = document.querySelector('#ranking-standings:not([hidden])')?.getBoundingClientRect();
+  return { top: Math.round(s.top + scrollY), left: Math.round(s.left), bottom: Math.round(s.bottom + scrollY),
+    ranking: rk ? Math.round(rk.top + scrollY) : null }; }"""
+
+
+@pytest.mark.parametrize("width", [390, 768, 1280])
+def test_competicao_classificacao_extra_nao_tira_os_botoes_do_lugar(open_page, width):
+    """Fase de grupos: escolher outra classificação ("Geral") não move os botões; a tabela vem logo abaixo deles."""
+    def prepare(api):
+        api.rankings = [{"id": 5, "name": "Geral", "scope": "overall"}]
+        api.ranking_stage_ids = [6, 7]
+
+    page, _, errors = open_page("/competition.html?slug=copa-pernambuco&stage=6", width=width, prepare=prepare)
+    page.wait_for_selector("#standings-switch button")
+    page.wait_for_timeout(200)
+    before = page.evaluate(SWITCH_POS_JS)
+    page.locator("#standings-switch").get_by_role("button", name="Geral").click()
+    page.wait_for_selector("#ranking-standings table")
+    page.wait_for_timeout(200)
+    after = page.evaluate(SWITCH_POS_JS)
+    assert abs(after["top"] - before["top"]) <= 1 and after["left"] == before["left"], (before, after)
+    assert 0 <= after["ranking"] - after["bottom"] <= 40, after  # a tabela logo abaixo dos botões
+    page.locator("#standings-switch").get_by_role("button", name="Fase de grupos").click()
+    page.wait_for_timeout(200)
+    assert abs(page.evaluate(SWITCH_POS_JS)["top"] - before["top"]) <= 1  # e na volta também
+    assert not errors, errors
+
+
 GOALS_JS = """() => [...document.querySelectorAll('.matches > article.match .match__summary .facts-line')].map((col) => {
   const items = [...col.children].map((li) => li.getBoundingClientRect());
   const box = col.getBoundingClientRect();
